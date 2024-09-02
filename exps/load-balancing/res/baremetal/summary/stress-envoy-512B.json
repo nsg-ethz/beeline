@@ -1,0 +1,141 @@
+{
+    "metrics": {
+        "iteration_duration": {
+            "max": 1243.18904,
+            "p(90)": 121.3828732000001,
+            "p(95)": 187.61556399999995,
+            "avg": 53.54753936904344,
+            "min": 1.647133,
+            "med": 33.800088
+        },
+        "http_req_receiving": {
+            "min": 0.009999,
+            "med": 0.024551,
+            "max": 600.685321,
+            "p(90)": 0.2374436000000002,
+            "p(95)": 28.765832399999987,
+            "avg": 5.057863510007746
+        },
+        "http_req_duration": {
+            "avg": 32.20811788290699,
+            "min": 0.254165,
+            "med": 23.958845,
+            "max": 656.316765,
+            "p(90)": 65.96926520000002,
+            "p(95)": 86.77894999999998
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 32.20811788290699,
+            "min": 0.254165,
+            "med": 23.958845,
+            "max": 656.316765,
+            "p(90)": 65.96926520000002,
+            "p(95)": 86.77894999999998
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 200
+        },
+        "checks": {
+            "passes": 1997487,
+            "fails": 0,
+            "value": 1
+        },
+        "iterations": {
+            "count": 665829,
+            "rate": 2774.2678518143525
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 665829,
+            "value": 0
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_waiting": {
+            "avg": 26.821329665810445,
+            "min": 0.222475,
+            "med": 22.583621,
+            "max": 268.22157,
+            "p(90)": 56.84285120000004,
+            "p(95)": 66.41485599999997
+        },
+        "http_req_sending": {
+            "min": 0.007118,
+            "med": 0.012614,
+            "max": 560.066558,
+            "p(90)": 0.019763,
+            "p(95)": 0.02382979999999993,
+            "avg": 0.32892470708995003
+        },
+        "http_req_blocked": {
+            "avg": 0.011570468914692262,
+            "min": 0.001218,
+            "med": 0.002486,
+            "max": 332.473903,
+            "p(90)": 0.003205,
+            "p(95)": 0.003724
+        },
+        "data_received": {
+            "rate": 1855985.192863802,
+            "count": 445439601
+        },
+        "http_reqs": {
+            "count": 665829,
+            "rate": 2774.2678518143525
+        },
+        "data_sent": {
+            "count": 420803928,
+            "rate": 1753337.282346671
+        },
+        "vus_max": {
+            "max": 200,
+            "value": 200,
+            "min": 200
+        },
+        "http_req_connecting": {
+            "max": 160.854012,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.005442863583592781,
+            "min": 0,
+            "med": 0
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "GET status is 200": {
+                    "passes": 665829,
+                    "fails": 0,
+                    "name": "GET status is 200",
+                    "path": "::GET status is 200",
+                    "id": "9c16d5d8185e1b76ee1184c5ef5f6bb2"
+                },
+                "processed by correct backend": {
+                    "path": "::processed by correct backend",
+                    "id": "f1c7ad86bd39765fcb80179f13de0adf",
+                    "passes": 665829,
+                    "fails": 0,
+                    "name": "processed by correct backend"
+                },
+                "body is the same": {
+                    "id": "5459cb71b3dd69f0e951342c77e8661a",
+                    "passes": 665829,
+                    "fails": 0,
+                    "name": "body is the same",
+                    "path": "::body is the same"
+                }
+            }
+    }
+}

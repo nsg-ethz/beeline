@@ -1,0 +1,3 @@
+[submodule "exps/load-balancing/ebpf/libbpf"]
+	path = exps/load-balancing/ebpf/libbpf
+	url = https://github.com/libbpf/libbpf.git
