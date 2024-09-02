@@ -11,6 +11,7 @@ import pandas as pd
 
 # Apply the default theme
 sns.set_theme(style="whitegrid")
+sns.color_palette("tab10")
 
 def _parse_path(path):
     match = re.search(r"(\w+)-(\d+)B.*", path)
@@ -121,14 +122,20 @@ def line_graph(paths, metric, agg, dst):
     _save_to_path(f"line-{metric}-{agg}.pdf", dst)           
     
 
-def speedup_graph(paths, metric, aggs, dst):
+def speedup_graph(paths, base, metric, aggs, dst):
     df = _load_summary_data(paths)
     ebpf = df.xs("ebpf", level="proxy")
     envoy = df.xs("envoy", level="proxy")
 
+    if base is not None:
+        base = _load_summary_data(glob.glob(base))
+        base = base.xs("none", level="proxy")
+    else:
+        base = pd.DataFrame(0, index=ebpf.index, columns=ebpf.columns)
+
     speedup = ebpf.copy()
     for agg in aggs:
-        speedup[agg] = envoy[agg] / ebpf[agg]
+        speedup[agg] = (envoy[agg] - base[agg]) / (ebpf[agg] - base[agg])
 
     speedup = speedup.xs(metric, level="metric_name")
     speedup = speedup.drop("value", axis=1).reset_index()
@@ -178,8 +185,6 @@ def overhead_graph(paths, base, metric, agg, dst):
     files = glob.glob(base)
     base = _preprocess(_load_summary_data(files))
 
-    # we want the overhead of one request
-    # but our tests pass the lb twice, so we divide by two
     df["ebpf"] = df["ebpf"] - base["none"]
     df["envoy"] = df["envoy"] - base["none"]
 
@@ -205,6 +210,7 @@ if __name__ == "__main__":
     line.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
     speedup = subparsers.add_parser("speedup")
+    speedup.add_argument("-b", "--base", required=False, help="The data that serves as the critical path")
     speedup.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
     speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)", "max"], help="The aggregation funcs")
 
@@ -213,7 +219,7 @@ if __name__ == "__main__":
     duration.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
     overhead = subparsers.add_parser("overhead")
-    overhead.add_argument("-b", "--base", required=True, help="The recorded proxy to visualize")
+    overhead.add_argument("-b", "--base", required=True, help="The data that serves as the critical path")
     overhead.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
     overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
@@ -223,7 +229,7 @@ if __name__ == "__main__":
     if args.command == "line":
         line_graph(files, args.metric, args.agg, args.output)
     elif args.command == "speedup":
-        speedup_graph(files, args.metric, args.agg, args.output)
+        speedup_graph(files, args.base, args.metric, args.agg, args.output)
     elif args.command == "duration":
         duration_graph(files, args.proxy, args.agg, args.output)
     elif args.command == "overhead":

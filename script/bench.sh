@@ -1,8 +1,6 @@
 #!/bin/bash
 
 SIZE_LIST="128 256 512 1024 2048 4096 8192"
-ROOT=$(dirname "$(readlink -f "$0")")
-SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 
 # Parse arguments
 while getopts ":n:p:s:" opt; do
@@ -21,6 +19,9 @@ then
    echo "Error: Some or all of the parameters are empty";
    exit 1
 fi
+
+ROOT=$(dirname "$(readlink -f "$0")")
+SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 
 mkdir -p ${SUMMARY_DIR}
 
