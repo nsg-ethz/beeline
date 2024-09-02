@@ -9,6 +9,13 @@ struct sock_key {
     __u32 backend; // [1, 4] for backend, otherwise 0
 };
 
+struct sock_bind {
+    struct sock_key key;
+    struct sock_key val;
+    int key_fd;
+    int val_fd;
+};
+
 enum http_method {
     HTTP_NONE = 0,
     HTTP_GET = 1,
