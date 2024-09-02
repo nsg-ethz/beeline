@@ -154,12 +154,12 @@ int accept_client_conn(int lfd, int sockmap_fd, struct sock_key* client_key) {
 }
 
 int assign_client_to_backend(int c2b_fd, int b2c_fd, struct sock_key* client_key, struct sock_key* backend_key) {
-    if (bpf_map_update_elem(c2b_fd, &client_key, &backend_key, BPF_NOEXIST) < 0) {
+    if (bpf_map_update_elem(c2b_fd, client_key, backend_key, BPF_NOEXIST) < 0) {
         fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
         return -1;
     }
 
-    if (bpf_map_update_elem(b2c_fd, &backend_key, &client_key, BPF_NOEXIST) < 0) {
+    if (bpf_map_update_elem(b2c_fd, backend_key, client_key, BPF_NOEXIST) < 0) {
         fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
         return -1;
     }
@@ -325,17 +325,17 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    int backend1_conns_fd = bpf_map__fd(SKEL->maps.backend1_conns);
-    for (int i = 0; i < 1000; i++) {
-        struct sock_key key = { 0 };
-        int bd = start_backend_conn(0, backend_addrs, sockmap_fd, &key);
+    // int backend1_conns_fd = bpf_map__fd(SKEL->maps.backend1_conns);
+    // for (int i = 0; i < 1000; i++) {
+    //     struct sock_key key = { 0 };
+    //     int bd = start_backend_conn(0, backend_addrs, sockmap_fd, &key);
 
-        int r = bpf_map_update_elem(backend1_conns_fd, NULL, &key, BPF_ANY);
-        if (r != 0) {
-            fprintf(stderr, "bpf_map_update_elem(backend1_conns) failed: %s\n", strerror(errno));
-            goto cleanup;
-        }
-    }
+    //     int r = bpf_map_update_elem(backend1_conns_fd, NULL, &key, BPF_ANY);
+    //     if (r != 0) {
+    //         fprintf(stderr, "bpf_map_update_elem(backend1_conns) failed: %s\n", strerror(errno));
+    //         goto cleanup;
+    //     }
+    // }
 
 accept:
     if (num_fds == MAX_NUM_CONN) {
@@ -362,8 +362,8 @@ accept:
     num_fds++;
 
 poll:
-    // no polling
-    goto accept;
+    // // no polling
+    // goto accept;
 
     int nfds = poll(fds, num_fds, 0.1);
 
