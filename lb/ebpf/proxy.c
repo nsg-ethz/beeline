@@ -24,6 +24,19 @@
 #include "proxy_struct.h"
 #include "proxy.skel.h"
 
+#define LOG_LEVEL 1
+
+#if LOG_LEVEL == 0
+#define print_log(...) (void)0
+#define print_err(...) (void)0
+#elif LOG_LEVEL == 1
+#define print_log(...) (void)0
+#define print_err(...) fprintf(stderr, __VA_ARGS__)
+#elif LOG_LEVEL == 2
+#define print_log(...) fprintf(stdout, __VA_ARGS__)
+#define print_err(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
 struct proxy_bpf *SKEL;
 int cg_fd;
 int sockmap_fd;
@@ -46,7 +59,7 @@ static void bump_memlock_rlimit(void) {
         .rlim_max = RLIM_INFINITY,
     };
     if (setrlimit(RLIMIT_MEMLOCK, &rlim_mem) < 0) {
-        fprintf(stderr, "Failed to increase RLIMIT_MEMLOCK limit!\n");
+        print_err("Failed to increase RLIMIT_MEMLOCK limit!\n");
         exit(1);
     }
 
@@ -55,7 +68,7 @@ static void bump_memlock_rlimit(void) {
     //     .rlim_max = 8192,
     // };
     // if (setrlimit(RLIMIT_NOFILE, &rlim_file) < 0) {
-    //     fprintf(stderr, "Failed to increase RLIMIT_NOFILE limit!\n");
+    //     print_err("Failed to increase RLIMIT_NOFILE limit!\n");
     //     exit(1);
     // }
 }
@@ -64,7 +77,7 @@ static void bpf_detach(int sig) {
     // printf("Detaching BPF programs...\n");
     // int err = bpf_prog_detach(cg_fd, BPF_CGROUP_SOCK_OPS);
     // if (err) {
-    //     fprintf(stderr, "Failed to detach sockops\n");
+    //     print_err("Failed to detach sockops\n");
     // }
 
     // proxy_bpf__destroy(SKEL);
@@ -99,25 +112,25 @@ int setup_conn(int fd) {
          * gigantic value. */
         int val = 32 * 1024 * 1024;
         if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &val, sizeof(val)) < 0) {
-            PFATAL("setsockopt(SO_SNDBUF)");
+            print_err("setsockopt(SO_SNDBUF)");
         }
 
         if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &val, sizeof(val)) < 0) {
-            PFATAL("setsockopt(SO_RCVBUF)");
+            print_err("setsockopt(SO_RCVBUF)");
         }
     }
 
     int on = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on)) < 0) {
-        PFATAL("setsockopt(SO_KEEPALIVE)");
+        print_err("setsockopt(SO_KEEPALIVE)");
     }
 
     // if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on)) < 0) {
-    //     PFATAL("setsockopt(SO_REUSEADDR)");
+    //     print_err("setsockopt(SO_REUSEADDR)");
     // }
 
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on)) < 0) {
-        PFATAL("setsockopt(TCP_NODELAY)");
+        print_err("setsockopt(TCP_NODELAY)");
     }
 
     return 0;
@@ -127,12 +140,12 @@ int start_backend_conn(int backend, struct sockaddr_storage *backend_addrss, int
     int idx = backend-1;
     int fd = net_connect_tcp_blocking(&backend_addrss[idx], 0);
     if (fd < 0) {
-        fprintf(stderr, "Connect to %s failed\n", net_ntop(&backend_addrss[idx]));
+        print_err("Connect to %s failed\n", net_ntop(&backend_addrss[idx]));
         return -1;
     }
 
     if (setup_conn(fd) < 0) {
-        fprintf(stderr, "Error setting up backend connection\n");
+        print_err("Error setting up backend connection\n");
         return -1;
     }
 
@@ -149,19 +162,19 @@ int accept_client_conn(int lfd, int sockmap_fd, struct sock_key* client_key) {
 
     if (fd < 0) {
         if (errno != EAGAIN) {
-            fprintf(stderr, "Error accepting new connection.");
+            print_err("Error accepting new connection.");
         }
         return fd;
     }
 
     if (setup_conn(fd) < 0) {
-        fprintf(stderr, "Error setting up client connection.");
+        print_err("Error setting up client connection.");
         return -1;
     }
 
     get_sock_key(fd, client_key);
 
-    printf("Accepted new client connection [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+    print_log("Accepted new client connection [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
         (client_key->local_ip4 >> 24) & 0xff, (client_key->local_ip4 >> 16) & 0xff, (client_key->local_ip4 >> 8) & 0xff, client_key->local_ip4 & 0xff, client_key->local_port,
         (client_key->remote_ip4 >> 24) & 0xff, (client_key->remote_ip4 >> 16) & 0xff, (client_key->remote_ip4 >> 8) & 0xff, client_key->remote_ip4 & 0xff, client_key->remote_port);
 
@@ -169,16 +182,16 @@ int accept_client_conn(int lfd, int sockmap_fd, struct sock_key* client_key) {
 }
 
 int add_to_sockmap(int sockmap_fd, int fd, struct sock_key *key) {
-    printf("Adding socket with key: [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+    print_log("Adding socket with key: [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
             (key->local_ip4 >> 24) & 0xff, (key->local_ip4 >> 16) & 0xff, (key->local_ip4 >> 8) & 0xff, key->local_ip4 & 0xff, key->local_port,
             (key->remote_ip4 >> 24) & 0xff, (key->remote_ip4 >> 16) & 0xff, (key->remote_ip4 >> 8) & 0xff, key->remote_ip4 & 0xff, key->remote_port);
     
     if (bpf_map_update_elem(sockmap_fd, key, &fd, BPF_ANY) < 0) {
         if (errno == EOPNOTSUPP) {
-            fprintf(stderr, "pushing closed socket to sockmap?\n");
+            print_err("pushing closed socket to sockmap?\n");
         }
 
-        fprintf(stderr, "bpf_map_update_elem(sock_map) failed: %s\n", strerror(errno));
+        print_err("bpf_map_update_elem(sock_map) failed: %s\n", strerror(errno));
         return -1;
     }
 
@@ -186,7 +199,7 @@ int add_to_sockmap(int sockmap_fd, int fd, struct sock_key *key) {
 }
 
 int assign_client_to_backend(int c2b_fd, int b2c_fd, struct sock_key* client_key, struct sock_key* backend_key) {
-    printf("Assign client connection [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d] to [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+    print_log("Assign client connection [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d] to [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
         (client_key->local_ip4 >> 24) & 0xff, (client_key->local_ip4 >> 16) & 0xff, (client_key->local_ip4 >> 8) & 0xff, client_key->local_ip4 & 0xff, client_key->local_port,
         (client_key->remote_ip4 >> 24) & 0xff, (client_key->remote_ip4 >> 16) & 0xff, (client_key->remote_ip4 >> 8) & 0xff, client_key->remote_ip4 & 0xff, client_key->remote_port,
         (backend_key->local_ip4 >> 24) & 0xff, (backend_key->local_ip4 >> 16) & 0xff, (backend_key->local_ip4 >> 8) & 0xff, backend_key->local_ip4 & 0xff, backend_key->local_port,
@@ -197,13 +210,13 @@ int assign_client_to_backend(int c2b_fd, int b2c_fd, struct sock_key* client_key
     int backend = backend_key->backend;
     backend_key->backend = 0;
     if (bpf_map_update_elem(b2c_fd, backend_key, client_key, BPF_NOEXIST) < 0) {
-        fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
+        print_err("bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
         exit(-1);
     }
     backend_key->backend = backend;
 
     if (bpf_map_update_elem(c2b_fd, client_key, backend_key, BPF_NOEXIST) < 0) {
-        fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
+        print_err("bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
         exit(-1);
     }
 
@@ -265,13 +278,13 @@ const void* parse_http_hdr(const char *hdr, const char *key) {
 void* wait_for_conns(void* arg) {
     int lfd = net_bind_tcp(&addr);
     if (lfd < 0) {
-        fprintf(stderr, "Bind failed\n");
+        print_err("Bind failed\n");
         exit(-1);
     }
 
     while (true) {
         if (num_fds == MAX_NUM_CONN) {
-            printf("No new connections are accepted.\n");
+            print_log("No new connections are accepted.\n");
             usleep(1000);
             continue;
         }
@@ -279,7 +292,7 @@ void* wait_for_conns(void* arg) {
         struct sock_key client_key = { 0 };
         int cd = accept_client_conn(lfd, sockmap_fd, &client_key);
         if (cd < 0) {
-            printf("Error accepting new connections: %s\n", strerror(errno));
+            print_err("Error accepting new connections: %s\n", strerror(errno));
             exit(-1);
         }
 
@@ -325,7 +338,7 @@ void* forward_reqs(void* arg) {
 
         int nfds = poll(fds_, num_fds_, 10);
         if (nfds == -1) {
-            fprintf(stderr, "Error in poll syscall\n");
+            print_err("Error in poll syscall\n");
             exit(-1);
         }
         else if (nfds == 0) {
@@ -357,7 +370,7 @@ void* forward_reqs(void* arg) {
 
                     // EAGAIN means we have to wait for eBPF verdict first
                     if (len < 0 && errno != EAGAIN) {
-                        printf("Error reading socket: %s\n", strerror(errno));
+                        print_err("Error reading socket: %s\n", strerror(errno));
                         close(fds_[i].fd);
                         break;
                     }
@@ -376,7 +389,7 @@ void* forward_reqs(void* arg) {
                 // have a free connection in the pool
                 int backend = parse_backend(buf);
                 if (backend < 1) {
-                    printf("Invalid request: %s\n", buf);
+                    print_err("Invalid request: %s\n", buf);
                     continue;
                 }
 
@@ -388,7 +401,7 @@ void* forward_reqs(void* arg) {
                 for (int i = 1; i < 5; i++) {
                     struct sock_key key = { 0 };
                     int fd = start_backend_conn(i, backend_addrs, sockmap_fd, &key);
-                    printf("Established a new connection to backend %d: %d\n", key.backend, fd);
+                    print_log("Established a new connection to backend %d: %d\n", key.backend, fd);
 
                     if (add_to_sockmap(sockmap_fd, fd, &key) < 0) {
                         exit(-1);
@@ -408,7 +421,7 @@ void* forward_reqs(void* arg) {
                         }
 
                         if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
-                            fprintf(stderr, "bpf_map_update_elem(backend%d_conns) failed: %s\n", i, strerror(errno));
+                            print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", i, strerror(errno));
                             exit(-1);
                         }
                     }
@@ -439,31 +452,31 @@ void* forward_reqs(void* arg) {
                 } while (res_len < req_len);
 
                 // if forwarding was successful, remove POLLIN from events
-                printf("Redirected request of length %ld to backend\n", res_len);
+                print_log("Redirected request of length %ld to backend\n", res_len);
                 fds_new[num_fds_new-1].events = POLLRDHUP|POLLHUP|POLLERR;
             }
             
             if (fds_[i].revents & POLLRDHUP || fds_[i].revents & POLLHUP) {
-                printf("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+                print_log("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
                     (client_key.local_ip4 >> 24) & 0xff, (client_key.local_ip4 >> 16) & 0xff, (client_key.local_ip4 >> 8) & 0xff, client_key.local_ip4 & 0xff, client_key.local_port,
                     (client_key.remote_ip4 >> 24) & 0xff, (client_key.remote_ip4 >> 16) & 0xff, (client_key.remote_ip4 >> 8) & 0xff, client_key.remote_ip4 & 0xff, client_key.remote_port);
                 close(fds_[i].fd);
 
                 struct sock_key backend_key = { 0 };
                 if (bpf_map_lookup_elem(c2b_fd, &client_key, &backend_key) < 0) {
-                    fprintf(stderr, "bpf_lookup_elem(c2b) failed: %s\n", strerror(errno));
+                    print_err("bpf_lookup_elem(c2b) failed: %s\n", strerror(errno));
                     exit(-1);
                 }
 
                 // remove the connection from the sock mappings
                 if (bpf_map_delete_elem(c2b_fd, &client_key) < 0) {
-                    fprintf(stderr, "bpf_map_delete_elem(c2b) failed: %s\n", strerror(errno));
+                    print_err("bpf_map_delete_elem(c2b) failed: %s\n", strerror(errno));
                     exit(-1);
                 }
 
                 backend_key.backend = 0;
                 if (bpf_map_delete_elem(b2c_fd, &backend_key) < 0) {
-                    fprintf(stderr, "bpf_map_delete_elem(b2c) failed: %s\n", strerror(errno));
+                    print_err("bpf_map_delete_elem(b2c) failed: %s\n", strerror(errno));
                     exit(-1);
                 }
 
@@ -497,9 +510,7 @@ int main(int argc, char **argv) {
     int err;
 
     if (argc < 3) {
-        fprintf(stderr,
-                "Usage: %s <listen:port> <connect:port> [<connectN:portN>]\n",
-                argv[0]);
+        print_err("Usage: %s <listen:port> <connect:port> [<connectN:portN>]\n", argv[0]);
         return -1;
     }
 
@@ -512,20 +523,20 @@ int main(int argc, char **argv) {
     /* Open BPF application */
     SKEL = proxy_bpf__open();
     if (!SKEL) {
-        fprintf(stderr, "Failed to open BPF skeleton\n");
+        print_err("Failed to open BPF skeleton\n");
         return -1;
     }
 
     /* Load & verify BPF programs */
     err = proxy_bpf__load(SKEL);
     if (err) {
-        fprintf(stderr, "Failed to load and verify BPF skeleton\n");
+        print_err("Failed to load and verify BPF skeleton\n");
         return -1;
     }
 
     cg_fd = open("/sys/fs/cgroup/", __O_DIRECTORY, O_RDONLY);
     if (cg_fd < 0) {
-        fprintf(stderr, "failed to set reuseaddr: %s\n", strerror(errno));
+        print_err("failed to set reuseaddr: %s\n", strerror(errno));
         return -1;
     }
 
@@ -536,7 +547,7 @@ int main(int argc, char **argv) {
     // err = bpf_prog_attach(bpf_program__fd(SKEL->progs._sock_ops), cg_fd,
     //                       BPF_CGROUP_SOCK_OPS, 0);
     // if (err < 0) {
-    //     fprintf(stderr, "failed to attach sockops: %s\n", strerror(errno));
+    //     print_err("failed to attach sockops: %s\n", strerror(errno));
     //     return -1;
     // }
 
@@ -546,7 +557,7 @@ int main(int argc, char **argv) {
                           sockmap_fd, BPF_SK_SKB_STREAM_PARSER, 0);
 
     if (err) {
-        fprintf(stderr, "Failed to attach BPF parser program\n");
+        print_err("Failed to attach BPF parser program\n");
         return -1;
     }
 
@@ -554,11 +565,11 @@ int main(int argc, char **argv) {
                           sockmap_fd, BPF_SK_SKB_STREAM_VERDICT, 0);
 
     if (err) {
-        fprintf(stderr, "Failed to attach BPF verdict program\n");
+        print_err("Failed to attach BPF verdict program\n");
         return -1;
     }
 
-    printf("BPF programs loaded correctly!\n");
+    print_log("BPF programs loaded correctly!\n");
 
     net_parse_sockaddr(&addr, argv[1]);
 
@@ -583,7 +594,7 @@ int main(int argc, char **argv) {
         int r = bpf_map_update_elem(url_to_server_fd, &url_to_server[i],
                                     &backend, BPF_NOEXIST);
         if (r != 0) {
-            fprintf(stderr, "bpf_map_update_elem(url_to_server) failed\n");
+            print_err("bpf_map_update_elem(url_to_server) failed\n");
             return -1;
         }
     }
@@ -591,12 +602,12 @@ int main(int argc, char **argv) {
     num_fds = 0;
     fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
     if (fds == NULL) {
-        fprintf(stderr, "malloc failed\n");
+        print_err("malloc failed\n");
         return -1;
     }
 
     if (pthread_mutex_init(&fds_lock, NULL) < 0) {
-        fprintf(stderr, "mutex init failed\n");
+        print_err("mutex init failed\n");
         return -1;
     }
 
@@ -604,12 +615,12 @@ int main(int argc, char **argv) {
     // and one that forwards requests
     pthread_t tid[2]; 
     if (pthread_create(&(tid[0]), NULL, &wait_for_conns, NULL) < 0) {
-        fprintf(stderr, "pthread_create failed: %s\n", strerror(errno));
+        print_err("pthread_create failed: %s\n", strerror(errno));
         return -1;
     }
 
     if (pthread_create(&(tid[1]), NULL, &forward_reqs, NULL) < 0) {
-        fprintf(stderr, "pthread_create failed: %s\n", strerror(errno));
+        print_err("pthread_create failed: %s\n", strerror(errno));
         return -1;
     }
 

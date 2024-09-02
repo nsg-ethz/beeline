@@ -25,8 +25,8 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define LOG_LEVEL 1
 
 #if LOG_LEVEL == 0
-#define bpf_log(fmt, ...) (0)
-#define bpf_err(fmt, ...) (0)
+#define bpf_log(...) (0)
+#define bpf_err(...) (0)
 #elif LOG_LEVEL == 1
 #define bpf_log(...) (0)
 #define bpf_err(...) bpf_printk(__VA_ARGS__)
