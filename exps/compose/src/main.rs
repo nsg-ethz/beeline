@@ -1,10 +1,11 @@
 use anyhow::{bail, Result};
-use libbpf_rs::{skel::{
-    OpenSkel, Skel, SkelBuilder
-}, TcHookBuilder};
-use uprobe::*;
+use compose::*;
+use libbpf_rs::skel::{
+    OpenSkel, SkelBuilder
+};
+use std::os::fd::{AsFd, AsRawFd};
 
-mod uprobe {
+mod compose {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/bpf/parser.skel.rs"
@@ -32,12 +33,21 @@ fn main() -> Result<()> {
 
     let open_skel = skel_builder.open()?;
     let mut skel = open_skel.load()?;
-    let mut progs = skel.progs_mut();
-    let parser = progs.bpf_prog_parser();
-    parser.attach()?;
 
-    let verdict = progs.bpf_prog_verdict();
-    verdict.attach()?;
+    let sock_map_fd = skel.maps_mut()
+        .sock_map()
+        .as_fd()
+        .as_raw_fd();
+
+    skel
+        .progs_mut()
+        .bpf_prog_parser()
+        .attach_sockmap(sock_map_fd)?;
+
+    skel
+        .progs_mut()
+        .bpf_prog_verdict()
+        .attach_sockmap(sock_map_fd)?;
 
     loop {}
 }
