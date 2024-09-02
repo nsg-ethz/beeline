@@ -12,6 +12,7 @@ use std::{
     }, io, net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs}, os::unix::io::{AsRawFd, RawFd}, vec
 };
 use slab::Slab;
+use socket2::{Socket, Domain, Type};
 
 use crate::http;
 
@@ -67,7 +68,11 @@ impl Proxy {
         let (submitter, mut sq, mut cq) = ring.split();
         let mut backlog = VecDeque::new();
 
-        let listener = TcpListener::bind(self.addr)?;
+        let socket = Socket::new(Domain::IPV4, Type::STREAM, None)?;
+        socket.bind(&self.addr.into())?;
+        socket.listen(4096)?;
+
+        let listener: TcpListener = socket.into();
         let accept = Token::Accept { fd: listener.as_raw_fd() };
 
         unsafe {
@@ -148,11 +153,7 @@ impl Proxy {
         }
     
         match token {
-            Token::Accept { fd } => {
-                let mut toks = self.handle_accept(ret);
-                toks.push(Token::Accept { fd });
-                toks
-            },
+            Token::Accept { .. } => self.handle_accept(ret),
             Token::Read { fd, bgid } => self.handle_read(cqe, fd, bgid),
             Token::Write { bgid, bid, .. } => vec![Token::ProvideBuffers { fd: None, addr: self.get_buf_ptr(bgid, bid), num_bufs: 1, buf_len: BUF_LEN as i32, bgid, bid: bid as u16 }],
             Token::Shutdown { fd, bgid } => {
@@ -298,7 +299,7 @@ impl Proxy {
         let token_idx = self.token_alloc.insert(token.clone());
         let sqe = match token {
             Token::ProvideBuffers { addr, num_bufs, buf_len, bgid, bid, .. } => opcode::ProvideBuffers::new(addr, buf_len, num_bufs, bgid, bid).build(),
-            Token::Accept { fd } => opcode::Accept::new(types::Fd(fd), std::ptr::null_mut(), std::ptr::null_mut()).build(),
+            Token::Accept { fd } => opcode::AcceptMulti::new(types::Fd(fd)).build(),
             Token::Read { fd, bgid } => opcode::RecvMulti::new(types::Fd(fd), bgid).build(),
             Token::Write { fd, bgid, bid, len } => opcode::Send::new(types::Fd(fd), self.get_buf_ptr(bgid, bid), len as _).build(),
             Token::Shutdown { fd, .. } => opcode::Shutdown::new(types::Fd(fd), 2).build(),
