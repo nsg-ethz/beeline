@@ -65,10 +65,6 @@ int start_backend_conn(int idx, struct sockaddr_storage *backend_addrss, int soc
     
     printf("Connected to %s\n", net_ntop(&backend_addrss[idx]));
 
-    // keep the socket alive, so we can reuse it later
-    int on = 1;
-    setsockopt(sd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on));
-
     return sd;
 }
 
@@ -213,6 +209,12 @@ accept:
     int fd = net_accept(sd, &client);
 
     int on = 1;
+    int r = setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on));
+    if (r < 0) {
+        PFATAL("setsockopt(SO_KEEPALIVE)");
+    }
+
+    on = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
 
     {
@@ -259,7 +261,7 @@ poll:
                 continue;
             }
             // EAGAIN means we have to wait for eBPF verdict first
-            else if (len < 0 && errno != EAGAIN) {
+            if (len < 0 && errno != EAGAIN) {
                 printf("Error reading socket: %s\n", strerror(errno));
                 goto cleanup;
             }
@@ -306,17 +308,18 @@ poll:
             client_key.port = htons(client_addr.sin_port);
 
             struct sock_key backend_key = { 0 };
+            backend_key.backend = backend;
             // backend_key.ip4 = backend_addr.sin_addr.s_addr;
             backend_key.port = htons(backend_addr.sin_port);
             printf("Assign backend connection [%s:%d] to client connection: [%s:%d]\n", inet_ntoa(backend_addr.sin_addr), backend_key.port, inet_ntoa(client_addr.sin_addr), client_key.port);
 
             // book keeping
-            if (bpf_map_update_elem(b2c_fd, &backend_key, &client_key, BPF_NOEXIST) < 0) {
+            if (bpf_map_update_elem(b2c_fd, &backend_key.port, &client_key, BPF_NOEXIST) < 0) {
                 fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
                 goto cleanup;
             }
 
-            if (bpf_map_update_elem(c2b_fd, &client_key, &backend_key, BPF_NOEXIST) < 0) {
+            if (bpf_map_update_elem(c2b_fd, &client_key.port, &backend_key, BPF_NOEXIST) < 0) {
                 fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
                 goto cleanup;
             }
