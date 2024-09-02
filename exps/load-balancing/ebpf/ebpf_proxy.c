@@ -165,7 +165,7 @@ int assign_client_to_backend(int c2b_fd, int b2c_fd, struct sock_key* client_key
     // we don't know which backend was addressed, so we set backend to 0
     int backend = backend_key->backend;
     backend_key->backend = 0;
-    if (bpf_map_update_elem(b2c_fd, backend_key, client_key, BPF_NOEXIST) < 0) {
+    if (bpf_map_update_elem(b2c_fd, backend_key, client_key, BPF_ANY) < 0) {
         fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
         return -1;
     }
@@ -417,7 +417,7 @@ poll:
             // if we couldn't read yet, but also don't have an error
             // we will just try again :)
             if (len > 0) {
-                printf("Received request length %ld after reading %ld: %s\n", req_len, len, buf);
+                // printf("Received request length %ld after reading %ld: %s\n", req_len, len, buf);
 
                 // we received a new request but don't 
                 // have a free connection in the pool
