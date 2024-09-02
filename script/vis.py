@@ -13,6 +13,8 @@ import pandas as pd
 sns.set_theme(style="whitegrid")
 sns.color_palette("tab10")
 
+np.random.seed(1)
+
 def _parse_path(path):
     match = re.search(r"(\w+)-(\d+)B.*", path)
     proxy = match.group(1)
@@ -55,7 +57,6 @@ def _load_log_data(paths):
         dfs.append(df)
 
     df = pd.concat(dfs)
-    df.set_index(["proxy", "payload_size", "metric_name"], inplace=True)
 
     return df
 
@@ -202,15 +203,44 @@ def overhead_graph(paths, base, metric, agg, absolute, dst):
     _save_to_path(f"overhead-{metric}-{agg}.pdf", dst)
 
 
-def cdf_graph(paths, metric, dst):
+def cdf_graph(paths, metric, crop, dst):
     df = _load_log_data(paths)
-    df = df[df.index.get_level_values("metric_name") == metric]
+    df = df[df["metric_name"] == metric]
+
+    proxies = df["proxy"].unique()
+    if crop > 0:
+        for p in proxies:
+            start = df.loc[df["proxy"] == p, "timestamp"].min()
+            df.drop(df[(df["proxy"] == p) & (df["timestamp"] < start+crop)].index, inplace=True)
+
+    print(df["metric_value"].describe([0.9, 0.95, 0.99]))
 
     g = sns.ecdfplot(data=df, x="metric_value", hue="proxy")
 
     g.set_xlabel(metric)
-    # g.legend.set_title(None)
     plt.xscale("log")
+    _save_to_path(f"cdf-{metric}.pdf", dst)
+
+
+def scatter_graph(paths, metric, drop_rate, dst):
+    df = _load_log_data(paths)
+    df = df[df["metric_name"] == metric]
+
+    drop_num = int(drop_rate * len(df))
+    if drop_num > 0:
+        print(f"Dropping {drop_num} samples ({drop_rate*100}%)")
+        df = df.sample(n=len(df)-drop_num).sort_index()
+
+    proxies = df["proxy"].unique()
+    for p in proxies:
+        df.loc[df["proxy"] == p, "timestamp"] -= df.loc[df["proxy"] == p, "timestamp"].min()
+
+    g = sns.scatterplot(data=df, x="timestamp", y="metric_value", hue="proxy")
+
+    g.set_xlabel("time [s]")
+    g.set_ylabel(f"{metric} [ms]")
+    plt.yscale("log")
+
     _save_to_path(f"cdf-{metric}.pdf", dst)
 
 
@@ -242,6 +272,11 @@ if __name__ == "__main__":
 
     cdf = subparsers.add_parser("cdf")
     cdf.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+    cdf.add_argument("-c", "--crop", default=0, help="Crop the given number of seconds from the beginning of the trace")
+
+    scatter = subparsers.add_parser("scatter")
+    scatter.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+    scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
 
     args = parser.parse_args()
     files = glob.glob(args.pattern)
@@ -255,4 +290,6 @@ if __name__ == "__main__":
     elif args.command == "overhead":
         overhead_graph(files, args.base, args.metric, args.agg, args.absolute, args.output)
     elif args.command == "cdf":
-        cdf_graph(files, args.metric, args.output)
+        cdf_graph(files, args.metric, float(args.crop), args.output)
+    elif args.command == "scatter":
+        scatter_graph(files, args.metric, float(args.drop), args.output)
