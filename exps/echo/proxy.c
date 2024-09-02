@@ -24,7 +24,7 @@
 #include "net.h"
 #include "proxy_struct.h"
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 #if LOG_LEVEL == 0
 #define print_log(...) (void)0
@@ -268,7 +268,7 @@ void* worker(void* arg) {
                 int req_len = read_req(events[i].data.fd, buf, buf_len);
                 print_log("Read request of length: %d\n", req_len);
 
-                print_log("Forwarding request to socket %d\n", fd);
+                // print_log("Forwarding request to socket %d\n", fd);
                 write_req(events[i].data.fd, buf, req_len);
             }
         }
