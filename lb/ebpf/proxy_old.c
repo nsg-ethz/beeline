@@ -5,7 +5,6 @@
 #include <unistd.h>
 #include <sys/resource.h>
 #include <sys/ioctl.h>
-#include <sys/epoll.h>
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
 #include <arpa/inet.h>
@@ -43,10 +42,11 @@ int cg_fd;
 int sockmap_fd;
 struct sockaddr_storage addr;
 
-const int NUM_WORKERS = 1;
-const int MAX_NUM_CONN = 1000;
-const int MAX_EVENTS = MAX_NUM_CONN;
+const int MAX_NUM_CONN = 10000;
 struct sockaddr_storage *backend_addrs;
+struct pollfd *fds;
+int num_fds = 0;
+pthread_mutex_t fds_lock;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
                            va_list args) {
@@ -265,7 +265,7 @@ const void* parse_http_hdr(const char *hdr, const char *key) {
         char *next = strstr(line, sep);
 
         if (next == NULL) break;
-        if (strncasecmp(line, name, name_len) == 0) {
+        if (strncmp(line, name, name_len) == 0) {
             return line + name_len;
         }
     
@@ -275,7 +275,39 @@ const void* parse_http_hdr(const char *hdr, const char *key) {
     return NULL;
 }
 
-void* worker(void* arg) {
+void* wait_for_conns(void* arg) {
+    int lfd = net_bind_tcp(&addr);
+    if (lfd < 0) {
+        print_err("Bind failed\n");
+        exit(-1);
+    }
+
+    while (true) {
+        if (num_fds == MAX_NUM_CONN) {
+            print_log("No new connections are accepted.\n");
+            usleep(1000);
+            continue;
+        }
+
+        struct sock_key client_key = { 0 };
+        int cd = accept_client_conn(lfd, sockmap_fd, &client_key);
+        if (cd < 0) {
+            print_err("Error accepting new connections: %s\n", strerror(errno));
+            exit(-1);
+        }
+
+        pthread_mutex_lock(&fds_lock); 
+        fds[num_fds].fd = cd;
+        fds[num_fds].events = POLLRDHUP|POLLHUP|POLLERR|POLLIN;
+        num_fds++;
+        pthread_mutex_unlock(&fds_lock);
+    }
+
+    close(lfd);
+    return NULL;
+}
+
+void* forward_reqs(void* arg) {
     int b2c_fd = bpf_map__fd(SKEL->maps.b2c);
     int c2b_fd = bpf_map__fd(SKEL->maps.c2b);
 
@@ -284,112 +316,53 @@ void* worker(void* arg) {
     int backend3_conns_fd = bpf_map__fd(SKEL->maps.backend3_conns);
     int backend4_conns_fd = bpf_map__fd(SKEL->maps.backend4_conns);
 
+    int num_fds_ = 0;
+    struct pollfd *fds_ = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
+
+    int num_fds_new = 0;
+    struct pollfd *fds_new = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
+
     size_t buf_len = 128 * 1024;
     char buf[buf_len];
 
     int num_backend_unused = 0;
     int bds[65536];
     memset(bds, 0, 65536 * sizeof(int));
-
-    int lfd = net_bind_tcp(&addr);
-    if (lfd < 0) {
-        print_err("Bind failed\n");
-        exit(-1);
-    }
-
-    int epfd = epoll_create1(0);
-    if (epfd < 0) {
-        print_err("Failed to create epoll\n");
-        exit(-1);
-    }
-
-    struct epoll_event ev, events[MAX_EVENTS];
-    ev.events = EPOLLIN|EPOLLHUP|EPOLLRDHUP|EPOLLERR;
-    ev.data.fd = lfd;
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, lfd, &ev) < 0) {
-        print_err("Failed to add listen socket to epoll\n");
-        exit(-1);
-    }
     
     while (true) {
-        int nfds = epoll_wait(epfd, events, MAX_EVENTS, -1);
+        pthread_mutex_lock(&fds_lock); 
+        num_fds_ = num_fds;
+        memcpy(fds_, fds, MAX_NUM_CONN * sizeof(struct pollfd));
+        pthread_mutex_unlock(&fds_lock);
+
+        if (num_fds_ == 0) {
+            usleep(10);
+            continue;
+        }
+
+        int nfds = poll(fds_, num_fds_, 1);
         if (nfds == -1) {
-            print_err("Failed to poll: %s\n", strerror(errno));
+            print_err("Error in poll syscall\n");
             exit(-1);
         }
+        else if (nfds == 0) {
+            continue;
+        }
+
+        num_fds_new = 0;
+        memset(fds_new, 0, MAX_NUM_CONN * sizeof(struct pollfd));
         
-        for (int i = 0; i < nfds; i++) {
-            if (events[i].events & EPOLLIN && events[i].data.fd == lfd) {
-                struct sock_key client_key = { 0 };
-                int cd = accept_client_conn(lfd, sockmap_fd, &client_key);
-                if (cd < 0) {
-                    print_err("Error accepting new connections: %s\n", strerror(errno));
-                    exit(-1);
-                }
-                else if (cd > 0) {
-                    ev.events = EPOLLIN|EPOLLHUP|EPOLLRDHUP|EPOLLERR;
-                    ev.data.fd = cd;
-                    if (epoll_ctl(epfd, EPOLL_CTL_ADD, cd, &ev) < 0) {
-                        print_err("Failed to add client socket to epoll\n");
-                        exit(-1);
-                    }
-                }
-
-                continue;
-            }
-
+        for (int i = 0; i < num_fds_; i++) {
             struct sock_key client_key = { 0 };
-            get_sock_key(events[i].data.fd, &client_key);
+            get_sock_key(fds_[i].fd, &client_key);
 
-            if (events[i].events & EPOLLRDHUP || events[i].events & EPOLLHUP) {
-                print_log("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
-                    (client_key.local_ip4 >> 24) & 0xff, (client_key.local_ip4 >> 16) & 0xff, (client_key.local_ip4 >> 8) & 0xff, client_key.local_ip4 & 0xff, client_key.local_port,
-                    (client_key.remote_ip4 >> 24) & 0xff, (client_key.remote_ip4 >> 16) & 0xff, (client_key.remote_ip4 >> 8) & 0xff, client_key.remote_ip4 & 0xff, client_key.remote_port);
-                
-                ev.data.fd = events[i].data.fd;
-                if (epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &ev) < 0) {
-                    print_err("Failed to delete client socket to epoll\n");
-                    exit(-1);
-                }
-                close(events[i].data.fd);
+            // if POLLIN is always enabled, `recv` will end up in an infinite loop
+            // thus, we disable POLLIN once we have forwarded the request
+            fds_new[num_fds_new].fd = fds_[i].fd;
+            fds_new[num_fds_new].events = fds_[i].events;
+            num_fds_new++;
 
-                struct sock_key backend_key = { 0 };
-                if (bpf_map_lookup_elem(c2b_fd, &client_key, &backend_key) < 0) {
-                    print_err("bpf_lookup_elem(c2b) failed: %s\n", strerror(errno));
-                    exit(-1);
-                }
-
-                // put currently assigned backend back in pool
-                int conns_fd = -1;
-                switch (backend_key.backend) {
-                    case 1: conns_fd = backend1_conns_fd; break;
-                    case 2: conns_fd = backend2_conns_fd; break;
-                    case 3: conns_fd = backend3_conns_fd; break;
-                    case 4: conns_fd = backend4_conns_fd; break;
-                }
-
-                if (bpf_map_update_elem(conns_fd, NULL, &backend_key, BPF_ANY) < 0) {
-                    print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", backend_key.backend, strerror(errno));
-                    exit(-1);
-                }
-                num_backend_unused++;
-
-                // remove the connection from the sock mappings
-                if (bpf_map_delete_elem(c2b_fd, &client_key) < 0) {
-                    print_err("bpf_map_delete_elem(c2b) failed: %s\n", strerror(errno));
-                    exit(-1);
-                }
-
-                backend_key.backend = 0;
-                if (bpf_map_delete_elem(b2c_fd, &backend_key) < 0) {
-                    print_err("bpf_map_delete_elem(b2c) failed: %s\n", strerror(errno));
-                    exit(-1);
-                }
-
-                continue;
-            }
-
-            if (events[i].events & EPOLLIN) {
+            if (fds_[i].revents & POLLIN) {
                 memset(buf, 0, buf_len);
 
                 // read the entire request
@@ -397,12 +370,12 @@ void* worker(void* arg) {
                 int pkt_len = -1;
                 int req_len = 0;
                 while (req_len < pkt_len || pkt_len < 0) {
-                    ssize_t len = recv(events[i].data.fd, buf+req_len, buf_len-req_len, MSG_DONTWAIT);
+                    ssize_t len = recv(fds_[i].fd, buf+req_len, buf_len-req_len, MSG_DONTWAIT);
 
                     // EAGAIN means we have to wait for eBPF verdict first
                     if (len < 0 && errno != EAGAIN) {
                         print_err("Error reading socket: %s\n", strerror(errno));
-                        close(events[i].data.fd);
+                        close(fds_[i].fd);
                         break;
                     }
                     else if (len > 0) {
@@ -491,7 +464,7 @@ void* worker(void* arg) {
                     exit(-1);
                 }
 
-                if (add_to_sockmap(sockmap_fd, events[i].data.fd, &client_key) < 0) {
+                if (add_to_sockmap(sockmap_fd, fds_[i].fd, &client_key) < 0) {
                     exit(-1);
                 }
 
@@ -512,17 +485,68 @@ void* worker(void* arg) {
 
                 // if forwarding was successful, remove POLLIN from events
                 print_log("Redirected request of length %ld to backend\n", res_len);
+                fds_new[num_fds_new-1].events = POLLRDHUP|POLLHUP|POLLERR;
+            }
+            
+            if (fds_[i].revents & POLLRDHUP || fds_[i].revents & POLLHUP) {
+                print_log("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+                    (client_key.local_ip4 >> 24) & 0xff, (client_key.local_ip4 >> 16) & 0xff, (client_key.local_ip4 >> 8) & 0xff, client_key.local_ip4 & 0xff, client_key.local_port,
+                    (client_key.remote_ip4 >> 24) & 0xff, (client_key.remote_ip4 >> 16) & 0xff, (client_key.remote_ip4 >> 8) & 0xff, client_key.remote_ip4 & 0xff, client_key.remote_port);
+                close(fds_[i].fd);
 
-                ev.events = POLLRDHUP|POLLHUP|POLLERR;
-                ev.data.fd = events[i].data.fd;
-                if (epoll_ctl(epfd, EPOLL_CTL_MOD, events[i].data.fd, &ev) < 0) {
-                    print_err("Failed to modify client socket to epoll\n");
+                struct sock_key backend_key = { 0 };
+                if (bpf_map_lookup_elem(c2b_fd, &client_key, &backend_key) < 0) {
+                    print_err("bpf_lookup_elem(c2b) failed: %s\n", strerror(errno));
                     exit(-1);
                 }
+
+                // put currently assigned backend back in pool
+                int conns_fd = -1;
+                switch (backend_key.backend) {
+                    case 1: conns_fd = backend1_conns_fd; break;
+                    case 2: conns_fd = backend2_conns_fd; break;
+                    case 3: conns_fd = backend3_conns_fd; break;
+                    case 4: conns_fd = backend4_conns_fd; break;
+                }
+
+                if (bpf_map_update_elem(conns_fd, NULL, &backend_key, BPF_ANY) < 0) {
+                    print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", backend_key.backend, strerror(errno));
+                    exit(-1);
+                }
+                num_backend_unused++;
+
+                // remove the connection from the sock mappings
+                if (bpf_map_delete_elem(c2b_fd, &client_key) < 0) {
+                    print_err("bpf_map_delete_elem(c2b) failed: %s\n", strerror(errno));
+                    exit(-1);
+                }
+
+                backend_key.backend = 0;
+                if (bpf_map_delete_elem(b2c_fd, &backend_key) < 0) {
+                    print_err("bpf_map_delete_elem(b2c) failed: %s\n", strerror(errno));
+                    exit(-1);
+                }
+
+                fds_new[num_fds_new].fd = 0;
+                num_fds_new--;
             }
         }
+
+        pthread_mutex_lock(&fds_lock);
+        // check if we have accepted a new connection in the meantime
+        for (int i = num_fds_; i < num_fds; i++) { 
+            fds_new[num_fds_new].fd = fds[i].fd;
+            fds_new[num_fds_new].events = fds[i].events;
+            num_fds_new++;
+        }
+
+        memcpy(fds, fds_new, MAX_NUM_CONN * sizeof(struct pollfd));
+        num_fds = num_fds_new;
+        pthread_mutex_unlock(&fds_lock);
     }
 
+    free(fds_);
+    free(fds_new);
     return NULL;
 }
 
@@ -622,19 +646,39 @@ int main(int argc, char **argv) {
         }
     }
 
-    // spawn worker threads
-    pthread_t tid[NUM_WORKERS]; 
-    for (int i = 0; i < NUM_WORKERS; i++) {
-        if (pthread_create(&(tid[i]), NULL, &worker, NULL) < 0) {
-            print_err("pthread_create failed: %s\n", strerror(errno));
-            return -1;
-        }
+    num_fds = 0;
+    fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
+    if (fds == NULL) {
+        print_err("malloc failed\n");
+        return -1;
     }
 
-    for (int i = 0; i < NUM_WORKERS; i++) {
-        pthread_join(tid[i], NULL);
+    if (pthread_mutex_init(&fds_lock, NULL) < 0) {
+        print_err("mutex init failed\n");
+        return -1;
     }
 
+    // spawn two threads, one that waits for new conections
+    // and one that forwards requests
+    pthread_t tid[2]; 
+    if (pthread_create(&(tid[0]), NULL, &wait_for_conns, NULL) < 0) {
+        print_err("pthread_create failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    if (pthread_create(&(tid[1]), NULL, &forward_reqs, NULL) < 0) {
+        print_err("pthread_create failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    pthread_join(tid[0], NULL);
+    pthread_join(tid[1], NULL); 
+    pthread_mutex_destroy(&fds_lock); 
+
+    // clean up
+    for (int i = 0; i < num_fds; i++) {
+        close(fds[i].fd);
+    }
     free(backend_addrs);
     proxy_bpf__destroy(SKEL);
     return -err;

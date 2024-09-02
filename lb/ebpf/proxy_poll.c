@@ -275,6 +275,26 @@ const void* parse_http_hdr(const char *hdr, const char *key) {
     return NULL;
 }
 
+int read_req(int fd, char *buf, size_t buf_len) {
+    int req_len = 0;
+    int con_len = 0;
+    int seg_len = 0;
+    ssize_t len = 0;
+
+    do {
+        const void* val = parse_http_hdr(buf, "Content-Length");
+        if (val != NULL) {
+            con_len = atoi(val);
+            seg_len = con_len + parse_http_hdr_len(buf);
+        }
+
+        if (len > 0) req_len += len;
+        len = recv(fd, buf+req_len, buf_len-req_len, MSG_DONTWAIT);
+    } while ((seg_len == 0 || req_len < seg_len) && len > 0);
+
+    return req_len;
+}
+
 void* worker(void* arg) {
     int b2c_fd = bpf_map__fd(SKEL->maps.b2c);
     int c2b_fd = bpf_map__fd(SKEL->maps.c2b);
@@ -287,51 +307,49 @@ void* worker(void* arg) {
     size_t buf_len = 128 * 1024;
     char buf[buf_len];
 
-    int num_backend_unused = 0;
-    int bds[65536];
-    memset(bds, 0, 65536 * sizeof(int));
-
     int lfd = net_bind_tcp(&addr);
     if (lfd < 0) {
         print_err("Bind failed\n");
         exit(-1);
     }
 
-    int epfd = epoll_create1(0);
-    if (epfd < 0) {
-        print_err("Failed to create epoll\n");
-        exit(-1);
-    }
+    int num_fds = 0;
+    struct pollfd *fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
 
-    struct epoll_event ev, events[MAX_EVENTS];
-    ev.events = EPOLLIN|EPOLLHUP|EPOLLRDHUP|EPOLLERR;
-    ev.data.fd = lfd;
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, lfd, &ev) < 0) {
-        print_err("Failed to add listen socket to epoll\n");
-        exit(-1);
-    }
+    int num_fds_new = 0;
+    struct pollfd *fds_new = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
+
+    fds[0].fd = lfd;
+    fds[0].events = POLLIN;
+    num_fds = 1;
     
     while (true) {
-        int nfds = epoll_wait(epfd, events, MAX_EVENTS, -1);
+        print_log("Polling %d sockets\n", num_fds);
+        int nfds = poll(fds, num_fds, -1);
+        print_log("Polled %d events\n", nfds);
         if (nfds == -1) {
             print_err("Failed to poll: %s\n", strerror(errno));
             exit(-1);
         }
+
+        memset(fds_new, 0, MAX_NUM_CONN * sizeof(struct pollfd));
+        fds_new[0].fd = lfd;
+        fds_new[0].events = POLLIN;
+        num_fds_new = 1;
         
-        for (int i = 0; i < nfds; i++) {
-            if (events[i].events & EPOLLIN && events[i].data.fd == lfd) {
-                struct sock_key client_key = { 0 };
-                int cd = accept_client_conn(lfd, sockmap_fd, &client_key);
-                if (cd < 0) {
-                    print_err("Error accepting new connections: %s\n", strerror(errno));
-                    exit(-1);
-                }
-                else if (cd > 0) {
-                    ev.events = EPOLLIN|EPOLLHUP|EPOLLRDHUP|EPOLLERR;
-                    ev.data.fd = cd;
-                    if (epoll_ctl(epfd, EPOLL_CTL_ADD, cd, &ev) < 0) {
-                        print_err("Failed to add client socket to epoll\n");
+        for (int i = 0; i < num_fds; i++) {
+            if (fds[i].fd == lfd) {
+                if (fds[i].revents & POLLIN) {
+                    struct sock_key client_key = { 0 };
+                    int cd = accept_client_conn(lfd, sockmap_fd, &client_key);
+                    if (cd < 0) {
+                        print_err("Error accepting new connections: %s\n", strerror(errno));
                         exit(-1);
+                    }
+                    else if (cd > 0) {
+                        fds_new[num_fds_new].events = POLLIN|POLLERR|POLLHUP|POLLRDHUP;
+                        fds_new[num_fds_new].fd = cd;
+                        num_fds_new++;
                     }
                 }
 
@@ -339,19 +357,15 @@ void* worker(void* arg) {
             }
 
             struct sock_key client_key = { 0 };
-            get_sock_key(events[i].data.fd, &client_key);
+            get_sock_key(fds[i].fd, &client_key);
 
-            if (events[i].events & EPOLLRDHUP || events[i].events & EPOLLHUP) {
-                print_log("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+            if (fds[i].revents & POLLRDHUP || fds[i].revents & POLLHUP) {
+                print_log("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d] socket %d\n", 
                     (client_key.local_ip4 >> 24) & 0xff, (client_key.local_ip4 >> 16) & 0xff, (client_key.local_ip4 >> 8) & 0xff, client_key.local_ip4 & 0xff, client_key.local_port,
-                    (client_key.remote_ip4 >> 24) & 0xff, (client_key.remote_ip4 >> 16) & 0xff, (client_key.remote_ip4 >> 8) & 0xff, client_key.remote_ip4 & 0xff, client_key.remote_port);
-                
-                ev.data.fd = events[i].data.fd;
-                if (epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &ev) < 0) {
-                    print_err("Failed to delete client socket to epoll\n");
-                    exit(-1);
-                }
-                close(events[i].data.fd);
+                    (client_key.remote_ip4 >> 24) & 0xff, (client_key.remote_ip4 >> 16) & 0xff, (client_key.remote_ip4 >> 8) & 0xff, client_key.remote_ip4 & 0xff, client_key.remote_port,
+                    fds[i].fd);
+
+                close(fds[i].fd);
 
                 struct sock_key backend_key = { 0 };
                 if (bpf_map_lookup_elem(c2b_fd, &client_key, &backend_key) < 0) {
@@ -372,7 +386,6 @@ void* worker(void* arg) {
                     print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", backend_key.backend, strerror(errno));
                     exit(-1);
                 }
-                num_backend_unused++;
 
                 // remove the connection from the sock mappings
                 if (bpf_map_delete_elem(c2b_fd, &client_key) < 0) {
@@ -389,32 +402,20 @@ void* worker(void* arg) {
                 continue;
             }
 
-            if (events[i].events & EPOLLIN) {
+            fds_new[num_fds_new].events = POLLIN|POLLERR|POLLHUP|POLLRDHUP;
+            fds_new[num_fds_new].fd = fds[i].fd;
+            num_fds_new++;
+
+            if (fds[i].revents & POLLIN) {
                 memset(buf, 0, buf_len);
 
+                print_log("Read from socket %d\n", fds[i].fd);
+
                 // read the entire request
-                int con_len = -1;
-                int pkt_len = -1;
-                int req_len = 0;
-                while (req_len < pkt_len || pkt_len < 0) {
-                    ssize_t len = recv(events[i].data.fd, buf+req_len, buf_len-req_len, MSG_DONTWAIT);
+                int req_len = read_req(fds[i].fd, buf, buf_len);
+                print_log("Read request of length: %d\n", req_len);
 
-                    // EAGAIN means we have to wait for eBPF verdict first
-                    if (len < 0 && errno != EAGAIN) {
-                        print_err("Error reading socket: %s\n", strerror(errno));
-                        close(events[i].data.fd);
-                        break;
-                    }
-                    else if (len > 0) {
-                        const void* val = parse_http_hdr(buf, "Content-Length");
-                        if (val != NULL) {
-                            con_len = atoi(val);
-                            pkt_len = con_len + parse_http_hdr_len(buf);
-                        }
-
-                        req_len += len;
-                    }
-                }
+                if (req_len == 0) continue;
 
                 // we received a new request but don't 
                 // have a free connection in the pool
@@ -429,59 +430,31 @@ void* worker(void* arg) {
                 // contacting userspace later is buggy
                 struct sock_key backend_key = { 0 };
                 int bd = -1;
-                // TODO: reusing the backends improves performance in cases with lots of reconnects
-                // But it's also buggy -> unsolicited responses
-                if (num_backend_unused > 0) {
-                    num_backend_unused--;
+                for (int j = 1; j < 5; j++) {
+                    struct sock_key key = { 0 };
+                    int fd = start_backend_conn(j, backend_addrs, sockmap_fd, &key);
+                    print_log("Established a new connection to backend %d: %d\n", key.backend, fd);
 
-                    int conns_fd = -1;
-                    switch (backend) {
-                        case 1: conns_fd = backend1_conns_fd; break;
-                        case 2: conns_fd = backend2_conns_fd; break;
-                        case 3: conns_fd = backend3_conns_fd; break;
-                        case 4: conns_fd = backend4_conns_fd; break;
-                    }
-
-                    if (bpf_map_lookup_and_delete_elem(conns_fd, NULL, &backend_key) < 0) {
-                        print_err("bpf_map_lookup_and_delete_elem(backend%d_conns) failed: %s\n", backend, strerror(errno));
+                    if (add_to_sockmap(sockmap_fd, fd, &key) < 0) {
                         exit(-1);
                     }
 
-                    bd = bds[backend_key.local_port];
-                    if (bd == 0) {
-                        print_err("No backend connection found\n");
-                        exit(-1);
+                    if (j == backend) {
+                        backend_key = key;
+                        bd = fd;
                     }
-                }
-                else {
-                    for (int j = 1; j < 5; j++) {
-                        struct sock_key key = { 0 };
-                        int fd = start_backend_conn(j, backend_addrs, sockmap_fd, &key);
-                        print_log("Established a new connection to backend %d: %d\n", key.backend, fd);
+                    else {
+                        int conns_fd = -1;
+                        switch (j) {
+                            case 1: conns_fd = backend1_conns_fd; break;
+                            case 2: conns_fd = backend2_conns_fd; break;
+                            case 3: conns_fd = backend3_conns_fd; break;
+                            case 4: conns_fd = backend4_conns_fd; break;
+                        }
 
-                        if (add_to_sockmap(sockmap_fd, fd, &key) < 0) {
+                        if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
+                            print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", j, strerror(errno));
                             exit(-1);
-                        }
-
-                        bds[key.local_port] = fd;
-
-                        if (j == backend) {
-                            backend_key = key;
-                            bd = fd;
-                        }
-                        else {
-                            int conns_fd = -1;
-                            switch (j) {
-                                case 1: conns_fd = backend1_conns_fd; break;
-                                case 2: conns_fd = backend2_conns_fd; break;
-                                case 3: conns_fd = backend3_conns_fd; break;
-                                case 4: conns_fd = backend4_conns_fd; break;
-                            }
-
-                            if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
-                                print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", j, strerror(errno));
-                                exit(-1);
-                            }
                         }
                     }
                 }
@@ -491,7 +464,7 @@ void* worker(void* arg) {
                     exit(-1);
                 }
 
-                if (add_to_sockmap(sockmap_fd, events[i].data.fd, &client_key) < 0) {
+                if (add_to_sockmap(sockmap_fd, fds[i].fd, &client_key) < 0) {
                     exit(-1);
                 }
 
@@ -512,16 +485,21 @@ void* worker(void* arg) {
 
                 // if forwarding was successful, remove POLLIN from events
                 print_log("Redirected request of length %ld to backend\n", res_len);
-
-                ev.events = POLLRDHUP|POLLHUP|POLLERR;
-                ev.data.fd = events[i].data.fd;
-                if (epoll_ctl(epfd, EPOLL_CTL_MOD, events[i].data.fd, &ev) < 0) {
-                    print_err("Failed to modify client socket to epoll\n");
-                    exit(-1);
-                }
+                fds_new[num_fds_new-1].events = POLLERR|POLLHUP|POLLRDHUP;
             }
         }
+
+        print_log("Will poll %d sockets\n", num_fds_new);
+        struct pollfd *fds_tmp = fds;
+        fds = fds_new;
+        fds_new = fds_tmp;
+
+        num_fds = num_fds_new;
+        num_fds_new = 0;
     }
+
+    free(fds);
+    free(fds_new);
 
     return NULL;
 }
