@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
-/* Copyright (c) 2022 Sebastiano Miano <mianosebastiano@gmail.com */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
