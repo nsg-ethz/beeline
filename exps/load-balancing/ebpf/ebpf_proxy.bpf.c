@@ -115,43 +115,48 @@ static __always_inline int _try_redirect(struct __sk_buff *skb, struct sock_key 
 }
 
 static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hdr *hdr) {
-    __u32 len_max = 255;
-    __u32 len = skb->len;
-    if (len > len_max) len = len_max;
-    char data[len_max];
-    if (len == 0) return 0;
+    // __u32 len_max = 255;
+    // __u32 len = skb->len;
+    // if (len > len_max) len = len_max;
+    // char data[len_max];
+    // if (len == 0) return 0;
+
+    __u32 len = 48;
+    char data[len];
 
     if (bpf_skb_load_bytes(skb, 0, data, len) < 0) {
         bpf_err("ERROR: Failed to load data");
         return -1;
     }
 
-    __u32 i = 0, j = 0;
-    bool cr = false;
-    bpf_for(i, 0, len) {        
-        if (data[i] == '\r') {
-            cr = true;
-        }
-        else if (data[i] == '\n') {
-            if (cr) {
-                __s32 line_len = i - j - 1;
-                if (j < len_max && line_len > 0 && j + line_len < len_max) {
-                    _parse_http_hdr_line(data+(j & 0xFF), line_len, hdr);
-                    // this is somehow necessary to make the verifier happy
-                    bpf_err("HTTP header: %d %s %d %d", hdr->method, hdr->url, hdr->url_len, hdr->content_length);
-                    j = i + 1;
-                }
-                else if (line_len == 0) {
-                    hdr->header_length = i + 1;
-                    return 0;
-                }
-            }
-            cr = false;
-        }
-        else {
-            cr = false;
-        }
-    }
+    _parse_http_hdr_line(data, len, hdr);
+
+    // __u32 i = 0, j = 0;
+    // bool cr = false;
+    // bpf_for(i, 0, len) {        
+    //     if (data[i] == '\r') {
+    //         cr = true;
+    //     }
+    //     else if (data[i] == '\n') {
+    //         if (cr) {
+    //             __s32 line_len = i - j - 1;
+    //             if (j < len_max && line_len > 0 && j + line_len < len_max) {
+    //                 _parse_http_hdr_line(data+(j & 0xFF), line_len, hdr);
+    //                 // this is somehow necessary to make the verifier happy
+    //                 bpf_err("HTTP header: %d %s %d %d", hdr->method, hdr->url, hdr->url_len, hdr->content_length);
+    //                 j = i + 1;
+    //             }
+    //             else if (line_len == 0) {
+    //                 hdr->header_length = i + 1;
+    //                 return 0;
+    //             }
+    //         }
+    //         cr = false;
+    //     }
+    //     else {
+    //         cr = false;
+    //     }
+    // }
 
     bpf_err("ERROR: HTTP header too long");
     return -1;
