@@ -35,9 +35,10 @@ export function randomRequest() {
   const res = http.post(url, payload);
 
   let passed = check(res, {
-    'status is 200': (r) => r.status === 200,
-    'processed by correct backend': (r) => r.headers["Signature"] == signature,
-    'body is the same': (r) => r.body === payload
+    "status is 200": (r) => r.status === 200,
+    "processed by correct backend": (r) => r.headers["Signature"] == signature,
+    "body is the same": (r) => r.body === payload,
+    [`body is ${payload_size}B long`]: (r) => r.body.length == payload_size
   });
 
   let abortOnFail = __ENV.ABORT_ON_FAIL || "0";
