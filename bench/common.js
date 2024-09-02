@@ -32,7 +32,7 @@ export function randomRequest() {
   const res = http.post(url, data);
 
   let passed = check(res, {
-    'GET status is 200': (r) => r.status === 200,
+    'status is 200': (r) => r.status === 200,
     'processed by correct backend': (r) => r.headers["Signature"] == signature,
     'body is the same': (r) => r.body === data
   });
