@@ -12,7 +12,7 @@ cd naive
 
 fortio load -n [NUM_REQS] -c [CONCURRENCY] -qps [QUERIES_PER_SECOND] 127.0.0.1:3000/server1
 
-ABORT_ON_FAIL=0 PAYLOAD_SIZE=8192 k6 run --summary-export=test.json bench/stress.js 
+PAYLOAD_SIZE=128 taskset --cpu-list 2-8 k6 run --summary-export=test.json bench/stress.js 
 
 ./clean-env.sh
 ```

@@ -1,3 +1,3 @@
 trap "kill 0" SIGINT
 
-envoy -c config.yaml --concurrency 1
+taskset --cpu-list 1 envoy -c config.yaml --concurrency 1

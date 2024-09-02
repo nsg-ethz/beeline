@@ -13,7 +13,7 @@ function start_http_server {
   rm -f servers.pid
   for i in `seq 1 $1`;
   do
-  	sudo ip netns exec ns${i} ./${BACKEND_BIN} -a 10.0.${i}.1 -p 8000 -H "signature: server${i}" > /dev/null 2>&1 &
+  	sudo ip netns exec ns${i} taskset --cpu-list 0 ./${BACKEND_BIN} -a 10.0.${i}.1 -p 8000 -H "signature: server${i}" > /dev/null 2>&1 &
     # sudo env "PATH=$PATH" ip netns exec ns${i} fortio server -http-port 10.0.${i}.1:8000 > /dev/null 2>&1 &
     echo $! >> servers.pid
     echo -e "${COLOR_GREEN}Server server${i} in ns${i} started.${COLOR_OFF}"
