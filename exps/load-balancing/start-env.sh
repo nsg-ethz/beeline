@@ -5,13 +5,15 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
+BACKEND_BIN="../../target/release/backend"
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 function start_http_server {
   rm -f servers.pid
   for i in `seq 1 $1`;
   do
-  	sudo ip netns exec ns${i} sudo python3 http_server.py -a 10.0.${i}.1 -p 8000 -n server${i} > /dev/null 2>&1 &
+  	sudo ip netns exec ns${i} ./${BACKEND_BIN} -a 10.0.${i}.1 -p 8000 -n server${i} > /dev/null 2>&1 &
     echo $! >> servers.pid
     echo -e "${COLOR_GREEN}Server server${i} in ns${i} started.${COLOR_OFF}"
   done
@@ -63,13 +65,12 @@ function ping_cycle {
   done
 }
 
-function cleanup {
-  set +e
-  delete_veth 4
-}
-trap cleanup ERR
-
 delete_veth 4
+
+echo -e "${COLOR_YELLOW}Compiling backend.${COLOR_OFF}"
+cd backend
+cargo b -r
+cd ..
 
 echo -e "${COLOR_YELLOW}Creating namespaces.${COLOR_OFF}"
 create_veth 4
