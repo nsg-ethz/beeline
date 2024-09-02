@@ -15,10 +15,8 @@ then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR=${ROOT}/../res/${NAME}/logs
-SUMMARY_DIR=${ROOT}/../res/${NAME}/summary
+SUMMARY_DIR=${ROOT}/../res/${NAME}
 
-mkdir -p ${LOG_DIR}
 mkdir -p ${SUMMARY_DIR}
 
 # this needs to be on a different NUMA node than the proxy
