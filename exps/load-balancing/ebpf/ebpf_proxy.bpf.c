@@ -131,6 +131,7 @@ static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hd
     }
 
     // hdr->content_length = 8359;
+    // hdr->content_length = 400;
 
     return _parse_http_hdr_line(data, data_end, hdr);
 
@@ -152,6 +153,9 @@ static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hd
 
 SEC("sk_skb/stream_parser")
 int bpf_prog_parser(struct __sk_buff *skb) {
+    return skb->len;
+
+    // this is not working yet
     struct sock_key key = { 0 };
     _skb_extract_key(skb, &key);
 

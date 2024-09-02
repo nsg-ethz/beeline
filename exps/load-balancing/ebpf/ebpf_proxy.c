@@ -161,7 +161,7 @@ int add_to_sockmap(int sockmap_fd, int fd, struct sock_key *key) {
             (key->local_ip4 >> 24) & 0xff, (key->local_ip4 >> 16) & 0xff, (key->local_ip4 >> 8) & 0xff, key->local_ip4 & 0xff, key->local_port,
             (key->remote_ip4 >> 24) & 0xff, (key->remote_ip4 >> 16) & 0xff, (key->remote_ip4 >> 8) & 0xff, key->remote_ip4 & 0xff, key->remote_port);
     
-    if (bpf_map_update_elem(sockmap_fd, key, &fd, BPF_NOEXIST) < 0) {
+    if (bpf_map_update_elem(sockmap_fd, key, &fd, BPF_ANY) < 0) {
         if (errno == EOPNOTSUPP) {
             fprintf(stderr, "pushing closed socket to sockmap?\n");
         }
