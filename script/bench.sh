@@ -10,7 +10,7 @@ while getopts "l:n:p:r:s:" opt; do
         l ) WRITE_LOG=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
-        p ) RATE=${OPTARG} ;;
+        r ) RATE=${OPTARG} ;;
         s ) SIZE_LIST=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
