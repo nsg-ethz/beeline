@@ -385,10 +385,12 @@ void* worker(void* arg) {
                 struct sock_bind *bind = (struct sock_bind *)hashmap_get(b2c, &(struct sock_bind){ .key=fd_key });
                 int fd = -1;
                 if (bind != NULL) {
-                    print_log("Received response from backend: %d\n", bind->key_fd);
+                    print_log("Received response from backend: %d\n", fds[i].fd);
                     fd = bind->val_fd;
                 }
                 else {
+                    print_log("Received request from client: %d\n", fds[i].fd);
+
                     // we received a client request
                     // check which backend is requested
                     int backend = parse_backend(buf);
@@ -411,6 +413,7 @@ void* worker(void* arg) {
                             int num_open_conns = num_conn_pool[backend-1];
                             if (num_open_conns > 0) {
                                 bind = &conn_pool[backend-1][num_open_conns-1];
+                                num_conn_pool[backend-1]--;
                                 fd = bind->val_fd;
                                 assign_client_to_backend(c2b, b2c, &fd_key, fds[i].fd, &bind->val, bind->val_fd);
                                 print_log("Reusing backend connection: %d\n", bind->val_fd);
@@ -421,6 +424,7 @@ void* worker(void* arg) {
                                 num_conn_pool[backend-1]++;
 
                                 // remove client - backend binding
+                                bind->val.backend = 0;
                                 if (hashmap_delete(b2c, &(struct sock_bind){ .key=bind->val }) == NULL) {
                                     print_err("Failed to delete b2c binding\n");
                                     exit(-1);
@@ -454,6 +458,7 @@ void* worker(void* arg) {
                     }
                 }
 
+                print_log("Forwarding request to socket %d\n", fd);
                 write_req(fd, buf, req_len);
             }
         }
