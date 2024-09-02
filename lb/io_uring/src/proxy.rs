@@ -19,13 +19,12 @@ use slab::Slab;
 
 use crate::http;
 
-const MAX_CONNS: usize = 3000;
 const BUF_NUM: usize = 64;
 const BUF_LEN: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Token {
-    ProvideBuffers { addr: *mut u8, num_bufs: u16, buf_len: i32, bgid: u16, bid: u16 },
+    ProvideBuffers { fd: Option<RawFd>, addr: *mut u8, num_bufs: u16, buf_len: i32, bgid: u16, bid: u16 },
     Accept { fd: RawFd },
     Read { fd: RawFd, bgid: u16 },
     Write { fd: RawFd, bgid: u16, bid: usize, len: usize },
@@ -56,8 +55,8 @@ impl Proxy {
             conns: HashMap::new(),
             conn_pool: conn_pool,
             buf_pool: Vec::with_capacity(64),
-            buf_alloc: Slab::with_capacity(MAX_CONNS),
-            token_alloc: Slab::with_capacity(MAX_CONNS)
+            buf_alloc: Slab::with_capacity(1000),
+            token_alloc: Slab::with_capacity(1000)
         })
     }
 
@@ -152,21 +151,21 @@ impl Proxy {
                 toks
             },
             Token::Read { fd, bgid } => self.handle_read(cqe, fd, bgid),
-            Token::Write { bgid, bid, .. } => vec![Token::ProvideBuffers { addr: self.get_buf_ptr(bgid, bid), num_bufs: 1, buf_len: BUF_LEN as i32, bgid, bid: bid as u16 }],
-            Token::Shutdown { bgid, .. } => {
+            Token::Write { bgid, bid, .. } => vec![Token::ProvideBuffers { fd: None, addr: self.get_buf_ptr(bgid, bid), num_bufs: 1, buf_len: BUF_LEN as i32, bgid, bid: bid as u16 }],
+            Token::Shutdown { fd, bgid } => {
                 self.buf_pool.push(bgid);
+                if let Some(bfd) = self.conns.remove(&fd) {
+                    self.conns.remove(&bfd);
+                }
+
                 vec![]
             },
+            Token::ProvideBuffers { fd: Some(fd), bgid, .. } => vec![Token::Read { fd, bgid }],
             _ => vec![]
         }
     }
 
     fn handle_accept(&mut self, fd: RawFd) -> Vec<Token> {
-        if self.conns.len() / 2 >= MAX_CONNS {
-            error!("max connections reached");
-            return vec![];
-        }
-
         debug!("accept {:?}", fd);
         self.prep_socket(fd)
     }
@@ -175,8 +174,7 @@ impl Proxy {
         let bgid = self.get_vacant_bgid();
         let addr = self.get_buf_ptr(bgid, 0);
         vec![
-            Token::ProvideBuffers { addr, num_bufs: BUF_NUM as u16, buf_len: BUF_LEN as i32, bgid, bid: 0 }, 
-            Token::Read { fd, bgid }
+            Token::ProvideBuffers { fd: Some(fd), addr, num_bufs: BUF_NUM as u16, buf_len: BUF_LEN as i32, bgid, bid: 0 }, 
         ]
     }
 
@@ -292,7 +290,7 @@ impl Proxy {
     fn sqe_from_token(&mut self, token: Token) -> squeue::Entry {
         let token_idx = self.token_alloc.insert(token.clone());
         let sqe = match token {
-            Token::ProvideBuffers { addr, num_bufs, buf_len, bgid, bid } => opcode::ProvideBuffers::new(addr, buf_len, num_bufs, bgid, bid).build(),
+            Token::ProvideBuffers { addr, num_bufs, buf_len, bgid, bid, .. } => opcode::ProvideBuffers::new(addr, buf_len, num_bufs, bgid, bid).build(),
             // Token::Accept { fd } => opcode::AcceptMulti::new(types::Fd(fd)).build(),
             Token::Accept { fd } => opcode::Accept::new(types::Fd(fd), std::ptr::null_mut(), std::ptr::null_mut()).build(),
             Token::Read { fd, bgid } => opcode::RecvMulti::new(types::Fd(fd), bgid).build(),
