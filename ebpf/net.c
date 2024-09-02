@@ -211,10 +211,10 @@ int net_bind_tcp(struct sockaddr_storage *ss) {
         PFATAL("setsockopt(TCP_CONGESTION)");
     }
 
-    r = ioctl(sd, FIONBIO, (char *)&one);
-    if (r < 0) {
-        PFATAL("failed to ioctl\n");
-    }
+    // r = ioctl(sd, FIONBIO, (char *)&one);
+    // if (r < 0) {
+    //     PFATAL("failed to ioctl\n");
+    // }
 
     r = bind(sd, (struct sockaddr *)ss, sizeof_ss(ss));
     if (r < 0) {

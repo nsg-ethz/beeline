@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <pthread.h>
 
 #include "net.h"
 #include "ebpf_proxy_struct.h"
@@ -25,7 +26,14 @@
 
 struct ebpf_proxy_bpf *SKEL;
 int cg_fd;
+int sockmap_fd;
+struct sockaddr_storage addr;
+
 const int MAX_NUM_CONN = 10000;
+struct sockaddr_storage *backend_addrs;
+struct pollfd *fds;
+int num_fds = 0;
+pthread_mutex_t fds_lock;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
                            va_list args) {
@@ -42,14 +50,14 @@ static void bump_memlock_rlimit(void) {
         exit(1);
     }
 
-    struct rlimit rlim_file = {
-        .rlim_cur = 8192,
-        .rlim_max = 8192,
-    };
-    if (setrlimit(RLIMIT_NOFILE, &rlim_file) < 0) {
-        fprintf(stderr, "Failed to increase RLIMIT_NOFILE limit!\n");
-        exit(1);
-    }
+    // struct rlimit rlim_file = {
+    //     .rlim_cur = 8192,
+    //     .rlim_max = 8192,
+    // };
+    // if (setrlimit(RLIMIT_NOFILE, &rlim_file) < 0) {
+    //     fprintf(stderr, "Failed to increase RLIMIT_NOFILE limit!\n");
+    //     exit(1);
+    // }
 }
 
 static void bpf_detach(int sig) {
@@ -153,6 +161,10 @@ int accept_client_conn(int lfd, int sockmap_fd, struct sock_key* client_key) {
 
     get_sock_key(fd, client_key);
 
+    printf("Accepted new client connection [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+        (client_key->local_ip4 >> 24) & 0xff, (client_key->local_ip4 >> 16) & 0xff, (client_key->local_ip4 >> 8) & 0xff, client_key->local_ip4 & 0xff, client_key->local_port,
+        (client_key->remote_ip4 >> 24) & 0xff, (client_key->remote_ip4 >> 16) & 0xff, (client_key->remote_ip4 >> 8) & 0xff, client_key->remote_ip4 & 0xff, client_key->remote_port);
+
     return fd;
 }
 
@@ -220,35 +232,241 @@ int parse_backend(char* req) {
     return -1;
 }
 
-int parse_header_length(char* req) {
+int parse_http_hdr_len(const char* hdr) {
     const char *sep = "\r\n\r\n";
-    char *next = strstr(req, sep);
+    char *next = strstr(hdr, sep);
     if (next != NULL) {
-        return next-req;
+        return next-hdr;
     }
 
     return -1;
 }
 
-int parse_content_length(char* req) {
-    const char *key = "Content-Length: ";
-    int key_len = strlen(key);
+const void* parse_http_hdr(const char *hdr, const char *key) {
+    int name_len = strlen(key) + 2;
+    char name[name_len + 1];
+    snprintf(name, name_len+1, "%s: ", key);
 
-    char *line = req;
+    const char *line = hdr;
     const char *sep = "\r\n";
     int sep_len = 2;
     while (line) {
         char *next = strstr(line, sep);
 
         if (next == NULL) break;
-        if (strncmp(line, key, key_len) == 0) {
-            return atoi(line + key_len);
+        if (strncmp(line, name, name_len) == 0) {
+            return line + name_len;
         }
     
         line = next ? (next+sep_len) : NULL;
     }
 
-    return -1;
+    return NULL;
+}
+
+void* wait_for_conns(void* arg) {
+    int lfd = net_bind_tcp(&addr);
+    if (lfd < 0) {
+        fprintf(stderr, "Bind failed\n");
+        return NULL;
+    }
+
+    while (true) {
+        if (num_fds == MAX_NUM_CONN) {
+            printf("No new connections are accepted.\n");
+            usleep(1000);
+            continue;
+        }
+
+        struct sock_key client_key = { 0 };
+        int cd = accept_client_conn(lfd, sockmap_fd, &client_key);
+        if (cd < 0) {
+            printf("Error accepting new connections: %s\n", strerror(errno));
+            return NULL;
+        }
+
+        pthread_mutex_lock(&fds_lock); 
+        fds[num_fds].fd = cd;
+        fds[num_fds].events = POLLRDHUP|POLLHUP|POLLERR|POLLIN;
+        num_fds++;
+        pthread_mutex_unlock(&fds_lock);
+    }
+
+    close(lfd);
+    return NULL;
+}
+
+void* forward_reqs(void* arg) {
+    int b2c_fd = bpf_map__fd(SKEL->maps.b2c);
+    int c2b_fd = bpf_map__fd(SKEL->maps.c2b);
+
+    int backend1_conns_fd = bpf_map__fd(SKEL->maps.backend1_conns);
+    int backend2_conns_fd = bpf_map__fd(SKEL->maps.backend2_conns);
+    int backend3_conns_fd = bpf_map__fd(SKEL->maps.backend3_conns);
+    int backend4_conns_fd = bpf_map__fd(SKEL->maps.backend4_conns);
+
+    int num_fds_ = 0;
+    struct pollfd *fds_ = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
+
+    int num_fds_new = 0;
+    struct pollfd *fds_new = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
+
+    size_t buf_len = 128 * 1024;
+    char buf[buf_len];
+    
+    while (true) {
+        pthread_mutex_lock(&fds_lock); 
+        num_fds_ = num_fds;
+        memcpy(fds_, fds, MAX_NUM_CONN * sizeof(struct pollfd));
+        pthread_mutex_unlock(&fds_lock);
+
+        if (num_fds_ == 0) {
+            usleep(10);
+            continue;
+        }
+
+        int nfds = poll(fds_, num_fds_, 10);
+        if (nfds == -1) {
+            fprintf(stderr, "Error in poll syscall\n");
+            return NULL;
+        }
+        else if (nfds == 0) {
+            continue;
+        }
+
+        num_fds_new = 0;
+        memset(fds_new, 0, MAX_NUM_CONN * sizeof(struct pollfd));
+        
+        for (int i = 0; i < num_fds_; i++) {
+            struct sock_key client_key = { 0 };
+            get_sock_key(fds_[i].fd, &client_key);
+
+            // if POLLIN is always enabled, `recv` will end up in an infinite loop
+            // thus, we disable POLLIN once we have forwarded the request
+            fds_new[num_fds_new].fd = fds_[i].fd;
+            fds_new[num_fds_new].events = fds_[i].events;
+            num_fds_new++;
+
+            if (fds_[i].revents & POLLIN) {
+                memset(buf, 0, buf_len);
+
+                // read the entire request
+                int con_len = -1;
+                int pkt_len = -1;
+                int req_len = 0;
+                while (req_len < pkt_len || pkt_len < 0) {
+                    ssize_t len = recv(fds_[i].fd, buf+req_len, buf_len-req_len, MSG_DONTWAIT);
+
+                    // EAGAIN means we have to wait for eBPF verdict first
+                    if (len < 0 && errno != EAGAIN) {
+                        printf("Error reading socket: %s\n", strerror(errno));
+                        close(fds_[i].fd);
+                        break;
+                    }
+                    else if (len > 0) {
+                        const void* val = parse_http_hdr(buf, "Content-Length");
+                        if (val != NULL) {
+                            con_len = atoi(val);
+                            pkt_len = con_len + parse_http_hdr_len(buf);
+                        }
+
+                        req_len += len;
+                    }
+                }
+
+                // we received a new request but don't 
+                // have a free connection in the pool
+                int backend = parse_backend(buf);
+                if (backend < 1) {
+                    printf("Invalid request: %s\n", buf);
+                    continue;
+                }
+
+                // valid request -> start backend connections
+                // we start all 4 connections right away, because
+                // contacting userspace later is buggy
+                struct sock_key backend_key = { 0 };
+                int bd = -1;
+                for (int i = 1; i < 5; i++) {
+                    struct sock_key key = { 0 };
+                    int fd = start_backend_conn(i, backend_addrs, sockmap_fd, &key);
+                    printf("Established a new connection to backend %d: %d\n", key.backend, fd);
+
+                    add_to_sockmap(sockmap_fd, fd, &key);
+                    if (i == backend) {
+                        backend_key = key;
+                        bd = fd;
+                    }
+                    else {
+                        int conns_fd = -1;
+                        switch (i) {
+                            case 1: conns_fd = backend1_conns_fd; break;
+                            case 2: conns_fd = backend2_conns_fd; break;
+                            case 3: conns_fd = backend3_conns_fd; break;
+                            case 4: conns_fd = backend4_conns_fd; break;
+                        }
+
+                        if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
+                            fprintf(stderr, "bpf_map_update_elem(backend%d_conns) failed: %s\n", i, strerror(errno));
+                            return NULL;
+                        }
+                    }
+                }
+
+                // book keeping
+                if (assign_client_to_backend(c2b_fd, b2c_fd, &client_key, &backend_key) < 0) {
+                    return NULL;
+                }
+
+                add_to_sockmap(sockmap_fd, fds_[i].fd, &client_key);
+
+                size_t res_len = 0;
+                do {
+                    ssize_t len = write(bd, buf+res_len, req_len-res_len);
+                    if (len < 0) {
+                        // the socket might not be ready
+                        continue;
+                    }
+                    
+                    if (len == 0) {
+                        // we sent the msg
+                        break;
+                    }
+                    res_len += len;
+                } while (res_len < req_len);
+
+                // if forwarding was successful, remove POLLIN from events
+                printf("Redirected request of length %ld to backend\n", res_len);
+                fds_new[num_fds_new-1].events = POLLRDHUP|POLLHUP|POLLERR;
+            }
+            
+            if (fds_[i].revents & POLLRDHUP || fds_[i].revents & POLLHUP) {
+                printf("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+                    (client_key.local_ip4 >> 24) & 0xff, (client_key.local_ip4 >> 16) & 0xff, (client_key.local_ip4 >> 8) & 0xff, client_key.local_ip4 & 0xff, client_key.local_port,
+                    (client_key.remote_ip4 >> 24) & 0xff, (client_key.remote_ip4 >> 16) & 0xff, (client_key.remote_ip4 >> 8) & 0xff, client_key.remote_ip4 & 0xff, client_key.remote_port);
+                close(fds_[i].fd);
+
+                fds_new[num_fds_new].fd = 0;
+                num_fds_new--;
+            }
+        }
+
+        pthread_mutex_lock(&fds_lock);
+        // check if we have accepted a new connection in the meantime
+        for (int i = num_fds_; i < num_fds; i++) { 
+            fds_new[num_fds_new].fd = fds[i].fd;
+            fds_new[num_fds_new].events = fds[i].events;
+            num_fds_new++;
+        }
+
+        memcpy(fds, fds_new, MAX_NUM_CONN * sizeof(struct pollfd));
+        num_fds = num_fds_new;
+        pthread_mutex_unlock(&fds_lock);
+    }
+
+    free(fds_);
+    free(fds_new);
+    return NULL;
 }
 
 int main(int argc, char **argv) {
@@ -261,7 +479,7 @@ int main(int argc, char **argv) {
         fprintf(stderr,
                 "Usage: %s <listen:port> <connect:port> [<connectN:portN>]\n",
                 argv[0]);
-        exit(1);
+        return -1;
     }
 
     /* Set up libbpf errors and debug info callback */
@@ -274,7 +492,7 @@ int main(int argc, char **argv) {
     SKEL = ebpf_proxy_bpf__open();
     if (!SKEL) {
         fprintf(stderr, "Failed to open BPF skeleton\n");
-        return 1;
+        return -1;
     }
 
     /* Load & verify BPF programs */
@@ -297,7 +515,7 @@ int main(int argc, char **argv) {
     //     return -1;
     // }
 
-    int sockmap_fd = bpf_map__fd(SKEL->maps.sock_map);
+    sockmap_fd = bpf_map__fd(SKEL->maps.sock_map);
 
     err = bpf_prog_attach(bpf_program__fd(SKEL->progs.bpf_prog_parser),
                           sockmap_fd, BPF_SK_SKB_STREAM_PARSER, 0);
@@ -317,11 +535,10 @@ int main(int argc, char **argv) {
 
     printf("BPF programs loaded correctly!\n");
 
-    struct sockaddr_storage listen;
-    net_parse_sockaddr(&listen, argv[1]);
+    net_parse_sockaddr(&addr, argv[1]);
 
     unsigned int num_backends = argc - 2;
-    struct sockaddr_storage *backend_addrs = (struct sockaddr_storage *)malloc(num_backends * sizeof(struct sockaddr_storage));
+    backend_addrs = (struct sockaddr_storage *)malloc(num_backends * sizeof(struct sockaddr_storage));
     for (int i = 0; i < num_backends; i++) {
         net_parse_sockaddr(&backend_addrs[i], argv[i + 2]);
     }
@@ -346,192 +563,34 @@ int main(int argc, char **argv) {
         }
     }
 
-    int b2c_fd = bpf_map__fd(SKEL->maps.b2c);
-    int c2b_fd = bpf_map__fd(SKEL->maps.c2b);
-
-    // start listening to incomming connections
-    int num_fds = 0;
-    int lfd = net_bind_tcp(&listen);
-    if (lfd < 0) {
-        fprintf(stderr, "Bind failed\n");
-        goto cleanup;
-    }
-
-    struct pollfd *fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
+    num_fds = 0;
+    fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
     if (fds == NULL) {
         fprintf(stderr, "malloc failed\n");
-        goto cleanup;
+        return -1;
     }
 
-    int backend1_conns_fd = bpf_map__fd(SKEL->maps.backend1_conns);
-    int backend2_conns_fd = bpf_map__fd(SKEL->maps.backend2_conns);
-    int backend3_conns_fd = bpf_map__fd(SKEL->maps.backend3_conns);
-    int backend4_conns_fd = bpf_map__fd(SKEL->maps.backend4_conns);
-
-    // for (int i = 0; i < 1000; i++) {
-    //     struct sock_key key = { 0 };
-    //     int bd = start_backend_conn(0, backend_addrs, sockmap_fd, &key);
-
-    //     int r = bpf_map_update_elem(backend1_conns_fd, NULL, &key, BPF_ANY);
-    //     if (r != 0) {
-    //         fprintf(stderr, "bpf_map_update_elem(backend1_conns) failed: %s\n", strerror(errno));
-    //         goto cleanup;
-    //     }
-    // }
-
-accept:
-    if (num_fds == MAX_NUM_CONN) {
-        printf("No new connections are accepted.\n");
-        goto poll;
+    if (pthread_mutex_init(&fds_lock, NULL) < 0) {
+        fprintf(stderr, "mutex init failed\n");
+        return -1;
     }
 
-    struct sock_key client_key = { 0 };
-    int cd = accept_client_conn(lfd, sockmap_fd, &client_key);
-    if (cd < 0) {
-        // no new connections
-        // due to an error?
-        if (errno == EAGAIN) {
-            // just no new connection request -> poll again
-            goto poll;
-        }
-
-        printf("Error accepting new connections: %s\n", strerror(errno));
-        goto cleanup;
+    pthread_t tid[2]; 
+    if (pthread_create(&(tid[0]), NULL, &wait_for_conns, NULL) < 0) {
+        fprintf(stderr, "pthread_create failed: %s\n", strerror(errno));
+        return -1;
     }
 
-    fds[num_fds].fd = cd;
-    fds[num_fds].events = POLLRDHUP|POLLHUP|POLLERR|POLLIN;
-    num_fds++;
-
-poll:
-    // // no polling
-    // goto accept;
-    int nfds = poll(fds, num_fds, 0.1);
-
-    if (nfds == -1) {
-        fprintf(stderr, "Error in poll syscall\n");
-        goto cleanup;
-    }
-    else if (nfds == 0) {
-        goto accept;
+    if (pthread_create(&(tid[1]), NULL, &forward_reqs, NULL) < 0) {
+        fprintf(stderr, "pthread_create failed: %s\n", strerror(errno));
+        return -1;
     }
 
-    int num_fds_new = 0;
-    struct pollfd *fds_new = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
-    if (fds_new == NULL) {
-        fprintf(stderr, "malloc failed\n");
-        goto cleanup;
-    }
-    
-    for (int i = 0; i < num_fds; i++) {
-        if (fds[i].revents & POLLIN) {
-            size_t buf_len = 128 * 1024;
-            char buf[buf_len];
-            memset(buf, 0, buf_len);
+    pthread_join(tid[0], NULL);
+    // pthread_join(tid[1], NULL); 
+    pthread_mutex_destroy(&fds_lock); 
 
-            // read the entire request
-            int con_len = -1;
-            int req_len = 0;
-            while (req_len < con_len || con_len < 0) {
-                ssize_t len = recv(fds[i].fd, buf+req_len, buf_len-req_len, MSG_DONTWAIT);
-
-                // EAGAIN means we have to wait for eBPF verdict first
-                if (len < 0 && errno != EAGAIN) {
-                    printf("Error reading socket: %s\n", strerror(errno));
-                    close(fds[i].fd);
-                    break;
-                }
-                else if (len > 0) {
-                    con_len = parse_content_length(buf) + parse_header_length(buf);
-                    req_len += len;
-                }
-            }
-
-            // TODO: continue observing socket breaks the "on demand" solution
-            fds_new[num_fds_new].fd = fds[i].fd;
-            fds_new[num_fds_new].events = POLLRDHUP|POLLHUP|POLLERR;
-            num_fds_new++;
-
-            // we received a new request but don't 
-            // have a free connection in the pool
-            int backend = parse_backend(buf);
-            if (backend < 1) {
-                printf("Invalid request: %s\n", buf);
-                continue;
-            }
-
-            // valid request -> start backend connections
-            // we start all 4 connections right away, because
-            // contacting userspace later is buggy
-            struct sock_key backend_key = { 0 };
-            int bd = -1;
-            for (int i = 1; i < 5; i++) {
-                struct sock_key key = { 0 };
-                int fd = start_backend_conn(i, backend_addrs, sockmap_fd, &key);
-                printf("Established a new connection to backend %d: %d\n", key.backend, fd);
-
-                add_to_sockmap(sockmap_fd, fd, &key);
-                if (i == backend) {
-                    backend_key = key;
-                    bd = fd;
-                }
-                else {
-                    int conns_fd = -1;
-                    switch (i) {
-                        case 1: conns_fd = backend1_conns_fd; break;
-                        case 2: conns_fd = backend2_conns_fd; break;
-                        case 3: conns_fd = backend3_conns_fd; break;
-                        case 4: conns_fd = backend4_conns_fd; break;
-                    }
-
-                    if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
-                        fprintf(stderr, "bpf_map_update_elem(backend1_conns) failed: %s\n", strerror(errno));
-                        goto cleanup;
-                    }
-                }
-            }
-
-            // book keeping
-            struct sock_key client_key = { 0 };
-            get_sock_key(fds[i].fd, &client_key);
-
-            if (assign_client_to_backend(c2b_fd, b2c_fd, &client_key, &backend_key) < 0) {
-                goto cleanup;
-            }
-
-            add_to_sockmap(sockmap_fd, fds[i].fd, &client_key);
-
-            size_t res_len = 0;
-            do {
-                ssize_t len = write(bd, buf+res_len, req_len-res_len);
-                if (len < 0) {
-                    // the socket might not be ready
-                    continue;
-                }
-                
-                if (len == 0) {
-                    // we sent the msg
-                    break;
-                }
-                res_len += len;
-            } while (res_len < req_len);
-            printf("Redirected request of length %ld to backend\n", res_len);
-        }
-        
-        if (fds[i].revents & POLLRDHUP || fds[i].revents & POLLHUP) {
-            printf("Client connection closed\n");
-            close(fds[i].fd);
-        }
-    }
-
-    free(fds);
-    fds = fds_new;
-    num_fds = num_fds_new;
-
-    goto accept;
-
-cleanup:
-    close(lfd);
+    // clean up
     for (int i = 0; i < num_fds; i++) {
         close(fds[i].fd);
     }

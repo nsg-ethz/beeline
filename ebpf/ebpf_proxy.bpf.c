@@ -22,7 +22,7 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 #if LOG_LEVEL == 0
 #define bpf_log(fmt, ...) (0)
@@ -37,7 +37,7 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 40000);
+    __uint(max_entries, 80000);
     __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
@@ -71,14 +71,14 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 5000);
+    __uint(max_entries, 10000);
     __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(struct sock_key));
 } b2c SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 5000);
+    __uint(max_entries, 10000);
     __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(struct sock_key));
 } c2b SEC(".maps");
