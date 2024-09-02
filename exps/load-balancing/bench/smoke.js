@@ -12,10 +12,11 @@ export const options = {
 };
 
 export default function () {
+  const payload_size = __ENV.PAYLOAD_SIZE || 1024;
   const server = randomIntBetween(1, 4);
   const signature = `server${server}`;
   const url = `http://127.0.0.1:3000/${signature}`;
-  const data = JSON.stringify({ "text": randomString(1024) });
+  const data = JSON.stringify({ "text": randomString(payload_size) });
   const res = http.post(url, data);
 
   let passed = check(res, {
