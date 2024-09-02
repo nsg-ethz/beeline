@@ -1,0 +1,236 @@
+{
+  "RunType": "HTTP",
+  "Labels": "127.0.0.1:3000/server1 , ee-tik-nsgvm044",
+  "StartTime": "2024-03-20T08:57:55.393246393+01:00",
+  "RequestedQPS": "8",
+  "RequestedDuration": "exactly 1000 calls",
+  "ActualQPS": 7.999732271744103,
+  "ActualDuration": 125004183394,
+  "NumThreads": 1,
+  "Version": "1.63.4",
+  "DurationHistogram": {
+    "Count": 1000,
+    "Min": 0.00175828,
+    "Max": 0.039335173,
+    "Sum": 2.992936061000001,
+    "Avg": 0.002992936061000001,
+    "StdDev": 0.0014705597549618506,
+    "Data": [
+      {
+        "Start": 0.00175828,
+        "End": 0.002,
+        "Percent": 0.6,
+        "Count": 6
+      },
+      {
+        "Start": 0.002,
+        "End": 0.003,
+        "Percent": 70.3,
+        "Count": 697
+      },
+      {
+        "Start": 0.003,
+        "End": 0.004,
+        "Percent": 92.1,
+        "Count": 218
+      },
+      {
+        "Start": 0.004,
+        "End": 0.005,
+        "Percent": 96.9,
+        "Count": 48
+      },
+      {
+        "Start": 0.005,
+        "End": 0.006,
+        "Percent": 98.2,
+        "Count": 13
+      },
+      {
+        "Start": 0.006,
+        "End": 0.007,
+        "Percent": 98.9,
+        "Count": 7
+      },
+      {
+        "Start": 0.007,
+        "End": 0.008,
+        "Percent": 99.3,
+        "Count": 4
+      },
+      {
+        "Start": 0.008,
+        "End": 0.009000000000000001,
+        "Percent": 99.6,
+        "Count": 3
+      },
+      {
+        "Start": 0.01,
+        "End": 0.011,
+        "Percent": 99.7,
+        "Count": 1
+      },
+      {
+        "Start": 0.011,
+        "End": 0.012,
+        "Percent": 99.9,
+        "Count": 2
+      },
+      {
+        "Start": 0.035,
+        "End": 0.039335173,
+        "Percent": 100,
+        "Count": 1
+      }
+    ],
+    "Percentiles": [
+      {
+        "Percentile": 50,
+        "Value": 0.002708751793400287
+      },
+      {
+        "Percentile": 75,
+        "Value": 0.0032155963302752297
+      },
+      {
+        "Percentile": 90,
+        "Value": 0.0039036697247706426
+      },
+      {
+        "Percentile": 99,
+        "Value": 0.007249999999999991
+      },
+      {
+        "Percentile": 99.9,
+        "Value": 0.012
+      }
+    ]
+  },
+  "ErrorsDurationHistogram": {
+    "Count": 0,
+    "Min": 0,
+    "Max": 0,
+    "Sum": 0,
+    "Avg": 0,
+    "StdDev": 0,
+    "Data": null
+  },
+  "Exactly": 1000,
+  "Jitter": false,
+  "Uniform": false,
+  "NoCatchUp": false,
+  "RunID": 0,
+  "AccessLoggerInfo": "",
+  "ID": "2024-03-20-085755_127_0_0_1_3000_server1_ee_tik_nsgvm044",
+  "RetCodes": {
+    "200": 1000
+  },
+  "IPCountMap": {
+    "127.0.0.1:3000": 1
+  },
+  "Insecure": false,
+  "MTLS": false,
+  "CACert": "",
+  "Cert": "",
+  "Key": "",
+  "UnixDomainSocket": "",
+  "URL": "http://127.0.0.1:3000/server1",
+  "NumConnections": 1,
+  "Compression": false,
+  "DisableFastClient": false,
+  "HTTP10": false,
+  "H2": false,
+  "DisableKeepAlive": false,
+  "AllowHalfClose": false,
+  "FollowRedirects": false,
+  "Resolve": "",
+  "HTTPReqTimeOut": 3000000000,
+  "UserCredentials": "",
+  "ContentType": "",
+  "Payload": "",
+  "MethodOverride": "",
+  "LogErrors": true,
+  "SequentialWarmup": false,
+  "ConnReuseRange": [
+    0,
+    0
+  ],
+  "NoResolveEachConn": false,
+  "Offset": 0,
+  "Resolution": 0.001,
+  "Sizes": {
+    "Count": 1000,
+    "Min": 182,
+    "Max": 182,
+    "Sum": 182000,
+    "Avg": 182,
+    "StdDev": 0,
+    "Data": [
+      {
+        "Start": 182,
+        "End": 182,
+        "Percent": 100,
+        "Count": 1000
+      }
+    ]
+  },
+  "HeaderSizes": {
+    "Count": 1000,
+    "Min": 162,
+    "Max": 162,
+    "Sum": 162000,
+    "Avg": 162,
+    "StdDev": 0,
+    "Data": [
+      {
+        "Start": 162,
+        "End": 162,
+        "Percent": 100,
+        "Count": 1000
+      }
+    ]
+  },
+  "Sockets": [
+    1
+  ],
+  "SocketCount": 1,
+  "ConnectionStats": {
+    "Count": 1,
+    "Min": 0.000531421,
+    "Max": 0.000531421,
+    "Sum": 0.000531421,
+    "Avg": 0.000531421,
+    "StdDev": 0,
+    "Data": [
+      {
+        "Start": 0.000531421,
+        "End": 0.000531421,
+        "Percent": 100,
+        "Count": 1
+      }
+    ],
+    "Percentiles": [
+      {
+        "Percentile": 50,
+        "Value": 0.000531421
+      },
+      {
+        "Percentile": 75,
+        "Value": 0.000531421
+      },
+      {
+        "Percentile": 90,
+        "Value": 0.000531421
+      },
+      {
+        "Percentile": 99,
+        "Value": 0.000531421
+      },
+      {
+        "Percentile": 99.9,
+        "Value": 0.000531421
+      }
+    ]
+  },
+  "AbortOn": 0
+}

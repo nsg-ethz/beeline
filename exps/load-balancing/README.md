@@ -5,10 +5,10 @@ A load balancing experiment forked from [ebpf-http-offload](https://github.com/s
 ## Benchmarking
 
 ```
-    ./bench.sh
+./bench.sh
 ```
 
 ## Requirements
 ```
-    go install fortio.org/fortio@latest
+go install fortio.org/fortio@latest
 ```
