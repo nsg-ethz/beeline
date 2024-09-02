@@ -6,7 +6,10 @@ use log::{
     info
 };
 use std::{
-    collections::HashMap,
+    collections::{
+        HashMap,
+        VecDeque
+    },
     io,
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     os::unix::io::{AsRawFd, RawFd},
@@ -61,6 +64,7 @@ impl Proxy {
     pub fn listen(&mut self) -> Result<()> {
         let mut ring = IoUring::new(2048)?;
         let (submitter, mut sq, mut cq) = ring.split();
+        let mut backlog = VecDeque::new();
 
         let listener = TcpListener::bind(self.addr)?;
         let accept = Token::Accept { fd: listener.as_raw_fd() };
@@ -80,7 +84,25 @@ impl Proxy {
                 Err(err) => return Err(err.into()),
             }
             cq.sync();
-            assert!(!sq.cq_overflow());
+
+            // clean backlog
+            loop {
+                if sq.is_full() {
+                    match submitter.submit() {
+                        Ok(_) => (),
+                        Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => break,
+                        Err(err) => return Err(err.into()),
+                    }
+                }
+                sq.sync();
+
+                match backlog.pop_front() {
+                    Some(sqe) => unsafe {
+                        sq.push(&sqe)?;
+                    },
+                    None => break,
+                }
+            }
     
             for cqe in &mut cq {
                 let next_tokens = self.handle_cqe(cqe);
@@ -89,7 +111,9 @@ impl Proxy {
                     for tok in next_tokens {    
                         let sqe = self.sqe_from_token(tok);
                         unsafe {
-                            sq.push(&sqe)?;
+                            if sq.push(&sqe).is_err() {
+                                backlog.push_back(sqe);
+                            }
                         }
                     }
                 }
@@ -122,7 +146,11 @@ impl Proxy {
         }
     
         match token {
-            Token::Accept { .. } => self.handle_accept(ret),
+            Token::Accept { fd } => {
+                let mut toks = self.handle_accept(ret);
+                toks.push(Token::Accept { fd });
+                toks
+            },
             Token::Read { fd, bgid } => self.handle_read(cqe, fd, bgid),
             Token::Write { bgid, bid, .. } => vec![Token::ProvideBuffers { addr: self.get_buf_ptr(bgid, bid), num_bufs: 1, buf_len: BUF_LEN as i32, bgid, bid: bid as u16 }],
             Token::Shutdown { bgid, .. } => {
@@ -265,7 +293,8 @@ impl Proxy {
         let token_idx = self.token_alloc.insert(token.clone());
         let sqe = match token {
             Token::ProvideBuffers { addr, num_bufs, buf_len, bgid, bid } => opcode::ProvideBuffers::new(addr, buf_len, num_bufs, bgid, bid).build(),
-            Token::Accept { fd } => opcode::AcceptMulti::new(types::Fd(fd)).build(),
+            // Token::Accept { fd } => opcode::AcceptMulti::new(types::Fd(fd)).build(),
+            Token::Accept { fd } => opcode::Accept::new(types::Fd(fd), std::ptr::null_mut(), std::ptr::null_mut()).build(),
             Token::Read { fd, bgid } => opcode::RecvMulti::new(types::Fd(fd), bgid).build(),
             Token::Write { fd, bgid, bid, len } => opcode::Send::new(types::Fd(fd), self.get_buf_ptr(bgid, bid), len as _).build(),
             Token::Shutdown { fd, .. } => opcode::Shutdown::new(types::Fd(fd), 2).build(),
