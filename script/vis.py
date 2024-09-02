@@ -118,7 +118,7 @@ def line_graph(paths, metric, agg, dst):
     g.set_ylabel("time [ms]")
     g.set_xbound(lower=sizes[0], upper=sizes[-1])
     plt.yscale("log")
-    _save_to_path(f"line-{metric}.pdf", dst)           
+    _save_to_path(f"line-{metric}-{agg}.pdf", dst)           
     
 
 def speedup_graph(paths, metric, aggs, dst):
@@ -156,9 +156,40 @@ def duration_graph(paths, proxy, agg, dst):
     df = df.reset_index()
     df = df.pivot(index="payload_size", columns="metric_name", values=agg)
 
-    df.plot(kind="bar", stacked=True)
+    g = df.plot(kind="bar", stacked=True)
+    g.set_xlabel("payload size [B]")
+    g.set_ylabel("time [ms]")
     
-    _save_to_path(f"duration-{proxy}.pdf", dst)
+    _save_to_path(f"duration-{proxy}-{agg}.pdf", dst)
+
+
+def overhead_graph(paths, base, metric, agg, dst):
+    def _preprocess(df):
+        df = df[df.index.get_level_values("metric_name") == metric]
+        df = df.drop((c for c in df.columns if c != agg), axis=1)
+        df = df.reset_index()
+        df = df.pivot(index="payload_size", columns="proxy", values=agg)
+
+        return df
+    
+    df = _preprocess(_load_summary_data(paths))
+
+    files = glob.glob(base)
+    base = _preprocess(_load_summary_data(files))
+
+    # we want the overhead of one request
+    # but our tests pass the lb twice, so we divide by two
+    df["ebpf"] = (df["ebpf"] - base["none"]) / 2.0
+    df["envoy"] = (df["envoy"] - base["none"]) / 2.0
+
+    # assert(np.all(df["ebpf"] >= 0))
+    assert(np.all(df["envoy"] >= 0))
+
+    g = df.plot(kind="bar")
+    g.set_xlabel("payload size [B]")
+    g.set_ylabel("time [ms]")
+    
+    _save_to_path(f"overhead-{metric}-{agg}.pdf", dst)
 
 
 if __name__ == "__main__":
@@ -180,6 +211,11 @@ if __name__ == "__main__":
     speedup.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
     speedup.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
+    overhead = subparsers.add_parser("overhead")
+    overhead.add_argument("-b", "--base", required=True, help="The recorded proxy to visualize")
+    overhead.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+    overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+
     args = parser.parse_args()
     files = glob.glob(args.pattern)
 
@@ -189,3 +225,5 @@ if __name__ == "__main__":
         speedup_graph(files, args.metric, args.agg, args.output)
     elif args.command == "duration":
         duration_graph(files, args.proxy, args.agg, args.output)
+    elif args.command == "overhead":
+        overhead_graph(files, args.base, args.metric, args.agg, args.output)

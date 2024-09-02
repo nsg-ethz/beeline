@@ -1,0 +1,141 @@
+{
+    "root_group": {
+        "checks": {
+            "GET status is 200": {
+                "passes": 2575949,
+                "fails": 0,
+                "name": "GET status is 200",
+                "path": "::GET status is 200",
+                "id": "9c16d5d8185e1b76ee1184c5ef5f6bb2"
+            },
+            "processed by correct backend": {
+                "id": "f1c7ad86bd39765fcb80179f13de0adf",
+                "passes": 2575949,
+                "fails": 0,
+                "name": "processed by correct backend",
+                "path": "::processed by correct backend"
+            },
+            "body is the same": {
+                "name": "body is the same",
+                "path": "::body is the same",
+                "id": "5459cb71b3dd69f0e951342c77e8661a",
+                "passes": 2575949,
+                "fails": 0
+            }
+        },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {}
+    },
+    "metrics": {
+        "data_sent": {
+            "count": 638835352,
+            "rate": 2661798.4606702775
+        },
+        "iteration_duration": {
+            "p(90)": 32.86496000000003,
+            "p(95)": 56.01675320000002,
+            "avg": 13.809668239085948,
+            "min": 0.9572,
+            "med": 5.103008,
+            "max": 605.840107
+        },
+        "data_received": {
+            "rate": 2533001.7609604253,
+            "count": 607923964
+        },
+        "checks": {
+            "passes": 7727847,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_duration": {
+            "med": 2.539244,
+            "max": 496.516569,
+            "p(90)": 15.990563200000004,
+            "p(95)": 24.913342400000026,
+            "avg": 6.524617873090194,
+            "min": 0.111392
+        },
+        "http_req_connecting": {
+            "avg": 0.00020515385436590562,
+            "min": 0,
+            "med": 0,
+            "max": 41.607429,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_waiting": {
+            "min": 0.077473,
+            "med": 2.420198,
+            "max": 223.640491,
+            "p(90)": 14.554230200000012,
+            "p(95)": 22.2040778,
+            "avg": 5.509125535560727
+        },
+        "http_req_blocked": {
+            "avg": 0.004472577036269228,
+            "min": 0.001201,
+            "med": 0.002483,
+            "max": 227.984794,
+            "p(90)": 0.003536,
+            "p(95)": 0.00401
+        },
+        "http_req_duration{expected_response:true}": {
+            "med": 2.539244,
+            "max": 496.516569,
+            "p(90)": 15.990563200000004,
+            "p(95)": 24.913342400000026,
+            "avg": 6.524617873090194,
+            "min": 0.111392
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "iterations": {
+            "count": 2575949,
+            "rate": 10733.058309154345
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 2575949,
+            "value": 0
+        },
+        "vus_max": {
+            "value": 200,
+            "min": 200,
+            "max": 200
+        },
+        "http_req_sending": {
+            "avg": 0.1976177281572821,
+            "min": 0.008416,
+            "med": 0.01292,
+            "max": 434.498346,
+            "p(90)": 0.019684,
+            "p(95)": 0.022373
+        },
+        "http_req_receiving": {
+            "min": 0.009327,
+            "med": 0.024154,
+            "max": 437.074572,
+            "p(90)": 0.03709,
+            "p(95)": 0.22408940000000083,
+            "avg": 0.8178746093726127
+        },
+        "http_reqs": {
+            "count": 2575949,
+            "rate": 10733.058309154345
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 200
+        }
+    }
+}
