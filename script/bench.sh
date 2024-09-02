@@ -1,11 +1,11 @@
 #!/bin/bash
 
 cleanup() {
-    echo "Disable CPU performance governor"
-    sudo cpupower frequency-set --governor ondemand
-
     echo "Enable Intel HyperThreading"
     echo on | sudo tee /sys/devices/system/cpu/smt/control
+    
+    echo "Disable CPU performance governor"
+    sudo cpupower frequency-set --governor ondemand
     
     if [ ! -z "$ENVOY_PID" ]; then
         echo "Kill envoy"
@@ -49,11 +49,11 @@ while getopts ":n:p:s:" opt; do
     esac
 done
 
-echo "Enable CPU performance governor"
-sudo cpupower frequency-set --governor performance
-
 echo "Disable Intel HyperThreading"
 echo off | sudo tee /sys/devices/system/cpu/smt/control
+
+echo "Enable CPU performance governor"
+sudo cpupower frequency-set --governor performance
 
 ROOT=$(dirname "$(readlink -f "$0")")
 
