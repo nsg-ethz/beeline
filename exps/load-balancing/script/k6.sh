@@ -21,6 +21,7 @@ SUMMARY_DIR=${ROOT}/../res/${NAME}/summary
 mkdir -p ${LOG_DIR}
 mkdir -p ${SUMMARY_DIR}
 
-CMD="PAYLOAD_SIZE=${SIZE} taskset --cpu-list 2-8 k6 run -o csv=${LOG_DIR}/stress-${PROXY}-${SIZE}B.gz --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json bench/stress.js"
+# this needs to be on a different NUMA node than the proxy
+CMD="PAYLOAD_SIZE=${SIZE} taskset --cpu-list 12-23 k6 run -o csv=${LOG_DIR}/stress-${PROXY}-${SIZE}B.gz --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json bench/stress.js"
 echo ${CMD}
 eval ${CMD}
