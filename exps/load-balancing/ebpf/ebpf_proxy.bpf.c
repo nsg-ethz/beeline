@@ -67,7 +67,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 20);
+    __uint(max_entries, 5000);
     __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(struct sock_key));
 } req_map SEC(".maps");
