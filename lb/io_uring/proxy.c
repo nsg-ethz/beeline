@@ -334,7 +334,7 @@ void* worker(void* arg) {
                     // in that case, we should already have a backend assigned
                     if (bind == NULL) {
                         print_err("Received partial request of len %d from client %d without backend\n", cqe->res, req->fd);
-                        exit(-1);
+                        break;
                     }
 
                     backend = bind->val.backend;

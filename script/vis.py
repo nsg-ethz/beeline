@@ -15,6 +15,9 @@ sns.color_palette("tab10")
 
 np.random.seed(1)
 
+def thousand_label(x, pos): 
+    return "%1.0fK" % (x * 1e-3) if x >= 1e3 else "%1.0f" % x
+
 def _parse_path(path):
     match = re.search(r"(\w+)-(\d+)B.*", path)
     proxy = match.group(1)
@@ -36,6 +39,7 @@ def _load_summary_data(paths):
                     "proxy": proxy,
                     "payload_size": payload_size,
                     "metric_name": metric,
+                    "file": os.path.basename(p),
                     **aggs
                 })
 
@@ -53,6 +57,7 @@ def _load_log_data(paths):
         df = pd.read_csv(p, engine="pyarrow")
         df["proxy"] = proxy
         df["payload_size"] = payload_size
+        df["file"] = os.path.basename(p)
 
         dfs.append(df)
 
@@ -116,17 +121,22 @@ def _get_file_paths(name, filename_pattern="*.json"):
 
 def line_graph(name, metric, agg, dst):
     paths = _get_file_paths(name)
-    df, is_summary = _load_data(paths, [agg])
+    df = _load_summary_data(paths)
     df = df.xs(metric, level="metric_name")
 
-    key = agg if is_summary else ("metric_value", agg)
-    g = sns.lineplot(data=df, x="payload_size", y=key, hue="proxy")
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+
+    g = sns.lineplot(data=df, x="payload_size", y=agg, hue="proxy", marker="o", hue_order=order)
     sizes = set(df.index.get_level_values("payload_size"))
     sizes = sorted(sizes)
     
     # g.set_title(f"{metric} {agg}")
+    g.set_xscale("log")
     g.set_xlabel("payload size [B]")
     g.set_xticks(sizes)
+    g.set_xticklabels([str(s) for s in sizes])
+    g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
     g.set_ylabel("time [ms]")
     g.set_xbound(lower=sizes[0], upper=sizes[-1])
     plt.yscale("log")
@@ -206,6 +216,8 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
         for p in proxies:
             df[p] = (df[p] - base["none"]) / base["none"] * 100
 
+    # df = df.drop("envoy", axis=1)
+    # df = df.drop("splice", axis=1)
     # assert(np.all(df["ebpf"] >= 0))
     # assert(np.all(df["envoy"] >= 0))
 
@@ -268,18 +280,30 @@ def surface_graph(name, proxy, metric, agg, dst):
 
     val = df[df["metric_name"] == metric][agg]
     rate = df[df["metric_name"] == "http_reqs"]["rate"]
-    assert(np.all(val.index == rate.index))
     payload_sizes = val.index
+
+    assert(np.all(val.index == rate.index))
+
+    file = df[df["metric_name"] == metric]["file"]
+    stats = pd.DataFrame({"rate": rate, metric: val, "file": file})
+    stats = stats.sort_values(by=["payload_size", "rate"])
+
+    # otherwise benchmark was broken
+    if np.any(rate < 3000):
+        print("Warning: low rate detected")
+        print(stats[stats["rate"] < 3000])
+        exit(-1)
+    else:
+        print(stats)
 
     fig = plt.figure()
     ax = fig.add_subplot(projection="3d")
     ax.plot_trisurf(payload_sizes, rate, val, cmap=plt.cm.viridis, linewidth=0.2)
 
-    thousand_label = lambda x, pos: '%1.0fK' % (x * 1e-3) if x >= 1e3 else '%1.0f' % x
-
     ax.set_ylabel("rate [req/s]")
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-    ax.set_ylim([min(rate), max(rate)])
+    ax.set_yticks([5000, 10000, 15000, 20000])
+    ax.set_ylim([5000, 20000])
     ax.set_xlabel("payload size [B]")
     ax.set_xticks([128, 4096, 8192, 16384])
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
