@@ -2,11 +2,11 @@ import { randomRequest } from "./common.js";
 
 export const options = {
   scenarios: {
-    randomRequests: {
+    stress: {
       executor: "constant-arrival-rate",
-      rate: 1000,
+      rate: 5000,
       duration: "2m",
-      preAllocatedVUs: 50,
+      preAllocatedVUs: 100,
     }
   }
 };
