@@ -14,6 +14,8 @@ then
    echo "Some or all of the parameters are empty";
 fi
 
-CMD="PAYLOAD_SIZE=${SIZE} taskset --cpu-list 2-8 k6 run -o csv=res/${NAME}/logs/stress-${PROXY}-${SIZE}B.gz --summary-export=res/${NAME}/summary/stress-${PROXY}-${SIZE}B.json bench/stress.js"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+CMD="PAYLOAD_SIZE=${SIZE} taskset --cpu-list 2-8 k6 run -o csv=${ROOT}/../res/${NAME}/logs/stress-${PROXY}-${SIZE}B.gz --summary-export=${ROOT}/../res/${NAME}/summary/stress-${PROXY}-${SIZE}B.json bench/stress.js"
 echo ${CMD}
 eval ${CMD}
