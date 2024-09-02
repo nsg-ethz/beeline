@@ -9,7 +9,7 @@ use hyper::{
     Response
 };
 use std::net::ToSocketAddrs;
-use tokio::net::TcpListener;
+use tokio::net::TcpSocket;
 
 #[derive(Parser)]
 struct Args {
@@ -35,7 +35,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("Listening on {addr}");
 
-    let listener = TcpListener::bind(addr).await?;
+    let socket = TcpSocket::new_v4()?;
+    socket.set_reuseaddr(true)?;
+    socket.bind(addr)?;
+
+    let listener = socket.listen(4096)?;
 
     // We start a loop to continuously accept incoming connections
     loop {
