@@ -45,13 +45,15 @@ done
 echo "Enable CPU performance governor"
 sudo cpupower frequency-set --governor performance
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [ $TEST_ENVOY -eq 1 ]; then
     echo "Start envoy"
-    ../envoy/start_proxy.sh &
+    ${ROOT}/../envoy/start_proxy.sh &
     ENVOY_PID=$!
 
     for SIZE in 128 256 512 1024 2048; do
-        ./k6.sh -n ${NAME} -p envoy -s ${SIZE}
+        ${ROOT}/k6.sh -n ${NAME} -p envoy -s ${SIZE}
     done
 
     echo "Kill envoy"
@@ -60,11 +62,11 @@ fi
 
 if [ $TEST_EBPF -eq 1 ]; then
     echo "Start ebpf"
-    ../ebpf/start_proxy.sh &
+    ${ROOT}/../ebpf/start_proxy.sh &
     EBPF_PID=$!
 
     for SIZE in 128 256 512 1024 2048; do
-        ./k6.sh -n ${NAME} -p ebpf -s ${SIZE}
+        ${ROOT}/k6.sh -n ${NAME} -p ebpf -s ${SIZE}
     done
 
     echo "Kill ebpf"
