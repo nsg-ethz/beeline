@@ -23,7 +23,7 @@
 #include "proxy_struct.h"
 #include "hashmap.h"
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 #if LOG_LEVEL == 0
 #define print_log(...) (void)0
@@ -181,7 +181,7 @@ int assign_client_to_backend(struct hashmap *c2b, struct hashmap *b2c, struct so
 
     hashmap_set(c2b, &(struct sock_bind){ .key=*client_key, .key_fd=cd, .val=*backend_key, .val_fd=bd });
 
-    return 0;
+    return -1*(hashmap_oom(b2c) + hashmap_oom(c2b));
 }
 
 int parse_backend(char* req) {
@@ -277,10 +277,10 @@ int write_req(int fd, char *buf, size_t req_len) {
 
 void* worker(void* arg) {
     int num_fds = 0;
-    struct pollfd fds[MAX_NUM_CONN];
+    struct pollfd *fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
 
     int num_fds_new = 0;
-    struct pollfd fds_new[MAX_NUM_CONN];
+    struct pollfd *fds_new = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
 
     size_t buf_len = 64 * 1024;
     char buf[buf_len];
@@ -298,7 +298,7 @@ void* worker(void* arg) {
     }
 
     while (true) {
-        if (num_fds == MAX_NUM_CONN) {
+        if (num_fds >= MAX_NUM_CONN) {
             print_log("No new connections are accepted.\n");
             usleep(10);
             continue;
@@ -321,6 +321,11 @@ void* worker(void* arg) {
             usleep(10);
             continue;
         }
+
+        // print_log("Open backend connections:\n");
+        // for (int i = 0; i < 4; i++) {
+        //     print_log("backend %d: %d\n", i+1, num_conn_pool[i]);
+        // }
 
         int nfds = poll(fds, num_fds, 10);
         if (nfds == -1) {
@@ -389,8 +394,6 @@ void* worker(void* arg) {
                     fd = bind->val_fd;
                 }
                 else {
-                    print_log("Received request from client: %d\n", fds[i].fd);
-
                     // we received a client request
                     // check which backend is requested
                     int backend = parse_backend(buf);
@@ -398,6 +401,8 @@ void* worker(void* arg) {
                         print_err("Invalid request: %s\n", buf);
                         exit(-1);
                     }
+
+                    print_log("Received request from client %d to backend %d\n", fds[i].fd, backend);
 
                     // check if this is an exisiting connection
                     bind = (struct sock_bind *)hashmap_get(c2b, &(struct sock_bind){ .key=fd_key });
@@ -409,44 +414,55 @@ void* worker(void* arg) {
                             print_log("Request to the same backend: %d\n", backend);
                         }
                         else {
-                            // first we check if we have an open connection to the current backend
-                            int num_open_conns = num_conn_pool[backend-1];
-                            if (num_open_conns > 0) {
-                                bind = &conn_pool[backend-1][num_open_conns-1];
+                            // put backend connection back into the pool
+                            int old_backend = bind->val.backend;
+                            memcpy(&conn_pool[old_backend-1][num_conn_pool[old_backend-1]], bind, sizeof(struct sock_bind));
+                            num_conn_pool[old_backend-1]++;
+
+                            // remove client - backend binding
+                            bind->val.backend = 0;
+                            if (hashmap_delete(b2c, &(struct sock_bind){ .key=bind->val }) == NULL) {
+                                print_err("Failed to delete b2c binding\n");
+                                exit(-1);
+                            }
+                            if (hashmap_delete(c2b, &(struct sock_bind){ .key=bind->key }) == NULL) {
+                                print_err("Failed to delete c2b binding\n");
+                                exit(-1);
+                            }
+
+                            // check if we have an open connection to the current backend
+                            if (num_conn_pool[backend-1] > 0) {
+                                bind = &conn_pool[backend-1][num_conn_pool[backend-1]-1];
                                 num_conn_pool[backend-1]--;
                                 fd = bind->val_fd;
-                                assign_client_to_backend(c2b, b2c, &fd_key, fds[i].fd, &bind->val, bind->val_fd);
+                                if (assign_client_to_backend(c2b, b2c, &fd_key, fds[i].fd, &bind->val, bind->val_fd) < 0) {
+                                    print_err("Failed to assign client to backend\n");
+                                    exit(-1);
+                                }
                                 print_log("Reusing backend connection: %d\n", bind->val_fd);
                             }
                             else {
-                                // put backend connection back into the pool
-                                memcpy(&conn_pool[backend-1][num_open_conns], bind, sizeof(struct sock_bind));
-                                num_conn_pool[backend-1]++;
-
-                                // remove client - backend binding
-                                bind->val.backend = 0;
-                                if (hashmap_delete(b2c, &(struct sock_bind){ .key=bind->val }) == NULL) {
-                                    print_err("Failed to delete b2c binding\n");
-                                    exit(-1);
-                                }
-                                if (hashmap_delete(c2b, &(struct sock_bind){ .key=bind->key }) == NULL) {
-                                    print_err("Failed to delete c2b binding\n");
-                                    exit(-1);
-                                }
-
                                 // start a new connection
                                 fd = start_backend_conn(backend, backend_addrs, &backend_key);
                                 print_log("Established a new connection to backend %d: %d\n", backend, fd);
-                                assign_client_to_backend(c2b, b2c, &fd_key, fds[i].fd, &backend_key, fd);
+                                if (assign_client_to_backend(c2b, b2c, &fd_key, fds[i].fd, &backend_key, fd) < 0) {
+                                    print_err("Failed to assign client to backend\n");
+                                    exit(-1);
+                                }
 
                                 fds_new[num_fds_new].fd = fd;
                                 fds_new[num_fds_new].events = poll_events;
                                 num_fds_new++;
+                                
+                                if (num_fds_new >= MAX_NUM_CONN) {
+                                    print_err("Too many connections\n");
+                                    exit(-1);
+                                }
                             }
                         }
                     }
                     else {
-                        printf("New connection to backend %d\n", backend);
+                        print_log("New connection to backend %d\n", backend);
                         struct sock_key backend_key;
                         fd = start_backend_conn(backend, backend_addrs, &backend_key);
                         print_log("Established a new connection to backend %d: %d\n", backend, fd);
@@ -455,8 +471,15 @@ void* worker(void* arg) {
                         fds_new[num_fds_new].fd = fd;
                         fds_new[num_fds_new].events = poll_events;
                         num_fds_new++;
+
+                        if (num_fds_new >= MAX_NUM_CONN) {
+                            print_err("Too many connections\n");
+                            exit(-1);
+                        }
                     }
                 }
+
+                assert(fd > 0);
 
                 print_log("Forwarding request to socket %d\n", fd);
                 write_req(fd, buf, req_len);
@@ -468,6 +491,10 @@ void* worker(void* arg) {
     }
 
     close(lfd);
+    free(fds);
+    free(fds_new);
+    hashmap_free(c2b);
+    hashmap_free(b2c);
     return NULL;
 }
 
