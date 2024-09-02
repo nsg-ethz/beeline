@@ -12,7 +12,8 @@ export const options = {
 };
 
 export default function () {
-  const server = randomIntBetween(1, 4);
+  // const server = randomIntBetween(1, 4);
+  const server = 1;
   const signature = `server${server}`;
   const url = `http://127.0.0.1:3000/${signature}`;
   const data = JSON.stringify({ "text": randomString(1024) });

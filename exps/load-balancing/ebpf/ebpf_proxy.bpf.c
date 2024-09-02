@@ -22,7 +22,7 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define DISABLE_BPF_PRINTK 0
+#define DISABLE_BPF_PRINTK 1
 
 #if DISABLE_BPF_PRINTK == 1
 #define bpf_log_printk(fmt, ...) (0)
