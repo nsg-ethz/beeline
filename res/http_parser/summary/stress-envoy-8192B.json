@@ -1,0 +1,141 @@
+{
+    "root_group": {
+        "checks": {
+            "GET status is 200": {
+                "passes": 25282,
+                "fails": 0,
+                "name": "GET status is 200",
+                "path": "::GET status is 200",
+                "id": "9c16d5d8185e1b76ee1184c5ef5f6bb2"
+            },
+            "processed by correct backend": {
+                "fails": 0,
+                "name": "processed by correct backend",
+                "path": "::processed by correct backend",
+                "id": "f1c7ad86bd39765fcb80179f13de0adf",
+                "passes": 25282
+            },
+            "body is the same": {
+                "name": "body is the same",
+                "path": "::body is the same",
+                "id": "5459cb71b3dd69f0e951342c77e8661a",
+                "passes": 25282,
+                "fails": 0
+            }
+        },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {}
+    },
+    "metrics": {
+        "http_req_duration": {
+            "avg": 42.331432320821335,
+            "min": 0.389005,
+            "med": 3.7739825,
+            "max": 1169.305926,
+            "p(90)": 136.78413930000002,
+            "p(95)": 214.17815209999986
+        },
+        "http_req_sending": {
+            "p(95)": 0.7273105999999989,
+            "avg": 2.2880420746380827,
+            "min": 0.043876,
+            "med": 0.225571,
+            "max": 491.686185,
+            "p(90)": 0.4113081
+        },
+        "iterations": {
+            "rate": 105.34050174468271,
+            "count": 25282
+        },
+        "vus_max": {
+            "value": 200,
+            "min": 200,
+            "max": 200
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(90)": 136.78413930000002,
+            "p(95)": 214.17815209999986,
+            "avg": 42.331432320821335,
+            "min": 0.389005,
+            "med": 3.7739825,
+            "max": 1169.305926
+        },
+        "data_received": {
+            "count": 211096141,
+            "rate": 879557.5274624749
+        },
+        "vus": {
+            "max": 200,
+            "value": 1,
+            "min": 1
+        },
+        "http_req_connecting": {
+            "p(95)": 0,
+            "avg": 0.19140459255596856,
+            "min": 0,
+            "med": 0,
+            "max": 384.117623,
+            "p(90)": 0
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 25282,
+            "value": 0
+        },
+        "http_reqs": {
+            "rate": 105.34050174468271,
+            "count": 25282
+        },
+        "http_req_receiving": {
+            "avg": 37.687333961711516,
+            "min": 0.02342,
+            "med": 0.807389,
+            "max": 1162.917001,
+            "p(90)": 119.05041700000002,
+            "p(95)": 207.71791144999978
+        },
+        "http_req_tls_handshaking": {
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0
+        },
+        "iteration_duration": {
+            "avg": 1428.2641062662383,
+            "min": 19.710167,
+            "med": 1427.5079475,
+            "max": 4827.0088,
+            "p(90)": 2417.320765800001,
+            "p(95)": 2710.258363349999
+        },
+        "http_req_blocked": {
+            "avg": 0.36756939447037784,
+            "min": 0.002849,
+            "med": 0.0111755,
+            "max": 502.252722,
+            "p(90)": 0.06383180000000002,
+            "p(95)": 0.11757159999999992
+        },
+        "http_req_waiting": {
+            "med": 1.50737,
+            "max": 104.46144,
+            "p(90)": 5.3911037,
+            "p(95)": 6.865336899999999,
+            "avg": 2.3560562844711828,
+            "min": 0
+        },
+        "data_sent": {
+            "count": 210169266,
+            "rate": 875695.5910035474
+        },
+        "checks": {
+            "fails": 0,
+            "passes": 75846,
+            "value": 1
+        }
+    }
+}
