@@ -182,16 +182,18 @@ def overhead_graph(paths, base, metric, agg, absolute, dst):
         return df
     
     df = _preprocess(_load_summary_data(paths))
+    df.drop("none", axis=1, inplace=True)
 
     files = glob.glob(base)
     base = _preprocess(_load_summary_data(files))
 
+    proxies = df.columns
     if absolute:
-        df["ebpf"] = df["ebpf"] - base["none"]
-        df["envoy"] = df["envoy"] - base["none"]
+        for p in proxies:
+            df[p] = df[p] - base["none"]
     else:
-        df["ebpf"] = (df["ebpf"] - base["none"]) / base["none"] * 100
-        df["envoy"] = (df["envoy"] - base["none"]) / base["none"] * 100
+        for p in proxies:
+            df[p] = (df[p] - base["none"]) / base["none"] * 100
 
     # assert(np.all(df["ebpf"] >= 0))
     # assert(np.all(df["envoy"] >= 0))
@@ -218,6 +220,7 @@ def cdf_graph(paths, metric, crop, dst):
     g = sns.ecdfplot(data=df, x="metric_value", hue="proxy")
 
     g.set_xlabel(metric)
+    # g.set_ybound(lower=0.9, upper=1.0)
     plt.xscale("log")
     _save_to_path(f"cdf-{metric}.pdf", dst)
 
