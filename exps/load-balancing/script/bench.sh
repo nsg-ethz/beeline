@@ -19,6 +19,9 @@ cleanup() {
 # Define the trap to call the cleanup function
 trap cleanup EXIT
 
+TEST_EBPF=0
+TEST_ENVOY=0
+
 # Parse arguments
 while getopts ":n:p:" opt; do
     case $opt in
