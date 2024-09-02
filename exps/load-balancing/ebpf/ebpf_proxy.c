@@ -64,6 +64,26 @@ static void bpf_detach(int sig) {
     exit(0);
 }
 
+int get_sock_key(int fd, struct sock_key *key) {
+    memset(key, 0, sizeof(struct sock_key));
+
+    struct sockaddr_in addr;
+    int len = sizeof(addr);
+    int res = getsockname(fd, (struct sockaddr *)&addr, (socklen_t*)&len);
+    if (res < 0) return res;
+
+    // key->local_ip4 = ntohl(addr.sin_addr.s_addr);
+    key->local_port = ntohs(addr.sin_port);
+
+    res = getpeername(fd, (struct sockaddr *)&addr, (socklen_t*)&len);
+    if (res < 0) return res;
+
+    // key->remote_ip4 = ntohl(addr.sin_addr.s_addr);
+    key->remote_port = ntohs(addr.sin_port);
+
+    return 0;
+}
+
 int setup_conn(int fd) {
     {
         /* There is a bug in sockmap which prevents it from
@@ -200,26 +220,6 @@ int parse_backend(char* req) {
     return -1;
 }
 
-int get_sock_key(int fd, struct sock_key *key) {
-    memset(key, 0, sizeof(struct sock_key));
-
-    struct sockaddr_in addr;
-    int len = sizeof(addr);
-    int res = getsockname(fd, (struct sockaddr *)&addr, (socklen_t*)&len);
-    if (res < 0) return res;
-
-    // key->local_ip4 = ntohl(addr.sin_addr.s_addr);
-    key->local_port = ntohs(addr.sin_port);
-
-    res = getpeername(fd, (struct sockaddr *)&addr, (socklen_t*)&len);
-    if (res < 0) return res;
-
-    // key->remote_ip4 = ntohl(addr.sin_addr.s_addr);
-    key->remote_port = ntohs(addr.sin_port);
-
-    return 0;
-}
-
 int main(int argc, char **argv) {
     // make sure we properly detach all BPF programs
     signal(SIGINT, bpf_detach);
@@ -250,7 +250,7 @@ int main(int argc, char **argv) {
     err = ebpf_proxy_bpf__load(SKEL);
     if (err) {
         fprintf(stderr, "Failed to load and verify BPF skeleton\n");
-        goto cleanup;
+        return -1;
     }
 
     cg_fd = open("/sys/fs/cgroup/", __O_DIRECTORY, O_RDONLY);
@@ -273,7 +273,7 @@ int main(int argc, char **argv) {
 
     if (err) {
         fprintf(stderr, "Failed to attach BPF parser program\n");
-        goto cleanup;
+        return -1;
     }
 
     err = bpf_prog_attach(bpf_program__fd(SKEL->progs.bpf_prog_verdict),
@@ -281,7 +281,7 @@ int main(int argc, char **argv) {
 
     if (err) {
         fprintf(stderr, "Failed to attach BPF verdict program\n");
-        goto cleanup;
+        return -1;
     }
 
     printf("BPF programs loaded correctly!\n");
@@ -311,7 +311,7 @@ int main(int argc, char **argv) {
                                     &backend, BPF_NOEXIST);
         if (r != 0) {
             fprintf(stderr, "bpf_map_update_elem(url_to_server) failed\n");
-            goto cleanup;
+            return -1;
         }
     }
 
@@ -319,13 +319,13 @@ int main(int argc, char **argv) {
     int c2b_fd = bpf_map__fd(SKEL->maps.c2b);
 
     // start listening to incomming connections
+    int num_fds = 0;
     int lfd = net_bind_tcp(&listen);
     if (lfd < 0) {
         fprintf(stderr, "Bind failed\n");
         goto cleanup;
     }
 
-    int num_fds = 0;
     struct pollfd *fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
     if (fds == NULL) {
         fprintf(stderr, "malloc failed\n");
@@ -417,7 +417,7 @@ poll:
             // if we couldn't read yet, but also don't have an error
             // we will just try again :)
             if (len > 0) {
-                // printf("Received request length %ld after reading %ld: %s\n", req_len, len, buf);
+                printf("Received request length %ld after reading %ld: %s\n", req_len, len, buf);
 
                 // we received a new request but don't 
                 // have a free connection in the pool
