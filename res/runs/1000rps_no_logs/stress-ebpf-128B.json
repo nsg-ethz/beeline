@@ -1,0 +1,141 @@
+{
+    "metrics": {
+        "http_req_duration{expected_response:true}": {
+            "med": 0.268583,
+            "max": 136.327705,
+            "p(90)": 0.418086,
+            "p(95)": 0.507892,
+            "avg": 0.8215566636444631,
+            "min": 0.137676
+        },
+        "data_received": {
+            "count": 28320236,
+            "rate": 235977.70558440912
+        },
+        "vus_max": {
+            "max": 5000,
+            "value": 5000,
+            "min": 5000
+        },
+        "http_req_waiting": {
+            "avg": 0.7437767945017156,
+            "min": 0.099508,
+            "med": 0.197304,
+            "max": 136.243509,
+            "p(90)": 0.296346,
+            "p(95)": 0.340717
+        },
+        "http_reqs": {
+            "count": 120001,
+            "rate": 999.9055321373268
+        },
+        "iteration_duration": {
+            "p(90)": 0.907781,
+            "p(95)": 1.083139,
+            "avg": 1.2402451536570487,
+            "min": 0.398355,
+            "med": 0.630691,
+            "max": 136.849276
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 120001,
+            "value": 0
+        },
+        "data_sent": {
+            "count": 29760248,
+            "rate": 247976.57197005703
+        },
+        "iterations": {
+            "count": 120001,
+            "rate": 999.9055321373268
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_connecting": {
+            "p(95)": 0,
+            "avg": 0.02976780832659732,
+            "min": 0,
+            "med": 0,
+            "max": 44.228991,
+            "p(90)": 0
+        },
+        "http_req_sending": {
+            "p(90)": 0.083021,
+            "p(95)": 0.094918,
+            "avg": 0.03711991513404069,
+            "min": 0.009354,
+            "med": 0.025197,
+            "max": 12.350314
+        },
+        "checks": {
+            "passes": 360003,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_blocked": {
+            "p(90)": 0.012684,
+            "p(95)": 0.021236,
+            "avg": 0.037612185090124,
+            "min": 0.001692,
+            "med": 0.004058,
+            "max": 44.287243
+        },
+        "vus": {
+            "value": 1,
+            "min": 0,
+            "max": 12
+        },
+        "http_req_duration": {
+            "max": 136.327705,
+            "p(90)": 0.418086,
+            "p(95)": 0.507892,
+            "avg": 0.8215566636444631,
+            "min": 0.137676,
+            "med": 0.268583
+        },
+        "http_req_receiving": {
+            "min": 0.014752,
+            "med": 0.033936,
+            "max": 14.950184,
+            "p(90)": 0.062481,
+            "p(95)": 0.071709,
+            "avg": 0.0406599540087163
+        }
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "GET status is 200": {
+                    "path": "::GET status is 200",
+                    "id": "9c16d5d8185e1b76ee1184c5ef5f6bb2",
+                    "passes": 120001,
+                    "fails": 0,
+                    "name": "GET status is 200"
+                },
+                "processed by correct backend": {
+                    "fails": 0,
+                    "name": "processed by correct backend",
+                    "path": "::processed by correct backend",
+                    "id": "f1c7ad86bd39765fcb80179f13de0adf",
+                    "passes": 120001
+                },
+                "body is the same": {
+                    "name": "body is the same",
+                    "path": "::body is the same",
+                    "id": "5459cb71b3dd69f0e951342c77e8661a",
+                    "passes": 120001,
+                    "fails": 0
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}
