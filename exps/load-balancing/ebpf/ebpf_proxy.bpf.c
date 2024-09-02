@@ -228,15 +228,15 @@ int _sock_ops(struct bpf_sock_ops *ops) {
         return 0;
     }
 
-    bpf_log_printk("Process sockops: local [%pI4:%u] remote: [%pI4:%u]", 
+    bpf_log_printk("Process sockops: local [%pI4:%u] remote: [%pI4:%u] op: %d", 
         bpf_ntohl(ops->local_ip4), ops->local_port,
-        bpf_ntohl(ops->remote_ip4), bpf_ntohl(ops->remote_port));
+        bpf_ntohl(ops->remote_ip4), bpf_ntohl(ops->remote_port), ops->op);
 
     if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
         bpf_log_printk("Add socket with key [%pI4:%d->%d]", key.ip4, key.port, key.backend);
 
         bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
-        if (bpf_sock_hash_update(ops, &sock_map, &key.port, BPF_ANY) < 0) {
+        if (bpf_sock_hash_update(ops, &sock_map, &key.port, BPF_NOEXIST) < 0) {
             bpf_log_printk("ERROR: Adding socket failed.");
         }
     }
@@ -276,7 +276,9 @@ int _sock_ops(struct bpf_sock_ops *ops) {
         }
     }
 
-    // bpf_log_printk("Socket with key [%pI4:%d] changed state %d | %d | %d | %d", key.ip4, key.port, ops->args[0], ops->args[1], ops->args[2], ops->args[3]);
+    if (op == BPF_SOCK_OPS_STATE_CB) {
+        bpf_log_printk("Socket with key [%pI4:%d] changed state %d | %d | %d | %d", key.ip4, key.port, ops->args[0], ops->args[1], ops->args[2], ops->args[3]);
+    }
 
     return 0;
 }

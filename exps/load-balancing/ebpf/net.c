@@ -186,7 +186,7 @@ const char *net_ntop(struct sockaddr_storage *ss) {
 }
 
 int net_bind_tcp(struct sockaddr_storage *ss) {
-    int sd = socket(ss->ss_family, SOCK_STREAM, IPPROTO_TCP);
+    int sd = socket(ss->ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
     if (sd < 0) {
         PFATAL("socket()");
     }

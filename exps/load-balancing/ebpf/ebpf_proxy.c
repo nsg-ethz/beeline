@@ -191,8 +191,8 @@ int main(int argc, char **argv) {
     }
 
     // start listening to incomming connections
-    int sd = net_bind_tcp(&listen);
-    if (sd < 0) {
+    int lfd = net_bind_tcp(&listen);
+    if (lfd < 0) {
         fprintf(stderr, "Bind failed\n");
         goto cleanup;
     }
@@ -203,10 +203,20 @@ accept:
         goto poll;
     }
 
-    printf("Accepting new connections\n");
-
     struct sockaddr_storage client;
-    int fd = net_accept(sd, &client);
+    socklen_t client_len = sizeof(struct sockaddr_storage);
+    int fd = accept(lfd, (struct sockaddr *)&client, &client_len);
+    if (fd < 0) {
+        // no new connections
+        // due to an error?
+        if (errno == EAGAIN) {
+            // just no new connection request poll again
+            goto poll;
+        }
+
+        printf("Error accepting new connections: %s\n", strerror(errno));
+        goto cleanup;
+    }
 
     int on = 1;
     int r = setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on));
@@ -225,14 +235,22 @@ accept:
         setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &val, sizeof(val));
     }
 
-    printf("New connection accepted (%d)\n", fd);
+    struct sockaddr_in client_addr;
+    int len = sizeof(client_addr);
+    if (getpeername(fd, (struct sockaddr *)&client_addr, (socklen_t*)&len) < 0) {
+        printf("Error getting peer name: %s\n", strerror(errno));
+        goto cleanup;
+    }
+
+    printf("New connection accepted: [%s:%d] socket: %d\n", inet_ntoa(client_addr.sin_addr), htons(client_addr.sin_port), fd);
 
     fds[num_fds].fd = fd;
     fds[num_fds].events = POLLIN|POLLRDHUP|POLLHUP|POLLERR;
     num_fds++;
 
 poll:
-    int nfds = poll(fds, num_fds, -1);
+    // printf("Polling...\n");
+    int nfds = poll(fds, num_fds, 0.1);
 
     if (nfds == -1) {
         fprintf(stderr, "Error in poll syscall\n");
@@ -255,94 +273,89 @@ poll:
             ssize_t len = read(fds[i].fd, buf, buf_len);
             size_t req_len = strlen(buf);
 
-            if (len == 0) {
-                printf("Socket closed\n");
-                close(fds[i].fd);
-                continue;
-            }
             // EAGAIN means we have to wait for eBPF verdict first
             if (len < 0 && errno != EAGAIN) {
                 printf("Error reading socket: %s\n", strerror(errno));
                 goto cleanup;
             }
-
-            // we want to poll this fd again
-            new_fds[new_num_fds] = fds[i];
-            new_num_fds++;
             
             // if we couldn't read yet, but also don't have an error
             // we will just try again :)
-            if (len <= 0) {
-                continue;
-            }
+            if (len > 0) {
+                printf("Received request length %ld after reading %ld: %s\n", req_len, len, buf);
 
-            printf("Received request length %ld after reading %ld: %s\n", req_len, len, buf);
-
-            // we received a new request but don't 
-            // have a free connection in the pool
-            int backend = parse_backend(buf);
-            if (backend < 0) {
-                printf("Invalid request: %s\n", buf);
-                continue;
-            }
-
-            // valid request, get the client connection
-            struct sockaddr_in client_addr;
-            len = sizeof(client_addr);
-            if (getpeername(fds[i].fd, (struct sockaddr *)&client_addr, (socklen_t*)&len) < 0) {
-                printf("Error getting peer name: %s\n", strerror(errno));
-                goto cleanup;
-            }
-
-            int sd = start_backend_conn(backend-1, backend_addrs, sockmap_fd);
-            printf("Established a new connection to backend %d: %d\n", backend, sd);
-
-            struct sockaddr_in backend_addr;
-            if (getsockname(sd, (struct sockaddr *)&backend_addr, (socklen_t*)&len) < 0) {
-                printf("Error getting socket name: %s\n", strerror(errno));
-                goto cleanup;
-            }
-
-            struct sock_key client_key = { 0 };
-            // client_key.ip4 = client_addr.sin_addr.s_addr;
-            client_key.port = htons(client_addr.sin_port);
-
-            struct sock_key backend_key = { 0 };
-            backend_key.backend = backend;
-            // backend_key.ip4 = backend_addr.sin_addr.s_addr;
-            backend_key.port = htons(backend_addr.sin_port);
-            printf("Assign backend connection [%s:%d] to client connection: [%s:%d]\n", inet_ntoa(backend_addr.sin_addr), backend_key.port, inet_ntoa(client_addr.sin_addr), client_key.port);
-
-            // book keeping
-            if (bpf_map_update_elem(b2c_fd, &backend_key.port, &client_key, BPF_NOEXIST) < 0) {
-                fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
-                goto cleanup;
-            }
-
-            if (bpf_map_update_elem(c2b_fd, &client_key.port, &backend_key, BPF_NOEXIST) < 0) {
-                fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
-                goto cleanup;
-            }
-
-            size_t res_len = 0;
-            do {
-                len = write(sd, buf+res_len, req_len-res_len);
-                if (len < 0) {
-                    // the socket might not be ready
+                // we received a new request but don't 
+                // have a free connection in the pool
+                int backend = parse_backend(buf);
+                if (backend < 0) {
+                    printf("Invalid request: %s\n", buf);
                     continue;
                 }
-                
-                if (len == 0) {
-                    // we sent the msg
-                    break;
+
+                // valid request, get the client connection
+                struct sockaddr_in client_addr;
+                len = sizeof(client_addr);
+                if (getpeername(fds[i].fd, (struct sockaddr *)&client_addr, (socklen_t*)&len) < 0) {
+                    printf("Error getting peer name: %s\n", strerror(errno));
+                    goto cleanup;
                 }
-                res_len += len;
-            } while (res_len < req_len);
-            printf("Redirected request of length %ld to backend\n", res_len);
+
+                int sd = start_backend_conn(backend-1, backend_addrs, sockmap_fd);
+                printf("Established a new connection to backend %d: %d\n", backend, sd);
+
+                struct sockaddr_in backend_addr;
+                if (getsockname(sd, (struct sockaddr *)&backend_addr, (socklen_t*)&len) < 0) {
+                    printf("Error getting socket name: %s\n", strerror(errno));
+                    goto cleanup;
+                }
+
+                struct sock_key client_key = { 0 };
+                // client_key.ip4 = client_addr.sin_addr.s_addr;
+                client_key.port = htons(client_addr.sin_port);
+
+                struct sock_key backend_key = { 0 };
+                backend_key.backend = backend;
+                // backend_key.ip4 = backend_addr.sin_addr.s_addr;
+                backend_key.port = htons(backend_addr.sin_port);
+                printf("Assign backend connection [%s:%d] to client connection: [%s:%d]\n", inet_ntoa(backend_addr.sin_addr), backend_key.port, inet_ntoa(client_addr.sin_addr), client_key.port);
+
+                // book keeping
+                if (bpf_map_update_elem(b2c_fd, &backend_key.port, &client_key, BPF_NOEXIST) < 0) {
+                    fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
+                    goto cleanup;
+                }
+
+                if (bpf_map_update_elem(c2b_fd, &client_key.port, &backend_key, BPF_NOEXIST) < 0) {
+                    fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
+                    goto cleanup;
+                }
+
+                size_t res_len = 0;
+                do {
+                    len = write(sd, buf+res_len, req_len-res_len);
+                    if (len < 0) {
+                        // the socket might not be ready
+                        continue;
+                    }
+                    
+                    if (len == 0) {
+                        // we sent the msg
+                        break;
+                    }
+                    res_len += len;
+                } while (res_len < req_len);
+                printf("Redirected request of length %ld to backend\n", res_len);
+            }
         }
+
         if (fds[i].revents & POLLRDHUP || fds[i].revents & POLLHUP || fds[i].revents & POLLERR) {
-            printf("Closing socket\n");
+            printf("Closing socket %d\n", fds[i].fd);
             close(fds[i].fd);
+        }
+        else {
+            // we want to poll this fd again
+            new_fds[new_num_fds] = fds[i];
+            new_num_fds++;
         }
     }
 
@@ -355,17 +368,7 @@ poll:
     free(new_fds);
 
     printf("Got %d open sockets\n", num_fds);
-
-    // if we don't have any open connections
-    // we start accepting right away
-    // if we have open connections, we first check
-    // if there's something to read
-    if (num_fds > 0) {
-        goto poll;
-    }
-    else {
-        goto accept;
-    }
+    goto accept;
 
 cleanup:
     for (int i = 0; i < num_fds; i++) {
