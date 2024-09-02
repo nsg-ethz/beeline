@@ -111,7 +111,7 @@ def _aggregate_fn(name):
 
 def _get_file_paths(name, filename_pattern="*.json"):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    return glob.glob(os.path.join(dir_path, "..", "res", "runs", args.name, filename_pattern))
+    return glob.glob(os.path.join(dir_path, "..", "res", "runs", name, filename_pattern))
 
 
 def line_graph(name, metric, agg, dst):
@@ -260,6 +260,35 @@ def scatter_graph(name, metric, drop_rate, dst):
     _save_to_path(f"cdf-{metric}-@{str(round(100*(1-drop_rate)))}%.pdf", dst)
 
 
+def surface_graph(name, proxy, metric, agg, dst):
+    paths = _get_file_paths(name)
+    df = _load_summary_data(paths)
+    df = df[df.index.get_level_values("proxy") == proxy]
+    df = df.reset_index().set_index("payload_size")
+
+    val = df[df["metric_name"] == metric][agg]
+    rate = df[df["metric_name"] == "http_reqs"]["rate"]
+    assert(np.all(val.index == rate.index))
+    payload_sizes = val.index
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="3d")
+    ax.plot_trisurf(payload_sizes, rate, val, cmap=plt.cm.viridis, linewidth=0.2)
+
+    thousand_label = lambda x, pos: '%1.0fK' % (x * 1e-3) if x >= 1e3 else '%1.0f' % x
+
+    ax.set_ylabel("rate [req/s]")
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
+    ax.set_ylim([min(rate), max(rate)])
+    ax.set_xlabel("payload size [B]")
+    ax.set_xticks([128, 4096, 8192, 16384])
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
+    ax.set_xlim([16384, 128])
+    ax.set_zlabel("latency [ms]")
+
+    _save_to_path(f"{name}-surface-{proxy}-{metric}-{agg}.pdf", dst)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--name", help="Name of the experiment")
@@ -293,6 +322,11 @@ if __name__ == "__main__":
     scatter = subparsers.add_parser("scatter")
     scatter.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
     scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
+
+    surface = subparsers.add_parser("surface")
+    surface.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
+    surface.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+    surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
     
     args = parser.parse_args()
 
@@ -308,3 +342,5 @@ if __name__ == "__main__":
         cdf_graph(args.name, args.metric, float(args.crop), args.output)
     elif args.command == "scatter":
         scatter_graph(args.name, args.metric, float(args.drop), args.output)
+    elif args.command == "surface":
+        surface_graph(args.name, args.proxy, args.metric, args.agg, args.output)

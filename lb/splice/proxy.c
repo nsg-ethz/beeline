@@ -370,7 +370,7 @@ void* worker(void* arg) {
                 struct sock_bind *bind = (struct sock_bind *)hashmap_get(c2b, &(struct sock_bind){ .key=fd_key });
                 if (bind == NULL) {
                     print_err("Failed to find client connection\n");
-                    exit(-1);
+                    continue;
                 }
 
                 // put backend connection back into the pool
