@@ -217,7 +217,7 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
 
 
 def cdf_graph(name, metric, crop, dst):
-    paths = _get_file_paths(name)
+    paths = _get_file_paths(name, "*.gz")
     df = _load_log_data(paths)
     df = df[df["metric_name"] == metric]
 
@@ -238,7 +238,7 @@ def cdf_graph(name, metric, crop, dst):
 
 
 def scatter_graph(name, metric, drop_rate, dst):
-    paths = _get_file_paths(name)
+    paths = _get_file_paths(name, "*.gz")
     df = _load_log_data(paths)
     df = df[df["metric_name"] == metric]
 
@@ -287,11 +287,11 @@ if __name__ == "__main__":
     overhead.add_argument("--absolute", default=False, help="Report the overhead in absolute numbers")
 
     cdf = subparsers.add_parser("cdf")
-    cdf.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+    cdf.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
     cdf.add_argument("-c", "--crop", default=0, help="Crop the given number of seconds from the beginning of the trace")
 
     scatter = subparsers.add_parser("scatter")
-    scatter.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+    scatter.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
     scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
     
     args = parser.parse_args()
