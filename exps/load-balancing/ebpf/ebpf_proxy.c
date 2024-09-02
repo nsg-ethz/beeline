@@ -452,8 +452,6 @@ poll:
             fds_new[num_fds_new].events = POLLRDHUP|POLLHUP|POLLERR;
             num_fds_new++;
 
-            printf("Received request length %ld\n", req_len);
-
             // we received a new request but don't 
             // have a free connection in the pool
             int backend = parse_backend(buf);
