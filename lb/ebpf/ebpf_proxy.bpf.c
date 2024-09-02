@@ -22,7 +22,7 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define LOG_LEVEL 2
+#define LOG_LEVEL 1
 
 #if LOG_LEVEL == 0
 #define bpf_log(fmt, ...) (0)

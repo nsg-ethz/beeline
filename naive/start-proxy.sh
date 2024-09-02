@@ -1,1 +1,0 @@
-taskset -c 2 node index.js
