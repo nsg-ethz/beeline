@@ -27,9 +27,11 @@ echo -e "${COLOR_YELLOW}Disable CPU performance governor${COLOR_OFF}"
 sudo cpupower frequency-set --governor ondemand
 
 echo -e "${COLOR_YELLOW}Reset CPU shielding${COLOR_OFF}"
-sudo systemctl set-property --runtime user.slice AllowedCPUs=
-sudo systemctl set-property --runtime system.slice AllowedCPUs=
-sudo systemctl set-property --runtime init.scope AllowedCPUs=
+NUM_CPU=$(nproc)
+CPU_ALLOWED="0-${NUM_CPU}"
+sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
+sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
+sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
 
 stop_http_server
 delete_veth 4
