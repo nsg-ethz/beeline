@@ -2,5 +2,6 @@
 resolver = "2"
 
 members = [
-    "backend", "exps/rpcsnoop",
+    "backend", 
+    "lb/io_uring",
 ]

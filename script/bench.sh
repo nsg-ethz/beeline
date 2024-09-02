@@ -18,12 +18,6 @@ while getopts "l:n:p:r:s:" opt; do
     esac
 done
 
-if [ -z "${PROXY}" ]
-then
-   echo "Error: Some or all of the parameters are empty";
-   exit 1
-fi
-
 ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 DIRECT=0
@@ -37,11 +31,19 @@ RATE_DSC=$(numfmt --to=si ${RATE})
 for SIZE in ${SIZE_LIST}; do
     LOG_OPT=""
     if [ ${WRITE_LOG} -eq 1 ]; then
+        if [ -z "${PROXY}" ]; then
+            echo "Error: Specify the proxy name with the -p option";
+            exit 1
+        fi
         LOG_OPT="--out csv=${SUMMARY_DIR}/stress@${RATE_DSC}-${PROXY}-${SIZE}B-log.gz"
     fi
 
     SUM_OPT=""
     if [ -n "${NAME}" ]; then
+        if [ -z "${PROXY}" ]; then
+                echo "Error: Specify the proxy name with the -p option";
+                exit 1
+        fi
         mkdir -p ${SUMMARY_DIR}
         SUM_OPT="--summary-export=${SUMMARY_DIR}/stress@${RATE_DSC}-${PROXY}-${SIZE}B.json"
     fi
