@@ -6,7 +6,7 @@ struct sock_key {
     __u32 local_port;
     __u32 remote_ip4;
     __u32 remote_port;
-    __s16 backend; // -1 if client flow, otherwise indicating idx of backend
+    __u32 backend; // [1, 4] for backend, otherwise 0
 };
 
 enum http_event_state {

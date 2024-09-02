@@ -12,8 +12,7 @@ export const options = {
 };
 
 export default function () {
-  // const server = randomIntBetween(1, 4);
-  const server = 1;
+  const server = randomIntBetween(1, 4);
   const signature = `server${server}`;
   const url = `http://127.0.0.1:3000/${signature}`;
   const data = JSON.stringify({ "text": randomString(1024) });
@@ -21,7 +20,7 @@ export default function () {
 
   let passed = check(res, {
     'GET status is 200': (r) => r.status === 200,
-    // 'processed by correct backend': (r) => r.headers["Signature"] == signature,
+    'processed by correct backend': (r) => r.headers["Signature"] == signature,
     'body is the same': (r) => r.body === data
   });
 

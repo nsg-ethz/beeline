@@ -92,6 +92,14 @@ static __always_inline void _ops_extract_key(struct bpf_sock_ops *ops, struct so
     key->local_port = ops->local_port;
 }
 
+static __always_inline void _copy_sock_key(struct sock_key *src, struct sock_key *dst) {
+    dst->remote_ip4 = src->remote_ip4;
+    dst->local_ip4 = src->local_ip4;
+    dst->remote_port = src->remote_port;
+    dst->local_port = src->local_port;
+    dst->backend = src->backend;
+}
+
 static __always_inline bool _pull_and_validate_data(struct __sk_buff *skb, void **data_, void **data_end_, uint16_t size) {
     int err;
     void *data, *data_end;
@@ -113,6 +121,15 @@ static __always_inline bool _pull_and_validate_data(struct __sk_buff *skb, void 
     return true;
 }
 
+static __always_inline int _try_redirect(struct __sk_buff *skb, struct sock_key *key) {
+    bpf_log_printk("Redirecting to connection [%pI4:%d -> %pI4:%d]", key->local_ip4, key->local_port, key->remote_ip4, key->remote_port);
+    int r = bpf_sk_redirect_hash(skb, &sock_map, key, 0);
+    if (r == SK_DROP) {
+        bpf_log_printk("ERROR: Redirect failed\n");
+    }
+    return r;
+}
+
 SEC("sk_skb/stream_verdict")
 int bpf_prog_parser(struct __sk_buff *skb) {
     return skb->len;
@@ -126,8 +143,8 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     struct sock_key key = { 0 };
     _skb_extract_key(skb, &key);
 
-    bpf_log_printk("Process packet [%pI4:%u->%pI4:%u]", 
-        key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
+    bpf_log_printk("Process packet [%pI4:%u->%pI4:%u (%d)]", 
+        key.local_ip4, key.local_port, key.remote_ip4, key.remote_port, key.backend);
 
     // print content 
     int len = 128;
@@ -138,32 +155,12 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
         }        
     }      
 
-    // check if this is a client packet that already 
-    // has an open backend connection
-    struct sock_key *backend_key = bpf_map_lookup_elem(&c2b, &key);
-    if (backend_key != NULL) {
-        bpf_log_printk("Received a packet from an existing client connection");
-        bpf_log_printk("Redirecting to connection [%pI4:%d -> %pI4:%d]", backend_key->local_ip4, backend_key->local_port, backend_key->remote_ip4, backend_key->remote_port);
-        
-        int r = bpf_sk_redirect_hash(skb, &sock_map, backend_key, 0);
-        if (r == SK_DROP) {
-            bpf_log_printk("ERROR: Redirect failed\n");
-        }
-        return r;
-    }
-
     // check if this is a backend packet that 
     // we can forward to a client connection
     struct sock_key *client_key = bpf_map_lookup_elem(&b2c, &key);
     if (client_key != NULL) {
         bpf_log_printk("Received a packet from an existing backend connection");
-        bpf_log_printk("Redirecting to connection [%pI4:%d -> %pI4:%d]", client_key->local_ip4, client_key->local_port, client_key->remote_ip4, client_key->remote_port);
-
-        int r = bpf_sk_redirect_hash(skb, &sock_map, client_key, 0);
-        if (r == SK_DROP) {
-            bpf_log_printk("ERROR: Redirect failed\n");
-        }
-        return r;
+        return _try_redirect(skb, client_key);
     }
 
     if (!_pull_and_validate_data(skb, &data, &data_end, 8)) {
@@ -198,19 +195,61 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
             return SK_DROP;
         }
 
+        // check if this is a client packet that already 
+        // has an open backend connection
+        int c2b_exist = BPF_NOEXIST;
+        struct sock_key *backend_key = bpf_map_lookup_elem(&c2b, &key);
+        if (backend_key != NULL) {
+            if (backend_key->backend == *backend) {
+                bpf_log_printk("Received a packet from an existing client connection addressing the same backend");
+                return _try_redirect(skb, backend_key);
+            }
+
+            bpf_log_printk("Received a packet from an existing client connection addressing a different backend: [%pI4:%u->%pI4:%u (%d)]", backend_key->local_ip4, backend_key->local_port, 
+                backend_key->remote_ip4, backend_key->remote_port, 
+                backend_key->backend);
+
+            // in a previous request, a different backend was used
+            // unassign the backend and client connection
+            struct sock_key backend_key_copy;
+            _copy_sock_key(backend_key, &backend_key_copy);
+            backend_key_copy.backend = 0;
+            if (bpf_map_delete_elem(&b2c, &backend_key_copy) < 0) {
+                bpf_log_printk("ERROR: Failed to unassign a backend connection");
+                return SK_DROP;    
+            }
+
+            // put the backend back into the pool
+            struct bpf_elf_map *conns;
+            int idx = backend_key->backend - 1;
+            conns = bpf_map_lookup_elem(&conn_pool, &idx);
+            if (conns == NULL) {
+                bpf_log_printk("ERROR: Failed to find pool for backend connection");
+                return SK_DROP;
+            }
+
+            if (bpf_map_push_elem(conns, backend_key, 0) < 0) {
+                bpf_log_printk("ERROR: Failed to reenqueue a backend connection");
+                return SK_DROP;    
+            }
+
+            // we reassign the other way around by setting a new value
+            c2b_exist = BPF_ANY;
+        }
+
         // we have received a request
         // fetch an unused backend connection
-        struct bpf_elf_map *socks;
+        struct bpf_elf_map *conns;
         int idx = *backend - 1;
-        socks = bpf_map_lookup_elem(&conn_pool, &idx);
-        if (socks == NULL) {
+        conns = bpf_map_lookup_elem(&conn_pool, &idx);
+        if (conns == NULL) {
             bpf_log_printk("ERROR: Failed to find backend to handle request");
             return SK_DROP;
         }
 
         // retrieve a new socket key for our connection
         struct sock_key reused_backend_key = { 0 };
-        if (bpf_map_pop_elem(socks, &reused_backend_key) < 0) {
+        if (bpf_map_pop_elem(conns, &reused_backend_key) < 0) {
             // no open connection that we can reuse
             // forward the packet to the userspace program
             bpf_log_printk("Connection pool is empty. Redirect to userspace.");
@@ -219,12 +258,19 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
 
         // assign client req to backend session
         // sock key for the current skb
-        if (bpf_map_update_elem(&c2b, &key, &reused_backend_key, BPF_NOEXIST) < 0) {
+        if (bpf_map_update_elem(&c2b, &key, &reused_backend_key, c2b_exist) < 0) {
             bpf_log_printk("ERROR: Failed to assign client to backend connection");
             return SK_DROP;
         }
 
-        if (bpf_map_update_elem(&b2c, &reused_backend_key, &key, BPF_NOEXIST) < 0) {
+        // in BPF, the data is not copied, so we have to copy the key ourselves
+        struct sock_key reused_backend_key_copy;
+        _copy_sock_key(&reused_backend_key, &reused_backend_key_copy);
+        reused_backend_key_copy.backend = 0;
+        bpf_log_printk("B2C update [%pI4:%u->%pI4:%u (%d)]", reused_backend_key_copy.local_ip4, reused_backend_key_copy.local_port, 
+                reused_backend_key_copy.remote_ip4, reused_backend_key_copy.remote_port, 
+                reused_backend_key_copy.backend);
+        if (bpf_map_update_elem(&b2c, &reused_backend_key_copy, &key, BPF_NOEXIST) < 0) {
             bpf_log_printk("ERROR: Failed to assign backend to client connection");
             return SK_DROP;
         }
@@ -236,11 +282,7 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
             key.local_ip4, key.local_port, 
             key.remote_ip4, key.remote_port);
         
-        int r = bpf_sk_redirect_hash(skb, &sock_map, &reused_backend_key, 0);
-        if (r == SK_DROP) {
-            bpf_log_printk("ERROR: Redirect failed\n");
-        }
-        return r;
+        return _try_redirect(skb, &reused_backend_key);
     }
 
     bpf_log_printk("ERROR: Unknown packet");
