@@ -4,6 +4,7 @@
 #include <netinet/tcp.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 
 #include "net.h"
 
@@ -186,7 +187,7 @@ const char *net_ntop(struct sockaddr_storage *ss) {
 }
 
 int net_bind_tcp(struct sockaddr_storage *ss) {
-    int sd = socket(ss->ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+    int sd = socket(ss->ss_family, SOCK_STREAM, IPPROTO_TCP);
     if (sd < 0) {
         PFATAL("socket()");
     }
@@ -208,6 +209,11 @@ int net_bind_tcp(struct sockaddr_storage *ss) {
     r = setsockopt(sd, SOL_TCP, TCP_CONGESTION, cong, strlen(cong));
     if (r < 0) {
         PFATAL("setsockopt(TCP_CONGESTION)");
+    }
+
+    r = ioctl(sd, FIONBIO, (char *)&one);
+    if (r < 0) {
+        PFATAL("failed to ioctl\n");
     }
 
     r = bind(sd, (struct sockaddr *)ss, sizeof_ss(ss));

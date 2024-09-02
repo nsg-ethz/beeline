@@ -79,12 +79,12 @@ struct {
     __uint(value_size, sizeof(struct sock_key));
 } c2b SEC(".maps");
 
-SEC("sk_skb")
+SEC("sk_skb/stream_verdict")
 int bpf_prog_parser(struct __sk_buff *skb) {
     return skb->len;
 }
 
-SEC("sk_skb")
+SEC("sk_skb/stream_verdict")
 int bpf_prog_verdict(struct __sk_buff *skb) {
     void *data_end = (void *)(long)skb->data_end;
     void *data = (void *)(long)skb->data;
@@ -209,76 +209,93 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     return SK_DROP;
 }
 
-SEC("sockops")
-int _sock_ops(struct bpf_sock_ops *ops) {
-    int op = (int)ops->op;
+// SEC("sockops")
+// int _sock_ops(struct bpf_sock_ops *ops) {
+//     int op = (int)ops->op;
 
-    struct sock_key key = { 0 };
+//     struct sock_key key = { 0 };
 
-    // register client connections (client-proxy)
-    if (ops->local_port == 3000) {
-        // key.ip4 = bpf_ntohl(ops->remote_ip4);
-        key.port = bpf_ntohl(ops->remote_port);
-    }
-    else if (bpf_ntohl(ops->remote_port) == 8000) {
-        // key.ip4 = bpf_ntohl(ops->local_ip4);
-        key.port = ops->local_port;
-    }
-    else {
-        return 0;
-    }
+//     // register client connections (client-proxy)
+//     if (ops->local_port == 3000) {
+//         // key.ip4 = bpf_ntohl(ops->remote_ip4);
+//         key.port = bpf_ntohl(ops->remote_port);
+//     }
+//     else if (bpf_ntohl(ops->remote_port) == 8000) {
+//         // key.ip4 = bpf_ntohl(ops->local_ip4);
+//         key.port = ops->local_port;
+//     }
+//     else {
+//         return 0;
+//     }
 
-    bpf_log_printk("Process sockops: local [%pI4:%u] remote: [%pI4:%u] op: %d", 
-        bpf_ntohl(ops->local_ip4), ops->local_port,
-        bpf_ntohl(ops->remote_ip4), bpf_ntohl(ops->remote_port), ops->op);
+//     bpf_log_printk("Process sockops: local [%pI4:%u] remote: [%pI4:%u] op: %d", 
+//         bpf_ntohl(ops->local_ip4), ops->local_port,
+//         bpf_ntohl(ops->remote_ip4), bpf_ntohl(ops->remote_port), ops->op);
 
-    if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
-        bpf_log_printk("Add socket with key [%pI4:%d->%d]", key.ip4, key.port, key.backend);
+//     if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
+//         bpf_log_printk("Add socket with key [%pI4:%d->%d]", key.ip4, key.port, key.backend);
 
-        bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
-        if (bpf_sock_hash_update(ops, &sock_map, &key.port, BPF_NOEXIST) < 0) {
-            bpf_log_printk("ERROR: Adding socket failed.");
-        }
-    }
-    else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE && ops->local_port == 3000) {
-        bpf_log_printk("Close client connection [%pI4:%d]", key.ip4, key.port);
+//         bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
+//         if (bpf_sock_hash_update(ops, &sock_map, &key.port, BPF_NOEXIST) < 0) {
+//             bpf_log_printk("ERROR: Adding socket failed.");
+//         }
 
-        struct sock_key *client_key = &key;
-        struct sock_key *backend_key;
-        backend_key = bpf_map_lookup_elem(&c2b, &client_key->port);
+//         // put backend connection into queue
+//         if (bpf_ntohl(ops->remote_port) == 8000) {
+            // struct bpf_elf_map *socks;
+            // int idx = 0;
+            // socks = bpf_map_lookup_elem(&conn_pool, &idx);
+            // if (socks == NULL) {
+            //     bpf_log_printk("ERROR: Failed to find queue to put backend connection back in");
+            //     return 0;
+            // }
 
-        if (backend_key == NULL) {
-            // bpf_log_printk("ERROR: Request with key [%pI4:%d] didn't exist in c2b", client_key->ip4, client_key->port);
-            return 0;
-        }
+            // bpf_log_printk("Enqueuing connection [%pI4:%d]", key.ip4, key.port);
+            // if (bpf_map_push_elem(socks, &key, 0) < 0) {
+            //     bpf_log_printk("ERROR: Failed to push connection back into queue");
+            //     return 0;
+            // }
+//         }
+//     }
+//     else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE && ops->local_port == 3000) {
+//         bpf_log_printk("Close client connection [%pI4:%d]", key.ip4, key.port);
 
-        if (bpf_map_delete_elem(&c2b, &client_key->port) < 0) {
-            bpf_log_printk("ERROR: Failed to delete c2b entry with key [%pI4:%d]", client_key->ip4, client_key->port);
-        }
+//         struct sock_key *client_key = &key;
+//         struct sock_key *backend_key;
+//         backend_key = bpf_map_lookup_elem(&c2b, &client_key->port);
 
-        if (bpf_map_delete_elem(&b2c, &backend_key->port) < 0) {
-            bpf_log_printk("ERROR: Failed to delete b2c entry with key [%pI4:%d]", backend_key->ip4, backend_key->port);
-        }
+//         if (backend_key == NULL) {
+//             // bpf_log_printk("ERROR: Request with key [%pI4:%d] didn't exist in c2b", client_key->ip4, client_key->port);
+//             return 0;
+//         }
 
-        // put backend connection back into queue
-        struct bpf_elf_map *socks;
-        int idx = backend_key->backend - 1;
-        socks = bpf_map_lookup_elem(&conn_pool, &idx);
-        if (socks == NULL) {
-            bpf_log_printk("ERROR: Failed to find queue to put backend connection back in");
-            return 0;
-        }
+//         if (bpf_map_delete_elem(&c2b, &client_key->port) < 0) {
+//             bpf_log_printk("ERROR: Failed to delete c2b entry with key [%pI4:%d]", client_key->ip4, client_key->port);
+//         }
 
-        bpf_log_printk("Enqueuing connection [%pI4:%d]", backend_key->ip4, backend_key->port);
-        if (bpf_map_push_elem(socks, backend_key, 0) < 0) {
-            bpf_log_printk("ERROR: Failed to push connection back into queue");
-            return 0;
-        }
-    }
+//         if (bpf_map_delete_elem(&b2c, &backend_key->port) < 0) {
+//             bpf_log_printk("ERROR: Failed to delete b2c entry with key [%pI4:%d]", backend_key->ip4, backend_key->port);
+//         }
 
-    if (op == BPF_SOCK_OPS_STATE_CB) {
-        bpf_log_printk("Socket with key [%pI4:%d] changed state %d | %d | %d | %d", key.ip4, key.port, ops->args[0], ops->args[1], ops->args[2], ops->args[3]);
-    }
+//         // put backend connection back into queue
+//         struct bpf_elf_map *socks;
+//         int idx = backend_key->backend - 1;
+//         socks = bpf_map_lookup_elem(&conn_pool, &idx);
+//         if (socks == NULL) {
+//             bpf_log_printk("ERROR: Failed to find queue to put backend connection back in");
+//             return 0;
+//         }
 
-    return 0;
-}
+//         bpf_log_printk("Enqueuing connection [%pI4:%d]", backend_key->ip4, backend_key->port);
+//         if (bpf_map_push_elem(socks, backend_key, 0) < 0) {
+//             bpf_log_printk("ERROR: Failed to push connection back into queue");
+//             return 0;
+//         }
+//     }
+
+//     if (op == BPF_SOCK_OPS_STATE_CB) {
+//         bpf_log_printk("Socket with key [%pI4:%d] changed state %d | %d | %d | %d", key.ip4, key.port, ops->args[0], ops->args[1], ops->args[2], ops->args[3]);
+//     }
+
+//     return 0;
+// }

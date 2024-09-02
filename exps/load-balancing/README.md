@@ -12,6 +12,8 @@ cd naive
 
 fortio load -n [NUM_REQS] -c [CONCURRENCY] -qps [QUERIES_PER_SECOND] 127.0.0.1:3000/server1
 
+k6 run bench/breakpoint.js
+
 ./clean-env.sh
 ```
 
