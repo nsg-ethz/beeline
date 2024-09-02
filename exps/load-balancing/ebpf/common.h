@@ -4,7 +4,9 @@ static __always_inline bool _pull_and_validate_data(struct __sk_buff *skb,
                                                     uint16_t size) {
     int err;
     void *data, *data_end;
-    bpf_skb_pull_data(skb, size);
+    if (bpf_skb_pull_data(skb, size) < 0) {
+        return false;
+    }
 
     data_end = (void *)(long)skb->data_end;
     data = (void *)(long)skb->data;

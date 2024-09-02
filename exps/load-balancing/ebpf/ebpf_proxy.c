@@ -17,10 +17,15 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #include "net.h"
 #include "ebpf_proxy_struct.h"
 #include "ebpf_proxy.skel.h"
+
+struct ebpf_proxy_bpf *SKEL;
+int cg_fd;
+const int MAX_NUM_CONN = 1000;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
                            va_list args) {
@@ -39,50 +44,69 @@ static void bump_memlock_rlimit(void) {
     }
 }
 
-bool restart_backend_conn(int idx, int *connect_socks,
-                          struct sockaddr_storage *connect, int sockmap_fd) {
-
-    if (connect_socks[idx] != 0) {
-        close(connect_socks[idx]);
+static void bpf_detach(int sig) {
+    printf("Detaching BPF programs...\n");
+    int err = bpf_prog_detach(cg_fd, BPF_CGROUP_SOCK_OPS);
+    if (err) {
+        fprintf(stderr, "Failed to detach sockops\n");
     }
 
-    int sock_fd = net_connect_tcp_blocking(&connect[idx], 0);
-    if (sock_fd < 0) {
-        fprintf(stderr, "Connect to %s failed\n", net_ntop(&connect[idx]));
-        return false;
+    ebpf_proxy_bpf__destroy(SKEL);
+
+    exit(0);
+}
+
+int start_backend_conn(int idx, struct sockaddr_storage *backend_addrss, int sockmap_fd) {
+    int sd = net_connect_tcp_blocking(&backend_addrss[idx], 0);
+    if (sd < 0) {
+        fprintf(stderr, "Connect to %s failed\n", net_ntop(&backend_addrss[idx]));
+        return -1;
     }
-    connect_socks[idx] = sock_fd;
-    printf("Connected to %s\n", net_ntop(&connect[idx]));
+    
+    printf("Connected to %s\n", net_ntop(&backend_addrss[idx]));
 
-    int on = 1;
-    setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
+    // int on = 1;
+    // setsockopt(sd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
 
-    // {
-    //     /* There is a bug in sockmap which prevents it from
-    //      * working right when snd buffer is full. Set it to
-    //      * gigantic value. */
-    //     int val = 32 * 1024 * 1024;
-    //     setsockopt(sock_fd, SOL_SOCKET, SO_SNDBUF, &val, sizeof(val));
-    // }
+    return sd;
+}
 
-    int sockmap_idx = idx + 1;
-    int val = connect_socks[idx];
-    printf("Updating map at index: %d, with val: %d\n", sockmap_idx, val);
-    int r = bpf_map_update_elem(sockmap_fd, &sockmap_idx, &val, BPF_ANY);
-    if (r != 0) {
-        if (errno == EOPNOTSUPP) {
-            perror("pushing closed socket to sockmap?");
-            return false;
-        }
-        fprintf(stderr, "bpf_map_update_elem failed\n");
-        return false;
+int close_frontend_sock(int fd) {
+    int err;
+    socklen_t err_len = sizeof(err);
+    int r = getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &err_len);
+    if (r < 0) {
+        fprintf(stderr, "getsockopt failed\n");
+        return r;
+    }
+    errno = err;
+    if (errno) {
+        fprintf(stderr, "sockmap error: %s\n", strerror(errno));
     }
 
-    return true;
+    close(fd);
+
+    return 0;
+}
+
+int parse_backend(char* req) {
+    const char* server_x_req = "GET /server";
+    if (strlen(req) <= strlen(server_x_req)) {
+        return -1;
+    }
+
+    if (strncmp(req, server_x_req, strlen(server_x_req)) == 0) {
+        int backend = req[strlen(server_x_req)] - '0';
+        return backend;
+    }
+
+    return -1;
 }
 
 int main(int argc, char **argv) {
-    struct ebpf_proxy_bpf *skel;
+    // make sure we properly detach all BPF programs
+    signal(SIGINT, bpf_detach);
+
     int err;
 
     if (argc < 3) {
@@ -99,35 +123,35 @@ int main(int argc, char **argv) {
     bump_memlock_rlimit();
 
     /* Open BPF application */
-    skel = ebpf_proxy_bpf__open();
-    if (!skel) {
+    SKEL = ebpf_proxy_bpf__open();
+    if (!SKEL) {
         fprintf(stderr, "Failed to open BPF skeleton\n");
         return 1;
     }
 
     /* Load & verify BPF programs */
-    err = ebpf_proxy_bpf__load(skel);
+    err = ebpf_proxy_bpf__load(SKEL);
     if (err) {
         fprintf(stderr, "Failed to load and verify BPF skeleton\n");
         goto cleanup;
     }
 
-    int cg_fd = open("/sys/fs/cgroup/", __O_DIRECTORY, O_RDONLY);
+    cg_fd = open("/sys/fs/cgroup/", __O_DIRECTORY, O_RDONLY);
     if (cg_fd < 0) {
         fprintf(stderr, "failed to set reuseaddr: %s\n", strerror(errno));
         return -1;
     }
 
-    err = bpf_prog_attach(bpf_program__fd(skel->progs._sock_ops), cg_fd,
+    err = bpf_prog_attach(bpf_program__fd(SKEL->progs._sock_ops), cg_fd,
                           BPF_CGROUP_SOCK_OPS, 0);
     if (err < 0) {
         fprintf(stderr, "failed to attach sockops: %s\n", strerror(errno));
         return -1;
     }
 
-    int sockmap_fd = bpf_map__fd(skel->maps.sock_map);
+    int sockmap_fd = bpf_map__fd(SKEL->maps.sock_map);
 
-    err = bpf_prog_attach(bpf_program__fd(skel->progs.bpf_prog_parser),
+    err = bpf_prog_attach(bpf_program__fd(SKEL->progs.bpf_prog_parser),
                           sockmap_fd, BPF_SK_SKB_STREAM_PARSER, 0);
 
     if (err) {
@@ -135,7 +159,7 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    err = bpf_prog_attach(bpf_program__fd(skel->progs.bpf_prog_verdict),
+    err = bpf_prog_attach(bpf_program__fd(SKEL->progs.bpf_prog_verdict),
                           sockmap_fd, BPF_SK_SKB_STREAM_VERDICT, 0);
 
     if (err) {
@@ -148,14 +172,10 @@ int main(int argc, char **argv) {
     struct sockaddr_storage listen;
     net_parse_sockaddr(&listen, argv[1]);
 
-    unsigned int tot_conn_socks = argc - 2;
-
-    struct sockaddr_storage *connect = (struct sockaddr_storage *)malloc(
-        tot_conn_socks * sizeof(struct sockaddr_storage));
-    int *connect_socks = (int *)malloc(tot_conn_socks * sizeof(int));
-
-    for (int i = 0; i < tot_conn_socks; i++) {
-        net_parse_sockaddr(&connect[i], argv[i + 2]);
+    unsigned int num_backends = argc - 2;
+    struct sockaddr_storage *backend_addrs = (struct sockaddr_storage *)malloc(num_backends * sizeof(struct sockaddr_storage));
+    for (int i = 0; i < num_backends; i++) {
+        net_parse_sockaddr(&backend_addrs[i], argv[i + 2]);
     }
 
     struct url_value url_to_server[4];
@@ -167,39 +187,42 @@ int main(int argc, char **argv) {
     strcpy(url_to_server[2].url, "/server3");
     strcpy(url_to_server[3].url, "/server4");
 
-    int url_to_server_fd = bpf_map__fd(skel->maps.url_to_server_map);
-    int redirect_idx = 0;
+    int url_to_server_fd = bpf_map__fd(SKEL->maps.url_to_server_map);
     for (int i = 0; i < 4; i++) {
-        redirect_idx = i + 1;
+        int backend = i + 1;
         int r = bpf_map_update_elem(url_to_server_fd, &url_to_server[i],
-                                    &redirect_idx, BPF_NOEXIST);
+                                    &backend, BPF_NOEXIST);
         if (r != 0) {
             fprintf(stderr, "bpf_map_update_elem(url_to_server) failed\n");
             goto cleanup;
         }
     }
 
-    struct pollfd *fds =
-        (struct pollfd *)calloc(tot_conn_socks + 1, sizeof(struct pollfd));
+    int req_map_fd = bpf_map__fd(SKEL->maps.req_map);
+
+    // prepare our sockets structure
+    // the first `num_backends` are our backend (proxy-server) connections
+    // the next n sockets are our frontend (client-proxy) connections
+    unsigned int num_fds = 0;
+    struct pollfd *fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
     if (fds == NULL) {
         fprintf(stderr, "malloc failed\n");
         goto cleanup;
     }
 
+    // start listening to incomming connections
     int sd = net_bind_tcp(&listen);
     if (sd < 0) {
         fprintf(stderr, "Bind failed\n");
         goto cleanup;
     }
 
-again_accept:;
-    // Create new sockets
-    for (int i = 0; i < tot_conn_socks; i++) {
-        if (!restart_backend_conn(i, connect_socks, connect, sockmap_fd))
-            goto cleanup;
+accept:
+    if (num_fds == MAX_NUM_CONN) {
+        printf("No new connections are accepted. Polling...");
+        goto poll;
     }
-    // Check if an event as occurred in the open sockets.
-    // If the socket has been closed, let's connect again
+
     printf("Accepting new connections\n");
 
     struct sockaddr_storage client;
@@ -216,103 +239,148 @@ again_accept:;
         setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &val, sizeof(val));
     }
 
-    printf("New connection accepted\n");
+    printf("New connection accepted (%d)\n", fd);
 
-    /* Add socket to SOCKMAP. Otherwise the ebpf won't work. */
-    // int idx = 0;
-    // int val = fd;
-    // int r = bpf_map_update_elem(sockmap_fd, &idx, &val, BPF_ANY);
-    // if (r != 0) {
-    //     if (errno == EOPNOTSUPP) {
-    //         perror("pushing closed socket to sockmap?");
-    //         close(fd);
-    //         goto again_accept;
-    //     }
-    //     fprintf(stderr, "bpf_map_update_elem failed\n");
-    //     goto cleanup;
-    // }
+    fds[num_fds].fd = fd;
+    fds[num_fds].events = POLLIN|POLLRDHUP|POLLHUP|POLLERR;
+    num_fds++;
 
-    /* [*] Wait for the socket to close. Let sockmap do the magic. */
-    // struct pollfd fds[1] = {
-    //     {.fd = fd, .events = POLLRDHUP},
-    //     // {.fd = sockmap_fd, .events = POLLRDHUP},
-    // };
-    // poll(fds, 1, -1);
+poll:
+    int nfds = poll(fds, num_fds, -1);
 
-    while (true) {
-        fds[0].fd = fd;
-        fds[0].events = POLLRDHUP;
+    if (nfds == -1) {
+        fprintf(stderr, "Error in poll syscall\n");
+        goto cleanup;
+    }
+    else if (nfds == 0) {
+        goto accept;
+    }
 
-        for (int i = 1; i <= tot_conn_socks; i++) {
-            fds[i].fd = connect_socks[i - 1];
-            fds[i].events = POLLRDHUP;
-        }
-        printf("Poll array initialized\n");
-        int nfds = poll(fds, tot_conn_socks + 1, -1);
+    struct pollfd *new_fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
+    unsigned int new_num_fds = 0;
 
-        if (nfds == -1) {
-            fprintf(stderr, "Error in poll syscall\n");
-            goto cleanup;
-        }
+    for (int i = 0; i < num_fds; i++) {
+        if (fds[i].revents & POLLIN) {
+            size_t buf_len = 1024;
+            char buf[buf_len];
+            memset(buf, 0, buf_len);
 
-        printf("Events Ready: %d\n", nfds);
+            // read the entire request
+            ssize_t len = read(fds[i].fd, buf, buf_len);
+            size_t req_len = strlen(buf);
 
-        for (int i = 0; i < tot_conn_socks + 1; i++) {
-            // Check every event
-            if (fds[i].revents != 0) {
-                if (i == 0) {
-                    goto main_socket_err;
-                } else {
-                    if (!restart_backend_conn(i - 1, connect_socks, connect,
-                                              sockmap_fd)) {
-                        fprintf(stderr,
-                                "Error restarting backend connection for "
-                                "server%i\n",
-                                i);
-                        goto cleanup;
-                    }
-                }
+            if (len == 0) {
+                printf("Socket closed\n");
+                close(fds[i].fd);
+                continue;
             }
+            // EAGAIN means we have to wait for eBPF verdict first
+            else if (len < 0 && errno != EAGAIN) {
+                printf("Error reading socket: %s\n", strerror(errno));
+                goto cleanup;
+            }
+
+            // we want to poll this fd again
+            new_fds[new_num_fds] = fds[i];
+            new_num_fds++;
+            
+            // if we couldn't read yet, but also don't have an error
+            // we will just try again :)
+            if (len <= 0) {
+                continue;
+            }
+
+            printf("Received request length %ld after reading %ld: %s\n", req_len, len, buf);
+
+            // we received a new request but don't 
+            // have a free connection in the pool
+            int backend = parse_backend(buf);
+            if (backend < 0) {
+                printf("Invalid request: %s\n", buf);
+                continue;
+            }
+
+            // valid request, get the client connection
+            struct sockaddr_in client_addr;
+            len = sizeof(client_addr);
+            if (getpeername(fds[i].fd, (struct sockaddr *)&client_addr, (socklen_t*)&len) < 0) {
+                printf("Error getting peer name: %s\n", strerror(errno));
+                goto cleanup;
+            }
+
+            int sd = start_backend_conn(backend-1, backend_addrs, sockmap_fd);
+            printf("Established a new connection to backend %d: %d\n", backend, sd);
+
+            struct sockaddr_in backend_addr;
+            if (getsockname(sd, (struct sockaddr *)&backend_addr, (socklen_t*)&len) < 0) {
+                printf("Error getting socket name: %s\n", strerror(errno));
+                goto cleanup;
+            }
+
+            struct sock_key client_key = { 0 };
+            // client_key.ip4 = client_addr.sin_addr.s_addr;
+            client_key.port = htons(client_addr.sin_port);
+
+            struct sock_key backend_key = { 0 };
+            // backend_key.ip4 = backend_addr.sin_addr.s_addr;
+            backend_key.port = htons(backend_addr.sin_port);
+            printf("Assign backend connection [%s:%d] to client connection: [%s:%d]\n", inet_ntoa(backend_addr.sin_addr), backend_key.port, inet_ntoa(client_addr.sin_addr), client_key.port);
+
+            int r = bpf_map_update_elem(req_map_fd, &backend_key, &client_key, BPF_NOEXIST);
+            if (r != 0) {
+                fprintf(stderr, "bpf_map_update_elem(req_map) failed\n");
+                goto cleanup;
+            }
+
+            size_t res_len = 0;
+            do {
+                len = write(sd, buf+res_len, req_len-res_len);
+                if (len < 0) {
+                    // the socket might not be ready
+                    continue;
+                }
+                
+                if (len == 0) {
+                    // we sent the msg
+                    break;
+                }
+                res_len += len;
+            } while (res_len < req_len);
+            printf("Redirected request of length %ld to backend\n", res_len);
+        }
+        if (fds[i].revents & POLLRDHUP || fds[i].revents & POLLHUP || fds[i].revents & POLLERR) {
+            printf("Closing socket\n");
+            close(fds[i].fd);
         }
     }
 
-main_socket_err:;
-    /* Was there a socket error? */
-    {
-        int err;
-        socklen_t err_len = sizeof(err);
-        int r = getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &err_len);
-        if (r < 0) {
-            fprintf(stderr, "getsockopt failed\n");
-            goto cleanup;
-        }
-        errno = err;
-        if (errno) {
-            fprintf(stderr, "sockmap fd\n");
-        }
+    memset(fds, 0, num_fds);
+    for (int i = 0; i < new_num_fds; i++) {
+        fds[i] = new_fds[i];
+        fds[i].events = POLLIN|POLLRDHUP|POLLHUP|POLLERR;
     }
+    num_fds = new_num_fds;
+    free(new_fds);
 
-    /* Cleanup the entry from sockmap. */
-    // idx = 0;
-    // r = bpf_map_delete_elem(sockmap_fd, &idx);
-    // if (r != 0) {
-    //     if (errno == EINVAL) {
-    //         fprintf(stderr, "[-] Removing closed sock from sockmap\n");
-    //     } else {
-    //         fprintf(stderr, "bpf_map_delete_elem failed\n");
-    //         goto cleanup;
-    //     }
-    // }
+    printf("Got %d open sockets\n", num_fds);
 
-    close(fd);
-    goto again_accept;
+    // if we don't have any open connections
+    // we start accepting right away
+    // if we have open connections, we first check
+    // if there's something to read
+    if (num_fds > 0) {
+        goto poll;
+    }
+    else {
+        goto accept;
+    }
 
 cleanup:
-    free(connect);
-    for (int i = 0; i < tot_conn_socks; i++) {
-        close(connect_socks[i]);
+    for (int i = 0; i < num_fds; i++) {
+        close(fds[i].fd);
     }
-    free(connect_socks);
-    ebpf_proxy_bpf__destroy(skel);
+    free(fds);
+    free(backend_addrs);
+    ebpf_proxy_bpf__destroy(SKEL);
     return -err;
 }
