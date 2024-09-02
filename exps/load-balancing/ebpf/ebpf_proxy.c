@@ -220,6 +220,39 @@ int parse_backend(char* req) {
     return -1;
 }
 
+int parse_header_length(char* req) {
+    const char *sep = "\r\n\r\n";
+    char *next = strstr(req, sep);
+    if (next != NULL) {
+        return next-req;
+    }
+
+    return -1;
+}
+
+int parse_content_length(char* req) {
+    const char *key = "Content-Length: ";
+    int key_len = strlen(key);
+
+    char *line = req;
+    const char *sep = "\r\n";
+    int sep_len = 2;
+    while (line) {
+        char *next = strstr(line, sep);
+
+        if (next == NULL) break;
+        if (strncmp(line, key, key_len) == 0) {
+            return atoi(line + key_len);
+        }
+
+        printf("%s\n", line);
+    
+        line = next ? (next+sep_len) : NULL;
+    }
+
+    return -1;
+}
+
 int main(int argc, char **argv) {
     // make sure we properly detach all BPF programs
     signal(SIGINT, bpf_detach);
@@ -399,14 +432,21 @@ poll:
             memset(buf, 0, buf_len);
 
             // read the entire request
-            ssize_t len = recv(fds[i].fd, buf, buf_len, MSG_DONTWAIT);
-            size_t req_len = strlen(buf);
+            int con_len = -1;
+            int req_len = 0;
+            while (req_len < con_len || con_len < 0) {
+                ssize_t len = recv(fds[i].fd, buf+req_len, buf_len-req_len, MSG_DONTWAIT);
 
-            // EAGAIN means we have to wait for eBPF verdict first
-            if (len < 0 && errno != EAGAIN) {
-                printf("Error reading socket: %s\n", strerror(errno));
-                close(fds[i].fd);
-                continue;
+                // EAGAIN means we have to wait for eBPF verdict first
+                if (len < 0 && errno != EAGAIN) {
+                    printf("Error reading socket: %s\n", strerror(errno));
+                    close(fds[i].fd);
+                    break;
+                }
+                else if (len > 0) {
+                    con_len = parse_content_length(buf) + parse_header_length(buf);
+                    req_len += len;
+                }
             }
 
             // TODO: continue observing socket breaks the "on demand" solution
@@ -414,76 +454,72 @@ poll:
             fds_new[num_fds_new].events = POLLRDHUP|POLLHUP|POLLERR;
             num_fds_new++;
 
-            // if we couldn't read yet, but also don't have an error
-            // we will just try again :)
-            if (len > 0) {
-                printf("Received request length %ld after reading %ld: %s\n", req_len, len, buf);
+            printf("Received request length %ld\n", req_len);
 
-                // we received a new request but don't 
-                // have a free connection in the pool
-                int backend = parse_backend(buf);
-                if (backend < 1) {
-                    printf("Invalid request: %s\n", buf);
+            // we received a new request but don't 
+            // have a free connection in the pool
+            int backend = parse_backend(buf);
+            if (backend < 1) {
+                printf("Invalid request: %s\n", buf);
+                continue;
+            }
+
+            // valid request -> start backend connections
+            // we start all 4 connections right away, because
+            // contacting userspace later is buggy
+            struct sock_key backend_key = { 0 };
+            int bd = -1;
+            for (int i = 1; i < 5; i++) {
+                struct sock_key key = { 0 };
+                int fd = start_backend_conn(i, backend_addrs, sockmap_fd, &key);
+                printf("Established a new connection to backend %d: %d\n", key.backend, fd);
+
+                add_to_sockmap(sockmap_fd, fd, &key);
+                if (i == backend) {
+                    backend_key = key;
+                    bd = fd;
+                }
+                else {
+                    int conns_fd = -1;
+                    switch (i) {
+                        case 1: conns_fd = backend1_conns_fd; break;
+                        case 2: conns_fd = backend2_conns_fd; break;
+                        case 3: conns_fd = backend3_conns_fd; break;
+                        case 4: conns_fd = backend4_conns_fd; break;
+                    }
+
+                    if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
+                        fprintf(stderr, "bpf_map_update_elem(backend1_conns) failed: %s\n", strerror(errno));
+                        goto cleanup;
+                    }
+                }
+            }
+
+            // book keeping
+            struct sock_key client_key = { 0 };
+            get_sock_key(fds[i].fd, &client_key);
+
+            if (assign_client_to_backend(c2b_fd, b2c_fd, &client_key, &backend_key) < 0) {
+                goto cleanup;
+            }
+
+            add_to_sockmap(sockmap_fd, fds[i].fd, &client_key);
+
+            size_t res_len = 0;
+            do {
+                ssize_t len = write(bd, buf+res_len, req_len-res_len);
+                if (len < 0) {
+                    // the socket might not be ready
                     continue;
                 }
-
-                // valid request -> start backend connections
-                // we start all 4 connections right away, because
-                // contacting userspace later is buggy
-                struct sock_key backend_key = { 0 };
-                int bd = -1;
-                for (int i = 1; i < 5; i++) {
-                    struct sock_key key = { 0 };
-                    int fd = start_backend_conn(i, backend_addrs, sockmap_fd, &key);
-                    printf("Established a new connection to backend %d: %d\n", key.backend, fd);
-
-                    add_to_sockmap(sockmap_fd, fd, &key);
-                    if (i == backend) {
-                        backend_key = key;
-                        bd = fd;
-                    }
-                    else {
-                        int conns_fd = -1;
-                        switch (i) {
-                            case 1: conns_fd = backend1_conns_fd; break;
-                            case 2: conns_fd = backend2_conns_fd; break;
-                            case 3: conns_fd = backend3_conns_fd; break;
-                            case 4: conns_fd = backend4_conns_fd; break;
-                        }
-
-                        if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
-                            fprintf(stderr, "bpf_map_update_elem(backend1_conns) failed: %s\n", strerror(errno));
-                            goto cleanup;
-                        }
-                    }
+                
+                if (len == 0) {
+                    // we sent the msg
+                    break;
                 }
-
-                // book keeping
-                struct sock_key client_key = { 0 };
-                get_sock_key(fds[i].fd, &client_key);
-
-                if (assign_client_to_backend(c2b_fd, b2c_fd, &client_key, &backend_key) < 0) {
-                    goto cleanup;
-                }
-
-                add_to_sockmap(sockmap_fd, fds[i].fd, &client_key);
-
-                size_t res_len = 0;
-                do {
-                    len = write(bd, buf+res_len, req_len-res_len);
-                    if (len < 0) {
-                        // the socket might not be ready
-                        continue;
-                    }
-                    
-                    if (len == 0) {
-                        // we sent the msg
-                        break;
-                    }
-                    res_len += len;
-                } while (res_len < req_len);
-                printf("Redirected request of length %ld to backend\n", res_len);
-            }
+                res_len += len;
+            } while (res_len < req_len);
+            printf("Redirected request of length %ld to backend\n", res_len);
         }
         
         if (fds[i].revents & POLLRDHUP || fds[i].revents & POLLHUP) {
