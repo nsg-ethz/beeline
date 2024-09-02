@@ -1,7 +1,7 @@
 import { check } from 'k6';
 import http from 'k6/http';
 import exec from 'k6/execution';
-import { randomIntBetween, randomString } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
+import { randomIntBetween, randomString, tagWithCurrentStageProfile } from 'https://jslib.k6.io/k6-utils/1.3.0/index.js';
 
 export const options = {
   stages: [
@@ -12,6 +12,8 @@ export const options = {
 };
 
 export default function () {
+  tagWithCurrentStageProfile();
+
   const payload_size = __ENV.PAYLOAD_SIZE || 1024;
   const server = randomIntBetween(1, 4);
   const signature = `server${server}`;
@@ -25,7 +27,8 @@ export default function () {
     'body is the same': (r) => r.body === data
   });
 
-  const abortOnFail = ["1", "true"].includes(__ENV.ABORT_ON_FAIL.toLowerCase()) || false;
+  let abortOnFail = __ENV.ABORT_ON_FAIL || "0";
+  abortOnFail = ["1", "true"].includes(abortOnFail.toLowerCase());
   if (!passed && abortOnFail) {
     exec.test.abort();
   }
