@@ -25,7 +25,7 @@
 #include "proxy_struct.h"
 #include "proxy.skel.h"
 
-#define LOG_LEVEL 2
+#define LOG_LEVEL 1
 
 #if LOG_LEVEL == 0
 #define print_log(...) (void)0

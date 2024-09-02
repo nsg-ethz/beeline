@@ -4,9 +4,9 @@ export const options = {
   scenarios: {
     stress: {
       executor: "constant-arrival-rate",
-      rate: 10000,
+      rate: 30000,
       duration: "2m",
-      preAllocatedVUs: 1000,
+      preAllocatedVUs: 2000,
     }
   }
 };

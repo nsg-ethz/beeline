@@ -83,6 +83,8 @@ def _load_data(paths, aggs):
 
 def _save_to_path(name, dst):
     name = name.replace("{expected_response:true}", "_exp_res")
+    name = name.replace("(", "")
+    name = name.replace(")", "")
 
     plt.tight_layout()
     path = os.path.join(dst, name) if os.path.isdir(dst) else dst
@@ -206,8 +208,6 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
 
     # assert(np.all(df["ebpf"] >= 0))
     # assert(np.all(df["envoy"] >= 0))
-
-    df = df[df.index.get_level_values("payload_size") <= 1024]
 
     g = df.plot(kind="bar")
     g.set_xlabel("payload size [B]")
