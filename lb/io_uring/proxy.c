@@ -25,7 +25,7 @@
 #include "proxy_struct.h"
 #include "hashmap.h"
 
-#define LOG_LEVEL 2
+#define LOG_LEVEL 1
 
 #if LOG_LEVEL == 0
 #define print_log(...) (void)0
@@ -282,7 +282,6 @@ void* worker(void* arg) {
         struct request *req = (struct request *)cqe->user_data;
         if (cqe->res < 0) {
             print_err("Async request failed: %s for socket: %d, event: %d\n", strerror(-cqe->res), req->fd, req->event_type);
-            exit(1);
         }
 
         switch (req->event_type) {
@@ -301,8 +300,8 @@ void* worker(void* arg) {
 
                 // check if there is something to read
                 if (cqe->res == 0) {
-                    print_log("Received empty request: %d\n", req->fd);
-                    add_read_request(&ring, req->fd, &key);
+                    print_log("Closing socket: %d\n", req->fd);
+                    close(req->fd);
                     break;
                 }
 
