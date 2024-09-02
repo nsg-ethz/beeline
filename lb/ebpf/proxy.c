@@ -21,10 +21,10 @@
 #include <pthread.h>
 
 #include "net.h"
-#include "ebpf_proxy_struct.h"
-#include "ebpf_proxy.skel.h"
+#include "proxy_struct.h"
+#include "proxy.skel.h"
 
-struct ebpf_proxy_bpf *SKEL;
+struct proxy_bpf *SKEL;
 int cg_fd;
 int sockmap_fd;
 struct sockaddr_storage addr;
@@ -67,7 +67,7 @@ static void bpf_detach(int sig) {
     //     fprintf(stderr, "Failed to detach sockops\n");
     // }
 
-    // ebpf_proxy_bpf__destroy(SKEL);
+    // proxy_bpf__destroy(SKEL);
 
     exit(0);
 }
@@ -510,14 +510,14 @@ int main(int argc, char **argv) {
     bump_memlock_rlimit();
 
     /* Open BPF application */
-    SKEL = ebpf_proxy_bpf__open();
+    SKEL = proxy_bpf__open();
     if (!SKEL) {
         fprintf(stderr, "Failed to open BPF skeleton\n");
         return -1;
     }
 
     /* Load & verify BPF programs */
-    err = ebpf_proxy_bpf__load(SKEL);
+    err = proxy_bpf__load(SKEL);
     if (err) {
         fprintf(stderr, "Failed to load and verify BPF skeleton\n");
         return -1;
@@ -622,6 +622,6 @@ int main(int argc, char **argv) {
         close(fds[i].fd);
     }
     free(backend_addrs);
-    ebpf_proxy_bpf__destroy(SKEL);
+    proxy_bpf__destroy(SKEL);
     return -err;
 }

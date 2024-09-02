@@ -17,7 +17,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 
-#include "ebpf_proxy_struct.h"
+#include "proxy_struct.h"
 #include "http.h"
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";

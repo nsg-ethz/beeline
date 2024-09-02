@@ -1,4 +1,4 @@
 /.output
-/ebpf_proxy
+/proxy
 /compile_commands.json
 /python-scripts
