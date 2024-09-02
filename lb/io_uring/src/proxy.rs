@@ -17,7 +17,7 @@ use socket2::{Socket, Domain, Type};
 use crate::http;
 
 const BUF_NUM: usize = 64;
-const BUF_LEN: usize = 256;
+const BUF_LEN: usize = 2048;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Token {
