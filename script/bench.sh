@@ -26,7 +26,7 @@ SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 mkdir -p ${SUMMARY_DIR}
 
 for SIZE in ${SIZE_LIST}; do
-    CMD="PAYLOAD_SIZE=${SIZE} k6 run --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json bench/stress.js"
+    CMD="k6 run -e PAYLOAD_SIZE=${SIZE} --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json bench/stress.js"
     echo ${CMD}
     eval ${CMD}
 done
