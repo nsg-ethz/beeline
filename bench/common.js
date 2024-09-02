@@ -9,7 +9,8 @@ export function randomRequest() {
   const signature = `server${server}`;
 
   var url = null;
-  if (__ENV.DIRECT || false) {
+  const direct = (__ENV.DIRECT || "0") == "1";
+  if (direct) {
     url = `http://10.0.${server}.1:8000/${signature}`;
   }
   else {
