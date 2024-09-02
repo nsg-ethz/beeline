@@ -171,7 +171,7 @@ def duration_graph(paths, proxy, agg, dst):
     _save_to_path(f"duration-{proxy}-{agg}.pdf", dst)
 
 
-def overhead_graph(paths, base, metric, agg, dst):
+def overhead_graph(paths, base, metric, agg, absolute, dst):
     def _preprocess(df):
         df = df[df.index.get_level_values("metric_name") == metric]
         df = df.drop((c for c in df.columns if c != agg), axis=1)
@@ -185,15 +185,19 @@ def overhead_graph(paths, base, metric, agg, dst):
     files = glob.glob(base)
     base = _preprocess(_load_summary_data(files))
 
-    df["ebpf"] = df["ebpf"] - base["none"]
-    df["envoy"] = df["envoy"] - base["none"]
+    if absolute:
+        df["ebpf"] = df["ebpf"] - base["none"]
+        df["envoy"] = df["envoy"] - base["none"]
+    else:
+        df["ebpf"] = (df["ebpf"] - base["none"]) / base["none"] * 100
+        df["envoy"] = (df["envoy"] - base["none"]) / base["none"] * 100
 
     # assert(np.all(df["ebpf"] >= 0))
     # assert(np.all(df["envoy"] >= 0))
 
     g = df.plot(kind="bar")
     g.set_xlabel("payload size [B]")
-    g.set_ylabel("time [ms]")
+    g.set_ylabel("time [ms]" if absolute else "overhead [%]")
     
     _save_to_path(f"overhead-{metric}-{agg}.pdf", dst)
 
@@ -222,6 +226,7 @@ if __name__ == "__main__":
     overhead.add_argument("-b", "--base", required=True, help="The data that serves as the critical path")
     overhead.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
     overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+    overhead.add_argument("--absolute", default=False, help="Report the overhead in absolute numbers")
 
     args = parser.parse_args()
     files = glob.glob(args.pattern)
@@ -233,4 +238,4 @@ if __name__ == "__main__":
     elif args.command == "duration":
         duration_graph(files, args.proxy, args.agg, args.output)
     elif args.command == "overhead":
-        overhead_graph(files, args.base, args.metric, args.agg, args.output)
+        overhead_graph(files, args.base, args.metric, args.agg, args.absolute, args.output)

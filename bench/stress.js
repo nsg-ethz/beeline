@@ -4,9 +4,9 @@ export const options = {
   scenarios: {
     randomRequests: {
       executor: "constant-arrival-rate",
-      rate: 5000,
+      rate: 1000,
       duration: "2m",
-      preAllocatedVUs: 10000,
+      preAllocatedVUs: 5000,
     }
   }
 };
