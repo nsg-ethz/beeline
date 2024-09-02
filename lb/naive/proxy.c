@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/resource.h>
 #include <sys/ioctl.h>
+#include <sys/epoll.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <linux/tcp.h>
@@ -23,7 +24,7 @@
 #include "proxy_struct.h"
 #include "hashmap.h"
 
-#define LOG_LEVEL 2
+#define LOG_LEVEL 1
 
 #if LOG_LEVEL == 0
 #define print_log(...) (void)0
@@ -40,7 +41,8 @@ int sockmap_fd;
 struct sockaddr_storage addr;
 
 const int NUM_WORKERS = 1;
-const int MAX_NUM_CONN = 10000;
+const int MAX_NUM_CONN = 1000;
+const int MAX_EVENTS = 1000;
 struct sockaddr_storage *backend_addrs;
 int* bds;
 
@@ -276,12 +278,6 @@ int write_req(int fd, char *buf, size_t req_len) {
 }
 
 void* worker(void* arg) {
-    int num_fds = 0;
-    struct pollfd *fds = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
-
-    int num_fds_new = 0;
-    struct pollfd *fds_new = (struct pollfd *)calloc(MAX_NUM_CONN, sizeof(struct pollfd));
-
     size_t buf_len = 64 * 1024;
     char buf[buf_len];
 
@@ -297,57 +293,62 @@ void* worker(void* arg) {
         exit(-1);
     }
 
+    int epfd = epoll_create1(0);
+    if (epfd < 0) {
+        print_err("Failed to create epoll\n");
+        exit(-1);
+    }
+
+    struct epoll_event ev, events[MAX_EVENTS];
+
+    ev.events = EPOLLIN|EPOLLHUP|EPOLLRDHUP|EPOLLERR;
+    ev.data.fd = lfd;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, lfd, &ev) < 0) {
+        print_err("Failed to add listen socket to epoll\n");
+        exit(-1);
+    }
+
     while (true) {
-        if (num_fds >= MAX_NUM_CONN) {
-            print_log("No new connections are accepted.\n");
-            usleep(10);
-            continue;
-        }
-
-        short int poll_events = POLLRDHUP|POLLHUP|POLLERR|POLLIN;
-        struct sock_key client_key = { 0 };
-        int cd = accept_client_conn(lfd, &client_key);
-        if (cd < 0) {
-            print_err("Error accepting new connections: %s\n", strerror(errno));
-            exit(-1);
-        }
-        else if (cd > 0) {
-            fds[num_fds].fd = cd;
-            fds[num_fds].events = poll_events;
-            num_fds++;
-        }
-
-        if (num_fds == 0) {
-            usleep(10);
-            continue;
-        }
-
-        // print_log("Open backend connections:\n");
-        // for (int i = 0; i < 4; i++) {
-        //     print_log("backend %d: %d\n", i+1, num_conn_pool[i]);
-        // }
-
-        int nfds = poll(fds, num_fds, 10);
+        int nfds = epoll_wait(epfd, events, MAX_EVENTS, -1);
         if (nfds == -1) {
             print_err("Failed to poll: %s\n", strerror(errno));
             exit(-1);
         }
-        else if (nfds == 0) {
-            continue;
-        }
 
-        memset(fds_new, 0, MAX_NUM_CONN*sizeof(struct pollfd));
-        num_fds_new = 0;
+        for (int i = 0; i < nfds; i++) {
+            if (events[i].data.fd == lfd) {
+                short int poll_events = POLLRDHUP|POLLHUP|POLLERR|POLLIN;
+                struct sock_key client_key = { 0 };
+                int cd = accept_client_conn(lfd, &client_key);
+                if (cd < 0) {
+                    print_err("Error accepting new connections: %s\n", strerror(errno));
+                    exit(-1);
+                }
+                else if (cd > 0) {
+                    ev.data.fd = cd;
+                    if (epoll_ctl(epfd, EPOLL_CTL_ADD, cd, &ev) < 0) {
+                        print_err("Failed to add client socket to epoll\n");
+                        exit(-1);
+                    }
+                }
 
-        for (int i = 0; i < num_fds; i++) {
+                continue;
+            }
+
             struct sock_key fd_key = { 0 };
-            get_sock_key(fds[i].fd, &fd_key);
+            get_sock_key(events[i].data.fd, &fd_key);
 
-            if (fds[i].revents & POLLRDHUP || fds[i].revents & POLLHUP) {
+            if (events[i].events & POLLRDHUP || events[i].events & POLLHUP) {
                 print_log("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
                     (fd_key.local_ip4 >> 24) & 0xff, (fd_key.local_ip4 >> 16) & 0xff, (fd_key.local_ip4 >> 8) & 0xff, fd_key.local_ip4 & 0xff, fd_key.local_port,
                     (fd_key.remote_ip4 >> 24) & 0xff, (fd_key.remote_ip4 >> 16) & 0xff, (fd_key.remote_ip4 >> 8) & 0xff, fd_key.remote_ip4 & 0xff, fd_key.remote_port);
-                close(fds[i].fd);
+
+                ev.data.fd = events[i].data.fd;
+                if (epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &ev) < 0) {
+                    print_err("Failed to delete client socket to epoll\n");
+                    exit(-1);
+                }
+                close(events[i].data.fd);
 
                 struct sock_bind *bind = (struct sock_bind *)hashmap_get(c2b, &(struct sock_bind){ .key=fd_key });
                 if (bind == NULL) {
@@ -373,24 +374,19 @@ void* worker(void* arg) {
 
                 continue;
             }
-            else {
-                fds_new[num_fds_new].fd = fds[i].fd;
-                fds_new[num_fds_new].events = fds[i].events;
-                num_fds_new++;
-            }
 
-            if (fds[i].revents & POLLIN) {
+            if (events[i].events & POLLIN) {
                 memset(buf, 0, buf_len);
 
                 // read the entire request
-                int req_len = read_req(fds[i].fd, buf, buf_len);
+                int req_len = read_req(events[i].data.fd, buf, buf_len);
                 print_log("Read request of length: %d\n", req_len);
 
                 // check if this comes from a backend
                 struct sock_bind *bind = (struct sock_bind *)hashmap_get(b2c, &(struct sock_bind){ .key=fd_key });
                 int fd = -1;
                 if (bind != NULL) {
-                    print_log("Received response from backend: %d\n", fds[i].fd);
+                    print_log("Received response from backend: %d\n", events[i].data.fd);
                     fd = bind->val_fd;
                 }
                 else {
@@ -402,7 +398,7 @@ void* worker(void* arg) {
                         exit(-1);
                     }
 
-                    print_log("Received request from client %d to backend %d\n", fds[i].fd, backend);
+                    print_log("Received request from client %d to backend %d\n", events[i].data.fd, backend);
 
                     // check if this is an exisiting connection
                     bind = (struct sock_bind *)hashmap_get(c2b, &(struct sock_bind){ .key=fd_key });
@@ -435,7 +431,7 @@ void* worker(void* arg) {
                                 bind = &conn_pool[backend-1][num_conn_pool[backend-1]-1];
                                 num_conn_pool[backend-1]--;
                                 fd = bind->val_fd;
-                                if (assign_client_to_backend(c2b, b2c, &fd_key, fds[i].fd, &bind->val, bind->val_fd) < 0) {
+                                if (assign_client_to_backend(c2b, b2c, &fd_key, events[i].data.fd, &bind->val, bind->val_fd) < 0) {
                                     print_err("Failed to assign client to backend\n");
                                     exit(-1);
                                 }
@@ -445,17 +441,14 @@ void* worker(void* arg) {
                                 // start a new connection
                                 fd = start_backend_conn(backend, backend_addrs, &backend_key);
                                 print_log("Established a new connection to backend %d: %d\n", backend, fd);
-                                if (assign_client_to_backend(c2b, b2c, &fd_key, fds[i].fd, &backend_key, fd) < 0) {
+                                if (assign_client_to_backend(c2b, b2c, &fd_key, events[i].data.fd, &backend_key, fd) < 0) {
                                     print_err("Failed to assign client to backend\n");
                                     exit(-1);
                                 }
 
-                                fds_new[num_fds_new].fd = fd;
-                                fds_new[num_fds_new].events = poll_events;
-                                num_fds_new++;
-                                
-                                if (num_fds_new >= MAX_NUM_CONN) {
-                                    print_err("Too many connections\n");
+                                ev.data.fd = fd;
+                                if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
+                                    print_err("Failed to add client socket to epoll\n");
                                     exit(-1);
                                 }
                             }
@@ -466,14 +459,11 @@ void* worker(void* arg) {
                         struct sock_key backend_key;
                         fd = start_backend_conn(backend, backend_addrs, &backend_key);
                         print_log("Established a new connection to backend %d: %d\n", backend, fd);
-                        assign_client_to_backend(c2b, b2c, &fd_key, fds[i].fd, &backend_key, fd);
+                        assign_client_to_backend(c2b, b2c, &fd_key, events[i].data.fd, &backend_key, fd);
 
-                        fds_new[num_fds_new].fd = fd;
-                        fds_new[num_fds_new].events = poll_events;
-                        num_fds_new++;
-
-                        if (num_fds_new >= MAX_NUM_CONN) {
-                            print_err("Too many connections\n");
+                        ev.data.fd = fd;
+                        if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
+                            print_err("Failed to add client socket to epoll\n");
                             exit(-1);
                         }
                     }
@@ -485,14 +475,9 @@ void* worker(void* arg) {
                 write_req(fd, buf, req_len);
             }
         }
-
-        num_fds = num_fds_new;
-        memcpy(fds, fds_new, MAX_NUM_CONN*sizeof(struct pollfd));
     }
 
     close(lfd);
-    free(fds);
-    free(fds_new);
     hashmap_free(c2b);
     hashmap_free(b2c);
     return NULL;
