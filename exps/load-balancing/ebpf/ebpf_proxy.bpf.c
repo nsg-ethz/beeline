@@ -70,7 +70,14 @@ struct {
     __uint(max_entries, 5000);
     __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(struct sock_key));
-} req_map SEC(".maps");
+} b2c SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 5000);
+    __uint(key_size, sizeof(struct sock_key));
+    __uint(value_size, sizeof(struct sock_key));
+} c2b SEC(".maps");
 
 SEC("sk_skb")
 int bpf_prog_parser(struct __sk_buff *skb) {
@@ -152,39 +159,23 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
             // backend_key.ip4 = bpf_ntohl(skb->remote_ip4);
             backend_key.port = bpf_ntohl(skb->remote_port);
 
-            if (bpf_map_update_elem(&req_map, &redirect_key, &backend_key, BPF_NOEXIST) < 0) {
-                bpf_log_printk("Error assigning client request %d to backend [%pI4:%d]", bpf_ntohl(skb->remote_port), redirect_key.ip4, redirect_key.port);
-                return SK_DROP;
-            }
+            // if (bpf_map_update_elem(&req_map, &redirect_key, &backend_key, BPF_NOEXIST) < 0) {
+            //     bpf_log_printk("Error assigning client request %d to backend [%pI4:%d]", bpf_ntohl(skb->remote_port), redirect_key.ip4, redirect_key.port);
+            //     return SK_DROP;
+            // }
 
             bpf_log_printk("Reuse socket [%pI4:%d] for connection from: %d", redirect_key.ip4, redirect_key.port, bpf_ntohl(skb->remote_port));
         }
     } 
-    else if (is_http_response(data, &http)) {
-        bpf_log_printk("Received HTTP response");
-
-        struct sock_key backend_key = { 0 };
-        // backend_key.ip4 = bpf_ntohl(skb->local_ip4);
-        backend_key.port = skb->local_port;
-
-        struct sock_key *client_key;
-        client_key = bpf_map_lookup_elem(&req_map, &backend_key);
-        if (!client_key) {
-            bpf_log_printk("Error looking up client connection for [%pI4:%d]", backend_key.ip4, backend_key.port);
-            return SK_DROP;
-        }
-
-        redirect_key = *client_key;
-    }
     else {
-        bpf_log_printk("No HTTP packet");
+        bpf_log_printk("No HTTP request");
 
         struct sock_key backend_key = { 0 };
         // backend_key.ip4 = bpf_ntohl(skb->local_ip4);
         backend_key.port = skb->local_port;
         
         struct sock_key *client_key;
-        client_key = bpf_map_lookup_elem(&req_map, &backend_key);
+        client_key = bpf_map_lookup_elem(&b2c, &backend_key);
         if (!client_key) {
             bpf_log_printk("Error looking up client connection for [%pI4:%d]", backend_key.ip4, backend_key.port);
             return SK_DROP;
@@ -232,13 +223,25 @@ int _sock_ops(struct bpf_sock_ops *ops) {
         }
     }
     else if (op == BPF_SOCK_OPS_STATE_CB) {
-        if (ops->args[1] == BPF_TCP_CLOSE || ops->args[1] == BPF_TCP_CLOSE_WAIT) {
+        if (ops->args[1] == BPF_TCP_CLOSE) {
             bpf_log_printk("Close socket [%pI4:%d]", key.ip4, key.port);
-            // bpf_log_printk("Remove request with key [%pI4:%d]", key.ip4, key.port);
 
-            // if (bpf_map_delete_elem(&req_map, &key) < 0) {
-            //     bpf_log_printk("Request with key [%pI4:%d] didn't exist", key.ip4, key.port);
-            // }
+            struct sock_key *client_key = &key;
+            struct sock_key *backend_key;
+            backend_key = bpf_map_lookup_elem(&c2b, client_key);
+
+            if (backend_key == NULL) {
+                bpf_log_printk("Request with key [%pI4:%d] didn't exist in c2b", client_key->ip4, client_key->port);
+                return 0;
+            }
+
+            if (bpf_map_delete_elem(&c2b, client_key) < 0) {
+                bpf_log_printk("Failed to delete c2b entry with key [%pI4:%d]", client_key->ip4, client_key->port);
+            }
+
+            if (bpf_map_delete_elem(&b2c, backend_key) < 0) {
+                bpf_log_printk("Failed to delete b2c entry with key [%pI4:%d]", backend_key->ip4, backend_key->port);
+            }
         } 
         bpf_log_printk("Socket with key [%pI4:%d] changed state %d | %d | %d | %d", key.ip4, key.port, ops->args[0], ops->args[1], ops->args[2], ops->args[3]);
     }

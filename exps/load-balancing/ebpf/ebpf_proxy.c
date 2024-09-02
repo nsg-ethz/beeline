@@ -181,7 +181,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    int req_map_fd = bpf_map__fd(SKEL->maps.req_map);
+    int b2c_fd = bpf_map__fd(SKEL->maps.b2c);
+    int c2b_fd = bpf_map__fd(SKEL->maps.c2b);
 
     // prepare our sockets structure
     // the first `num_backends` are our backend (proxy-server) connections
@@ -192,8 +193,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "malloc failed\n");
         goto cleanup;
     }
-
-    uint16_t* c2b = (uint16_t*)calloc(65535, sizeof(uint16_t));
 
     // start listening to incomming connections
     int sd = net_bind_tcp(&listen);
@@ -246,49 +245,16 @@ poll:
 
     for (int i = 0; i < num_fds; i++) {
         if (fds[i].revents & POLLIN) {
-            // get the client connection
-            struct sockaddr_in client_addr;
-            ssize_t len = sizeof(client_addr);
-            if (getpeername(fds[i].fd, (struct sockaddr *)&client_addr, (socklen_t*)&len) < 0) {
-                printf("Error getting peer name: %s\n", strerror(errno));
-                goto cleanup;
-            }
-
-            struct sock_key client_key = { 0 };
-            // client_key.ip4 = client_addr.sin_addr.s_addr;
-            client_key.port = htons(client_addr.sin_port);
-
             size_t buf_len = 1024;
             char buf[buf_len];
             memset(buf, 0, buf_len);
 
             // read the entire request
-            len = read(fds[i].fd, buf, buf_len);
+            ssize_t len = read(fds[i].fd, buf, buf_len);
             size_t req_len = strlen(buf);
 
             if (len == 0) {
                 printf("Socket closed\n");
-
-                // retrieve the backend connection assigned to
-                // the closing client connection
-                struct sock_key backend_key = { 0 };
-                // backend_key.ip4 = client_addr.sin_addr.s_addr;
-                backend_key.port = c2b[client_key.port];
-                if (backend_key.port == 0) {
-                    fprintf(stderr, "Client connection didn't have a backend connection assigned\n");
-                    goto cleanup;
-                }
-
-                // remove the assignment, add the connection back to the pool
-                c2b[client_key.port] = 0;
-
-                if (bpf_map_delete_elem(req_map_fd, &backend_key) < 0) {
-                    fprintf(stderr, "bpf_map_delete_elem(req_map) failed: %s\n", strerror(errno));
-                    goto cleanup;
-                }
-
-                // add the unused backend connection back to the pool
-                
                 close(fds[i].fd);
                 continue;
             }
@@ -318,30 +284,42 @@ poll:
                 continue;
             }
 
+            // valid request, get the client connection
+            struct sockaddr_in client_addr;
+            len = sizeof(client_addr);
+            if (getpeername(fds[i].fd, (struct sockaddr *)&client_addr, (socklen_t*)&len) < 0) {
+                printf("Error getting peer name: %s\n", strerror(errno));
+                goto cleanup;
+            }
+
             int sd = start_backend_conn(backend-1, backend_addrs, sockmap_fd);
             printf("Established a new connection to backend %d: %d\n", backend, sd);
 
-            // get the backend connection
             struct sockaddr_in backend_addr;
-            len = sizeof(backend_addr);
             if (getsockname(sd, (struct sockaddr *)&backend_addr, (socklen_t*)&len) < 0) {
                 printf("Error getting socket name: %s\n", strerror(errno));
                 goto cleanup;
             }
+
+            struct sock_key client_key = { 0 };
+            // client_key.ip4 = client_addr.sin_addr.s_addr;
+            client_key.port = htons(client_addr.sin_port);
 
             struct sock_key backend_key = { 0 };
             // backend_key.ip4 = backend_addr.sin_addr.s_addr;
             backend_key.port = htons(backend_addr.sin_port);
             printf("Assign backend connection [%s:%d] to client connection: [%s:%d]\n", inet_ntoa(backend_addr.sin_addr), backend_key.port, inet_ntoa(client_addr.sin_addr), client_key.port);
 
-            if (bpf_map_update_elem(req_map_fd, &backend_key, &client_key, BPF_NOEXIST) < 0) {
-                fprintf(stderr, "bpf_map_update_elem(req_map) failed: %s\n", strerror(errno));
+            // book keeping
+            if (bpf_map_update_elem(b2c_fd, &backend_key, &client_key, BPF_NOEXIST) < 0) {
+                fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
                 goto cleanup;
             }
 
-            // we assign client -> backend, so that we can
-            // update req_map once the connection has closed
-            c2b[client_key.port] = backend_key.port;
+            if (bpf_map_update_elem(c2b_fd, &client_key, &backend_key, BPF_NOEXIST) < 0) {
+                fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
+                goto cleanup;
+            }
 
             size_t res_len = 0;
             do {
@@ -392,7 +370,6 @@ cleanup:
     }
     free(fds);
     free(backend_addrs);
-    free(c2b);
     ebpf_proxy_bpf__destroy(SKEL);
     return -err;
 }
