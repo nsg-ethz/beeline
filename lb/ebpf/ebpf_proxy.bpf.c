@@ -115,7 +115,7 @@ static __always_inline int _try_redirect(struct __sk_buff *skb, struct sock_key 
 }
 
 static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hdr *hdr) {
-    __u32 len_max = 0xFF;
+    __u32 len_max = 192;
     __u32 len = len_max;
     char data[len];
 
