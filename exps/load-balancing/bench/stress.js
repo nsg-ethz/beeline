@@ -5,9 +5,9 @@ import { randomIntBetween, randomString } from 'https://jslib.k6.io/k6-utils/1.2
 
 export const options = {
   stages: [
-    { duration: '2s', target: 1 },
-    // { duration: '2m', target: 200 }, 
-    // { duration: '1m', target: 0 }, 
+    { duration: '1m', target: 200 },
+    { duration: '2m', target: 200 }, 
+    { duration: '1m', target: 0 }, 
   ],
 };
 
@@ -25,7 +25,7 @@ export default function () {
     'body is the same': (r) => r.body === data
   });
 
-  const abortOnFail = __ENV.ABORT_ON_FAIL || false;
+  const abortOnFail = ["1", "true"].includes(__ENV.ABORT_ON_FAIL.toLowerCase()) || false;
   if (!passed && abortOnFail) {
     exec.test.abort();
   }
