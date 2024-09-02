@@ -25,7 +25,7 @@
 #include "proxy_struct.h"
 #include "proxy.skel.h"
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 #if LOG_LEVEL == 0
 #define print_log(...) (void)0
@@ -47,6 +47,7 @@ const int NUM_WORKERS = 1;
 const int MAX_NUM_CONN = 1000;
 const int MAX_EVENTS = MAX_NUM_CONN;
 struct sockaddr_storage *backend_addrs;
+int num_conn_pool[4] = { 0 };
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
                            va_list args) {
@@ -73,7 +74,7 @@ static void bump_memlock_rlimit(void) {
     // }
 }
 
-static void bpf_detach(int sig) {
+// static void bpf_detach(int sig) {
     // printf("Detaching BPF programs...\n");
     // int err = bpf_prog_detach(cg_fd, BPF_CGROUP_SOCK_OPS);
     // if (err) {
@@ -82,8 +83,8 @@ static void bpf_detach(int sig) {
 
     // proxy_bpf__destroy(SKEL);
 
-    exit(0);
-}
+//     exit(0);
+// }
 
 int get_sock_key(int fd, struct sock_key *key) {
     memset(key, 0, sizeof(struct sock_key));
@@ -151,6 +152,8 @@ int start_backend_conn(int backend, struct sockaddr_storage *backend_addrss, int
 
     get_sock_key(fd, backend_key);
     backend_key->backend = backend;
+
+    num_conn_pool[idx]++;
 
     return fd;
 }
@@ -287,10 +290,6 @@ void* worker(void* arg) {
     size_t buf_len = 128 * 1024;
     char buf[buf_len];
 
-    int num_backend_unused = 0;
-    int bds[65536];
-    memset(bds, 0, 65536 * sizeof(int));
-
     int lfd = net_bind_tcp(&addr);
     if (lfd < 0) {
         print_err("Bind failed\n");
@@ -372,7 +371,6 @@ void* worker(void* arg) {
                     print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", backend_key.backend, strerror(errno));
                     exit(-1);
                 }
-                num_backend_unused++;
 
                 // remove the connection from the sock mappings
                 if (bpf_map_delete_elem(c2b_fd, &client_key) < 0) {
@@ -429,59 +427,32 @@ void* worker(void* arg) {
                 // contacting userspace later is buggy
                 struct sock_key backend_key = { 0 };
                 int bd = -1;
-                // TODO: reusing the backends improves performance in cases with lots of reconnects
-                // But it's also buggy -> unsolicited responses
-                if (num_backend_unused > 0) {
-                    num_backend_unused--;
+                
+                for (int j = 1; j < 5; j++) {
+                    struct sock_key key = { 0 };
+                    int fd = start_backend_conn(j, backend_addrs, sockmap_fd, &key);
+                    print_log("Established a new connection to backend %d: %d\n", key.backend, fd);
 
-                    int conns_fd = -1;
-                    switch (backend) {
-                        case 1: conns_fd = backend1_conns_fd; break;
-                        case 2: conns_fd = backend2_conns_fd; break;
-                        case 3: conns_fd = backend3_conns_fd; break;
-                        case 4: conns_fd = backend4_conns_fd; break;
-                    }
-
-                    if (bpf_map_lookup_and_delete_elem(conns_fd, NULL, &backend_key) < 0) {
-                        print_err("bpf_map_lookup_and_delete_elem(backend%d_conns) failed: %s\n", backend, strerror(errno));
+                    if (add_to_sockmap(sockmap_fd, fd, &key) < 0) {
                         exit(-1);
                     }
 
-                    bd = bds[backend_key.local_port];
-                    if (bd == 0) {
-                        print_err("No backend connection found\n");
-                        exit(-1);
+                    if (j == backend) {
+                        backend_key = key;
+                        bd = fd;
                     }
-                }
-                else {
-                    for (int j = 1; j < 5; j++) {
-                        struct sock_key key = { 0 };
-                        int fd = start_backend_conn(j, backend_addrs, sockmap_fd, &key);
-                        print_log("Established a new connection to backend %d: %d\n", key.backend, fd);
+                    else {
+                        int conns_fd = -1;
+                        switch (j) {
+                            case 1: conns_fd = backend1_conns_fd; break;
+                            case 2: conns_fd = backend2_conns_fd; break;
+                            case 3: conns_fd = backend3_conns_fd; break;
+                            case 4: conns_fd = backend4_conns_fd; break;
+                        }
 
-                        if (add_to_sockmap(sockmap_fd, fd, &key) < 0) {
+                        if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
+                            print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", j, strerror(errno));
                             exit(-1);
-                        }
-
-                        bds[key.local_port] = fd;
-
-                        if (j == backend) {
-                            backend_key = key;
-                            bd = fd;
-                        }
-                        else {
-                            int conns_fd = -1;
-                            switch (j) {
-                                case 1: conns_fd = backend1_conns_fd; break;
-                                case 2: conns_fd = backend2_conns_fd; break;
-                                case 3: conns_fd = backend3_conns_fd; break;
-                                case 4: conns_fd = backend4_conns_fd; break;
-                            }
-
-                            if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
-                                print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", j, strerror(errno));
-                                exit(-1);
-                            }
                         }
                     }
                 }
@@ -526,9 +497,17 @@ void* worker(void* arg) {
     return NULL;
 }
 
+static void print_stats(int sig) {
+    printf("Open backend connections:\n");
+    for (int i = 0; i < 4; i++) {
+        printf("Backend %d: %d\n", i+1, num_conn_pool[i]);
+    }
+
+    exit(0);
+}
+
 int main(int argc, char **argv) {
-    // make sure we properly detach all BPF programs
-    signal(SIGINT, bpf_detach);
+    signal(SIGINT, print_stats);
 
     int err;
 

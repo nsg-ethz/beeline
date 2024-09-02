@@ -257,7 +257,7 @@ def scatter_graph(name, metric, drop_rate, dst):
     g.set_ylabel(f"{metric} [ms]")
     plt.yscale("log")
 
-    _save_to_path(f"cdf-{metric}-@{1-drop_rate}%.pdf", dst)
+    _save_to_path(f"cdf-{metric}-@{str(round(100*(1-drop_rate)))}%.pdf", dst)
 
 
 if __name__ == "__main__":
