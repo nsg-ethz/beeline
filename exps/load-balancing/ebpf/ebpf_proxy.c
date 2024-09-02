@@ -33,13 +33,21 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
 }
 
 static void bump_memlock_rlimit(void) {
-    struct rlimit rlim_new = {
+    struct rlimit rlim_mem = {
         .rlim_cur = RLIM_INFINITY,
         .rlim_max = RLIM_INFINITY,
     };
-
-    if (setrlimit(RLIMIT_MEMLOCK, &rlim_new)) {
+    if (setrlimit(RLIMIT_MEMLOCK, &rlim_mem) < 0) {
         fprintf(stderr, "Failed to increase RLIMIT_MEMLOCK limit!\n");
+        exit(1);
+    }
+
+    struct rlimit rlim_file = {
+        .rlim_cur = 8192,
+        .rlim_max = 8192,
+    };
+    if (setrlimit(RLIMIT_NOFILE, &rlim_file) < 0) {
+        fprintf(stderr, "Failed to increase RLIMIT_NOFILE limit!\n");
         exit(1);
     }
 }
