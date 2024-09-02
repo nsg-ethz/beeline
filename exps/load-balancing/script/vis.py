@@ -36,8 +36,6 @@ def _load_summary_data(paths):
                     **aggs
                 })
 
-
-
     df = pd.DataFrame.from_dict(rows)
     df.set_index(["proxy", "payload_size", "metric_name"], inplace=True)
 
@@ -70,28 +68,26 @@ def _load_log_data(paths):
 def _load_data(paths, aggs):
     if all("summary" in p for p in paths):
         df = _load_summary_data(paths)
-        # df["metric_value"] = df[metric]
 
-        return df
+        return df, True
     else:
         df = _load_log_data(paths)
 
-        # df = df[df["expected_response"].fillna(False)]
+        df = df[df["expected_response"].fillna(False)]
         df = df[df["extra_tags"].str.contains("steady").fillna(False)]
 
-        aggs = {agg: _aggregate_fn(agg) for agg in aggs}
         columns = (c for c in df.columns if c != "metric_value")
         df = df.drop(columns, axis=1)
-        df = df.groupby(level=[0,1,2]).agg(*aggs)
 
-        return df
+        aggs = [(agg, _aggregate_fn(agg)) for agg in aggs]
+        df = df.groupby(level=[0,1,2]).agg(aggs)
+
+        return df, False
 
 
 def _save_to_path(name, dst):
-    assert(os.path.isfile(dst) or os.path.isdir(dst))
-
     plt.tight_layout()
-    path = dst if os.path.isfile(dst) else os.path.join(dst, name)
+    path = os.path.join(dst, name) if os.path.isdir(dst) else dst
     print("Writing to", path)
     plt.savefig(path)
 
@@ -114,10 +110,11 @@ def _aggregate_fn(name):
 
 
 def line_graph(paths, metric, agg, dst):
-    df = _load_data(paths, [agg])
+    df, is_summary = _load_data(paths, [agg])
     df = df.xs(metric, level="metric_name")
 
-    g = sns.lineplot(data=df, x="payload_size", y="metric_value", hue="proxy", palette="dark", alpha=.6)
+    key = agg if is_summary else ("metric_value", agg)
+    g = sns.lineplot(data=df, x="payload_size", y=key, hue="proxy", palette="dark", alpha=.6)
     sizes = set(df.index.get_level_values("payload_size"))
     sizes = sorted(sizes)
     
@@ -131,7 +128,7 @@ def line_graph(paths, metric, agg, dst):
     
 
 def speedup_graph(paths, metric, aggs, dst):
-    df = _load_summary_data(paths)
+    df, _ = _load_summary_data(paths)
     ebpf = df.xs("ebpf", level="proxy")
     envoy = df.xs("envoy", level="proxy")
 
