@@ -1,5 +1,25 @@
 #!/bin/bash
 
+SIZE_LIST="128 256 512 1024 2048 4096 8192"
+
+# Parse arguments
+while getopts ":n:p:s:" opt; do
+    case $opt in
+        n ) NAME=${OPTARG} ;;
+        p ) PROXY=${OPTARG} ;;
+        s ) SIZE_LIST=${OPTARG} ;;
+        \?)
+            echo "Invalid option: -$OPTARG"
+            ;;
+    esac
+done
+
+if [ -z ${NAME} ] || [ -z ${PROXY} ]
+then
+   echo "Some or all of the parameters are empty";
+   exit
+fi
+
 cleanup() {
     echo "Enable Intel HyperThreading"
     echo on | sudo tee /sys/devices/system/cpu/smt/control
@@ -21,33 +41,10 @@ cleanup() {
 # Define the trap to call the cleanup function
 trap cleanup EXIT
 
-TEST_EBPF=0
-TEST_ENVOY=0
-SIZE_LIST="128 256 512 1024 2048 4096 8192"
+ROOT=$(dirname "$(readlink -f "$0")")
+SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 
-# Parse arguments
-while getopts ":n:p:s:" opt; do
-    case $opt in
-        n ) NAME=${OPTARG} ;;
-        p)
-            case $OPTARG in
-                envoy)
-                    TEST_ENVOY=1
-                    ;;
-                ebpf)
-                    TEST_EBPF=1
-                    ;;
-                *)
-                    echo "Invalid argument: $OPTARG"
-                    ;;
-            esac
-            ;;
-        s ) SIZE_LIST=${OPTARG} ;;
-        \?)
-            echo "Invalid option: -$OPTARG"
-            ;;
-    esac
-done
+mkdir -p ${SUMMARY_DIR}
 
 echo "Disable Intel HyperThreading"
 echo off | sudo tee /sys/devices/system/cpu/smt/control
@@ -55,19 +52,11 @@ echo off | sudo tee /sys/devices/system/cpu/smt/control
 echo "Enable CPU performance governor"
 sudo cpupower frequency-set --governor performance
 
-ROOT=$(dirname "$(readlink -f "$0")")
-
-if [ $TEST_ENVOY -eq 1 ]; then
-    for SIZE in ${SIZE_LIST}; do
-        ${ROOT}/k6.sh -n ${NAME} -p envoy -s ${SIZE}
-    done
-fi
-
-if [ $TEST_EBPF -eq 1 ]; then
-
-    for SIZE in ${SIZE_LIST}; do
-        ${ROOT}/k6.sh -n ${NAME} -p ebpf -s ${SIZE}
-    done
-fi
+for SIZE in ${SIZE_LIST}; do
+    # this needs to be on a different NUMA node than the proxy
+    CMD="PAYLOAD_SIZE=${SIZE} taskset --cpu-list 2-47 k6 run --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json bench/stress.js"
+    echo ${CMD}
+    eval ${CMD}
+done
 
 cleanup
