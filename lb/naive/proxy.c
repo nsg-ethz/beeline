@@ -300,7 +300,6 @@ void* worker(void* arg) {
     }
 
     struct epoll_event ev, events[MAX_EVENTS];
-
     ev.events = EPOLLIN|EPOLLHUP|EPOLLRDHUP|EPOLLERR;
     ev.data.fd = lfd;
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, lfd, &ev) < 0) {
@@ -316,8 +315,7 @@ void* worker(void* arg) {
         }
 
         for (int i = 0; i < nfds; i++) {
-            if (events[i].data.fd == lfd) {
-                short int poll_events = POLLRDHUP|POLLHUP|POLLERR|POLLIN;
+            if (events[i].events & EPOLLIN && events[i].data.fd == lfd) {
                 struct sock_key client_key = { 0 };
                 int cd = accept_client_conn(lfd, &client_key);
                 if (cd < 0) {
@@ -338,7 +336,7 @@ void* worker(void* arg) {
             struct sock_key fd_key = { 0 };
             get_sock_key(events[i].data.fd, &fd_key);
 
-            if (events[i].events & POLLRDHUP || events[i].events & POLLHUP) {
+            if (events[i].events & EPOLLRDHUP || events[i].events & EPOLLHUP) {
                 print_log("Client connection closed [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
                     (fd_key.local_ip4 >> 24) & 0xff, (fd_key.local_ip4 >> 16) & 0xff, (fd_key.local_ip4 >> 8) & 0xff, fd_key.local_ip4 & 0xff, fd_key.local_port,
                     (fd_key.remote_ip4 >> 24) & 0xff, (fd_key.remote_ip4 >> 16) & 0xff, (fd_key.remote_ip4 >> 8) & 0xff, fd_key.remote_ip4 & 0xff, fd_key.remote_port);
@@ -375,7 +373,7 @@ void* worker(void* arg) {
                 continue;
             }
 
-            if (events[i].events & POLLIN) {
+            if (events[i].events & EPOLLIN) {
                 memset(buf, 0, buf_len);
 
                 // read the entire request
@@ -499,8 +497,7 @@ int main(int argc, char **argv) {
         net_parse_sockaddr(&backend_addrs[i], argv[i + 2]);
     }
 
-    // spawn two threads, one that waits for new conections
-    // and one that forwards requests
+    // spawn worker threads
     pthread_t tid[NUM_WORKERS]; 
     for (int i = 0; i < NUM_WORKERS; i++) {
         if (pthread_create(&(tid[i]), NULL, &worker, NULL) < 0) {
