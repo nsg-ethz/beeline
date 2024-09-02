@@ -15,7 +15,7 @@ then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SUMMARY_DIR=${ROOT}/../res/${NAME}
+SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 
 mkdir -p ${SUMMARY_DIR}
 
