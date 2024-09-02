@@ -18,7 +18,8 @@ struct sock_bind {
 
 struct request {
     int event_type;
-    struct sock_bind bind;
+    int fd;
+    struct sock_key key;
     char* buf;
 };
 
