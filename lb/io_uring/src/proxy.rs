@@ -283,15 +283,18 @@ impl Proxy {
         let len = cqe.result() as usize;
         let bid = cqueue::buffer_select(cqe.flags()).unwrap() as usize;
 
-        let cfd = self.conns.get(&bfd).unwrap();
-        vec![Token::Write { fd: *cfd, bgid, bid, len }]
+        if let Some(cfd) = self.conns.get(&bfd) {
+            vec![Token::Write { fd: *cfd, bgid, bid, len }]
+        }
+        else {
+            vec![]
+        }
     }
 
     fn sqe_from_token(&mut self, token: Token) -> squeue::Entry {
         let token_idx = self.token_alloc.insert(token.clone());
         let sqe = match token {
             Token::ProvideBuffers { addr, num_bufs, buf_len, bgid, bid, .. } => opcode::ProvideBuffers::new(addr, buf_len, num_bufs, bgid, bid).build(),
-            // Token::Accept { fd } => opcode::AcceptMulti::new(types::Fd(fd)).build(),
             Token::Accept { fd } => opcode::Accept::new(types::Fd(fd), std::ptr::null_mut(), std::ptr::null_mut()).build(),
             Token::Read { fd, bgid } => opcode::RecvMulti::new(types::Fd(fd), bgid).build(),
             Token::Write { fd, bgid, bid, len } => opcode::Send::new(types::Fd(fd), self.get_buf_ptr(bgid, bid), len as _).build(),
