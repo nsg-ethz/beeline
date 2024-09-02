@@ -45,6 +45,7 @@ const int MAX_NUM_CONN = 1000;
 const int MAX_EVENTS = 1000;
 struct sockaddr_storage *backend_addrs;
 int* bds;
+int num_conn_pool[4] = { 0 };
 
 int get_sock_key(int fd, struct sock_key *key) {
     memset(key, 0, sizeof(struct sock_key));
@@ -282,7 +283,6 @@ void* worker(void* arg) {
     char buf[buf_len];
 
     struct sock_bind conn_pool[4][MAX_NUM_CONN];
-    int num_conn_pool[4] = { 0 };
 
     struct hashmap *c2b = hashmap_new(sizeof(struct sock_bind), 0, 0, 0, sock_bind_hash, sock_bind_compare, NULL, NULL);
     struct hashmap *b2c = hashmap_new(sizeof(struct sock_bind), 0, 0, 0, sock_bind_hash, sock_bind_compare, NULL, NULL);
@@ -481,7 +481,17 @@ void* worker(void* arg) {
     return NULL;
 }
 
+static void print_stats(int sig) {
+    printf("Open backend connections:\n");
+    for (int i = 0; i < 4; i++) {
+        printf("Backend %d: %d\n", i+1, num_conn_pool[i]);
+    }
+
+    exit(0);
+}
+
 int main(int argc, char **argv) {
+    signal(SIGINT, print_stats);
     int err;
 
     if (argc < 3) {

@@ -27,14 +27,17 @@ echo -e "${COLOR_YELLOW}Disable CPU performance governor${COLOR_OFF}"
 sudo cpupower frequency-set --governor ondemand
 
 echo -e "${COLOR_YELLOW}Reset CPU shielding${COLOR_OFF}"
-NUM_CPU=$(nproc)
-CPU_ALLOWED="0-${NUM_CPU}"
+CPU_ALLOWED="0-17,24-47"
 sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
 sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
 sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
 
+if [ $(nproc) -ne  48 ]; then
+  echo -e "${COLOR_RED}Failed to reset all CPUs${COLOR_OFF}"
+fi
+
 stop_http_server
-delete_veth 4
+delete_veth 5
 
 echo -e "${COLOR_GREEN}Environment cleaned${COLOR_OFF}"
 

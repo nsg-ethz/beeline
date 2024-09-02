@@ -1,16 +1,23 @@
-import { randomRequest } from "./common.js";
+import { randomRequest, requestTo } from "./common.js";
 
 export const options = {
   scenarios: {
     stress: {
       executor: "constant-arrival-rate",
-      rate: 5000,
+      rate: 10000,
       duration: "2m",
-      preAllocatedVUs: 100,
+      preAllocatedVUs: 1000,
     }
   }
 };
 
-export default function () {
+export function setup() {
+  requestTo(1);
+  requestTo(2);
+  requestTo(3);
+  requestTo(4);
+}
+
+export default function() {
   randomRequest();
 }

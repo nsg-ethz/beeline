@@ -12,7 +12,7 @@ function start_http_server {
   rm -f servers.pid
   for i in `seq 1 $1`;
   do
-  	sudo ip netns exec ns${i} systemd-run --scope -p Slice=backend.slice ${BACKEND_BIN} -a 10.0.${i}.1 -p 8000 -H "signature: server${i}" > /dev/null 2>&1 &
+  	sudo ip netns exec ns${i} systemd-run --scope -p Slice=backend${i}.slice ${BACKEND_BIN} -a 10.0.${i}.1 -p 8000 -H "signature: server${i}" > /dev/null 2>&1 &
     echo $! >> servers.pid
     echo -e "${COLOR_GREEN}Server server${i} in ns${i} started.${COLOR_OFF}"
   done
@@ -55,7 +55,7 @@ function ping_cycle {
   done
 }
 
-delete_veth 4
+delete_veth 5
 
 echo -e "${COLOR_YELLOW}Disable HyperThreading${COLOR_OFF}"
 echo off | sudo tee /sys/devices/system/cpu/smt/control
@@ -64,25 +64,27 @@ echo -e "${COLOR_YELLOW}Enable CPU performance governor${COLOR_OFF}"
 sudo cpupower frequency-set --governor performance
 
 echo -e "${COLOR_YELLOW}Shield CPU1 and CPU2 from the OS scheduler${COLOR_OFF}"
-NUM_CPU=$(nproc)
-CPU_ALLOWED="0,6-${NUM_CPU}"
+CPU_ALLOWED="0,6-17,24-47"
 
 echo -e "${COLOR_YELLOW}System may now only use CPU: ${CPU_ALLOWED}${COLOR_OFF}"
 sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
 sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
 sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
-sudo systemctl set-property --runtime backend.slice AllowedCPUs=1
-sudo systemctl set-property --runtime proxy.slice AllowedCPUs=2
+sudo systemctl set-property --runtime backend1.slice AllowedCPUs=1
+sudo systemctl set-property --runtime backend2.slice AllowedCPUs=2
+sudo systemctl set-property --runtime backend3.slice AllowedCPUs=3
+sudo systemctl set-property --runtime backend4.slice AllowedCPUs=4
+sudo systemctl set-property --runtime proxy.slice AllowedCPUs=5
 
 echo -e "${COLOR_GREEN}CPUs prepared for performance testing...\n${COLOR_OFF}"
 
 echo -e "${COLOR_YELLOW}Creating namespaces.${COLOR_OFF}"
-create_veth 4
+create_veth 5
 echo -e "${COLOR_GREEN}Namespaces created.\n${COLOR_OFF}"
 
 echo -e "${COLOR_YELLOW}Let's check if everything is setup correctly.${COLOR_OFF}"
 # All the namespaces try to ping each other
-ping_cycle 4
+ping_cycle 5
 echo -e "${COLOR_GREEN}Ping works, starting backends...\n${COLOR_OFF}"
 
 start_http_server 4

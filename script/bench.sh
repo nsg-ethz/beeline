@@ -16,7 +16,7 @@ while getopts "l:n:p:s:" opt; do
     esac
 done
 
-if [ -z ${NAME} ] || [ -z ${PROXY} ]
+if [ -z "${PROXY}" ]
 then
    echo "Error: Some or all of the parameters are empty";
    exit 1
@@ -30,15 +30,19 @@ if [ "${PROXY}" = "none" ]; then
     DIRECT=1
 fi
 
-mkdir -p ${SUMMARY_DIR}
-
 for SIZE in ${SIZE_LIST}; do
     LOG_OPT=""
     if [ ${WRITE_LOG} -eq 1 ]; then
         LOG_OPT="--out csv=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B-log.gz"
     fi
 
-    CMD="k6 run -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json ${LOG_OPT} bench/stress.js" 
+    SUM_OPT=""
+    if [ -n "${NAME}" ]; then
+        mkdir -p ${SUMMARY_DIR}
+        SUM_OPT="--summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json"
+    fi
+
+    CMD="k6 run -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} bench/stress.js" 
     echo ${CMD}
     eval ${CMD}
 done

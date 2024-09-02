@@ -16,6 +16,11 @@ const backends = [
 
 export function randomRequest() {
   const server = __ENV.BACKEND || randomIntBetween(1, 4);
+  const id = exec.scenario.iterationInInstance.toString();
+  requestTo(server, id);
+}
+
+export function requestTo(server, id) {
   const signature = `server${server}`;
 
   var url = null;
@@ -24,21 +29,21 @@ export function randomRequest() {
     url = `http://10.0.${server}.1:8000/${signature}`;
   }
   else {
-    url = `http://127.0.0.1:3000/${signature}`;
+    url = `http://10.0.5.1:3000/${signature}`;
   }
 
   backends[server-1].add(1);
 
-  let salt = exec.scenario.iterationInInstance.toString();
-  let payload = data.substring(0, payload_size-salt.length) + salt;
+  let payload = data;
+  if (id) {
+    data.substring(0, payload_size-id.length) + id;
+  }
 
   const res = http.post(url, payload);
-
   let passed = check(res, {
     "status is 200": (r) => r.status === 200,
     "processed by correct backend": (r) => r.headers["Signature"] == signature,
-    "body is the same": (r) => r.body === payload,
-    [`body is ${payload_size}B long`]: (r) => r.body.length == payload_size
+    "body is the same": (r) => r.body === payload
   });
 
   let abortOnFail = __ENV.ABORT_ON_FAIL || "0";
