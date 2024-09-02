@@ -1,7 +1,15 @@
 use anyhow::Result;
 use io_uring::{cqueue, opcode, squeue, types, IoUring};
+use log::{
+    debug,
+    error,
+    info
+};
 use std::{
-    collections::HashMap,
+    collections::{
+        HashMap,
+        VecDeque
+    },
     io,
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     os::unix::io::{AsRawFd, RawFd},
@@ -11,6 +19,7 @@ use slab::Slab;
 
 use crate::http;
 
+const MAX_CONNS: usize = 3000;
 const BUF_NUM: usize = 64;
 const BUF_LEN: usize = 256;
 
@@ -20,6 +29,7 @@ enum Token {
     Accept { fd: RawFd },
     Read { fd: RawFd, bgid: u16 },
     Write { fd: RawFd, bgid: u16, bid: usize, len: usize },
+    Shutdown { fd: RawFd, bgid: u16 }
 }
 
 pub struct Proxy {
@@ -28,9 +38,9 @@ pub struct Proxy {
     streams: HashMap<RawFd, TcpStream>,
     conns: HashMap<RawFd, RawFd>,
     conn_pool: HashMap<String, Vec<RawFd>>,
-    buf_pool: Vec<usize>,
+    buf_pool: Vec<u16>,
     buf_alloc: Slab<Box<[u8]>>,
-    token_alloc: Slab<Token>
+    token_alloc: Slab<Token>,
 }
 
 impl Proxy {
@@ -46,14 +56,15 @@ impl Proxy {
             conns: HashMap::new(),
             conn_pool: conn_pool,
             buf_pool: Vec::with_capacity(64),
-            buf_alloc: Slab::with_capacity(64),
-            token_alloc: Slab::with_capacity(64)
+            buf_alloc: Slab::with_capacity(MAX_CONNS),
+            token_alloc: Slab::with_capacity(MAX_CONNS)
         })
     }
 
     pub fn listen(&mut self) -> Result<()> {
-        let mut ring = IoUring::new(256)?;
+        let mut ring = IoUring::new(2048)?;
         let (submitter, mut sq, mut cq) = ring.split();
+        let mut backlog = VecDeque::new();
 
         let listener = TcpListener::bind(self.addr)?;
         let accept = Token::Accept { fd: listener.as_raw_fd() };
@@ -61,6 +72,8 @@ impl Proxy {
         unsafe {
             sq.push(&self.sqe_from_token(accept))?;
         }
+
+        info!("listening on {:?}", self.addr);
 
         loop {
             sq.sync();
@@ -71,6 +84,7 @@ impl Proxy {
                 Err(err) => return Err(err.into()),
             }
             cq.sync();
+            assert!(!sq.cq_overflow());
     
             for cqe in &mut cq {
                 let next_tokens = self.handle_cqe(cqe);
@@ -79,7 +93,10 @@ impl Proxy {
                     for tok in next_tokens {    
                         let sqe = self.sqe_from_token(tok);
                         unsafe {
-                            let _ = sq.push(&sqe);
+                            if sq.push(&sqe).is_err() {
+                                debug!("squeue full, caching in backlog: {:?}", sqe);
+                                backlog.push_back(sqe);
+                            }
                         }
                     }
                 }
@@ -97,8 +114,8 @@ impl Proxy {
             let buf_entry = self.buf_alloc.vacant_entry();
             let bgid = buf_entry.key();
             buf_entry.insert(buf);
-            bgid
-        }) as u16
+            bgid as u16
+        })
     }
     
     fn handle_cqe(&mut self, cqe: cqueue::Entry) -> Vec<Token> {
@@ -107,22 +124,33 @@ impl Proxy {
 
         let ret = cqe.result();
         if ret < 0 {
-            eprintln!("token: {:?} error: {:?}", token, io::Error::from_raw_os_error(-ret));
+            error!("token: {:?} error: {:?}", token, io::Error::from_raw_os_error(-ret));
             return vec![];
         }
     
-        let next_tokens = match token {
+        match token {
             Token::Accept { .. } => self.handle_accept(ret),
             Token::Read { fd, bgid } => self.handle_read(cqe, fd, bgid),
             Token::Write { bgid, bid, .. } => vec![Token::ProvideBuffers { addr: self.get_buf_ptr(bgid, bid), num_bufs: 1, buf_len: BUF_LEN as i32, bgid, bid: bid as u16 }],
+            Token::Shutdown { bgid, .. } => {
+                self.buf_pool.push(bgid);
+                vec![]
+            },
             _ => vec![]
-        };
-
-        next_tokens
+        }
     }
 
     fn handle_accept(&mut self, fd: RawFd) -> Vec<Token> {
-        println!("accept {:?}", fd);
+        if self.conns.len() / 2 >= MAX_CONNS {
+            error!("max connections reached");
+            return vec![];
+        }
+
+        debug!("accept {:?}", fd);
+        self.prep_socket(fd)
+    }
+
+    fn prep_socket(&mut self, fd: RawFd) -> Vec<Token> {
         let bgid = self.get_vacant_bgid();
         let addr = self.get_buf_ptr(bgid, 0);
         vec![
@@ -132,32 +160,22 @@ impl Proxy {
     }
 
     fn handle_read(&mut self, cqe: cqueue::Entry, fd: RawFd, bgid: u16) -> Vec<Token> {
-        if cqe.result() == 0 {    
-            println!("shutdown {} {:?}", fd, self.streams.get(&fd));
-            unsafe {
-                libc::close(fd);
+        if cqe.result() == 0 {
+            if !cqueue::more(cqe.flags()) {
+                debug!("shutdown {:?}", fd);
+                // here we should cancel reading the sockets
+                vec![Token::Shutdown { fd, bgid }]
             }
-    
-            vec![]
+            else {
+                vec![]
+            }
         } else {
-            let flags = cqe.flags();
-            let token = self.token_alloc[cqe.user_data() as usize];
             let is_backend = self.streams.contains_key(&fd);
-            let tokens = if is_backend {
+            if is_backend {
                 self.read_backend_req(cqe, fd, bgid)
             } else {
                 self.read_client_req(cqe, fd, bgid)
-            };
-
-            if !cqueue::more(flags) {
-                let mut tokens = Vec::from(tokens);
-                tokens.push(token);
-                tokens
             }
-            else {
-                tokens
-            }
-
         }
     }
 
@@ -169,7 +187,7 @@ impl Proxy {
         if let Some((method, _, _)) = http::parse_hdr(buf.as_ref()).clone() {
             let backend = self.backends.get(method.url());
             if backend.is_none() {
-                eprintln!("no backend found for {:?}", method.url());
+                error!("no backend found for {:?}", method.url());
                 return vec![];
             }
             let backend = backend.unwrap().clone();
@@ -205,14 +223,14 @@ impl Proxy {
                 .unwrap()
                 .pop()
                 .or_else(|| {
-                    println!("connecting to backend: {:?}", backend);
+                    debug!("connecting to backend: {:?}", backend);
                     match self.connect_to_host(&backend) {
                         Ok(fd) => {
-                            tokens.extend_from_slice(self.handle_accept(fd).as_slice());
+                            tokens.extend_from_slice(&self.prep_socket(fd).as_slice());
                             Some(fd)       
                         },
                         Err(e) => {
-                            println!("failed to connect to backend: {:?}", e);
+                            error!("failed to connect to backend: {:?}", e);
                             None
                         }
                     }
@@ -235,7 +253,7 @@ impl Proxy {
                     vec![Token::Write { fd: *bfd, bgid, bid, len }]
                 },
                 _ => {
-                    eprint!("failed to parse request");
+                    error!("failed to parse request");
                     vec![]
                 }
             }
@@ -257,6 +275,7 @@ impl Proxy {
             Token::Accept { fd } => opcode::AcceptMulti::new(types::Fd(fd)).build(),
             Token::Read { fd, bgid } => opcode::RecvMulti::new(types::Fd(fd), bgid).build(),
             Token::Write { fd, bgid, bid, len } => opcode::Send::new(types::Fd(fd), self.get_buf_ptr(bgid, bid), len as _).build(),
+            Token::Shutdown { fd, .. } => opcode::Shutdown::new(types::Fd(fd), 2).build(),
         };
 
         sqe.user_data(token_idx as _)
