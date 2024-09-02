@@ -461,7 +461,6 @@ void* forward_reqs(void* arg) {
                     exit(-1);
                 }
 
-
                 backend_key.backend = 0;
                 if (bpf_map_delete_elem(b2c_fd, &backend_key) < 0) {
                     fprintf(stderr, "bpf_map_delete_elem(b2c) failed: %s\n", strerror(errno));
@@ -530,6 +529,10 @@ int main(int argc, char **argv) {
         return -1;
     }
 
+    // TODO: doing all the sock operations and connection assignments in eBPF
+    // should be more efficient than doing it in userspace
+    // but userspace is easier to debug
+    // -> For max performance, use sockops again
     // err = bpf_prog_attach(bpf_program__fd(SKEL->progs._sock_ops), cg_fd,
     //                       BPF_CGROUP_SOCK_OPS, 0);
     // if (err < 0) {
@@ -597,6 +600,8 @@ int main(int argc, char **argv) {
         return -1;
     }
 
+    // spawn two threads, one that waits for new conections
+    // and one that forwards requests
     pthread_t tid[2]; 
     if (pthread_create(&(tid[0]), NULL, &wait_for_conns, NULL) < 0) {
         fprintf(stderr, "pthread_create failed: %s\n", strerror(errno));
@@ -609,7 +614,7 @@ int main(int argc, char **argv) {
     }
 
     pthread_join(tid[0], NULL);
-    // pthread_join(tid[1], NULL); 
+    pthread_join(tid[1], NULL); 
     pthread_mutex_destroy(&fds_lock); 
 
     // clean up
