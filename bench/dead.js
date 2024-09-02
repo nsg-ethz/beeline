@@ -2,11 +2,11 @@ import { randomRequest } from "./common.js";
 
 export const options = {
   scenarios: {
-    stress: {
+    dead: {
       executor: "constant-arrival-rate",
-      rate: 10000,
-      duration: "2m",
-      preAllocatedVUs: 10,
+      rate: 1,
+      duration: "10m",
+      preAllocatedVUs: 1000,
     }
   }
 };
