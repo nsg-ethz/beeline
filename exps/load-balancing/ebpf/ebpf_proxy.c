@@ -25,7 +25,7 @@
 
 struct ebpf_proxy_bpf *SKEL;
 int cg_fd;
-const int MAX_NUM_CONN = 1000;
+const int MAX_NUM_CONN = 10000;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
                            va_list args) {
@@ -69,13 +69,19 @@ int start_backend_conn(int idx, struct sockaddr_storage *backend_addrss, int soc
 }
 
 int parse_backend(char* req) {
-    const char* server_x_req = "GET /server";
-    if (strlen(req) <= strlen(server_x_req)) {
+    const char* get_server_x = "GET /server";
+    if (strlen(req) <= strlen(get_server_x)) {
         return -1;
     }
 
-    if (strncmp(req, server_x_req, strlen(server_x_req)) == 0) {
-        int backend = req[strlen(server_x_req)] - '0';
+    if (strncmp(req, get_server_x, strlen(get_server_x)) == 0) {
+        int backend = req[strlen(get_server_x)] - '0';
+        return backend;
+    }
+
+    const char* post_server_x = "POST /server";
+    if (strncmp(req, post_server_x, strlen(post_server_x)) == 0) {
+        int backend = req[strlen(post_server_x)] - '0';
         return backend;
     }
 

@@ -23,7 +23,7 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define DISABLE_BPF_PRINTK 1
+#define DISABLE_BPF_PRINTK 0
 
 #if DISABLE_BPF_PRINTK == 1
 #define bpf_log_printk(fmt, ...) (0)
@@ -33,21 +33,21 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 4000);
+    __uint(max_entries, 40000);
     __uint(key_size, sizeof(__u32));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 20);
+    __uint(max_entries, 4);
     __uint(key_size, sizeof(struct url_value));
     __uint(value_size, sizeof(int));
 } url_to_server_map SEC(".maps");
 
 struct backend_conns {
     __uint(type, BPF_MAP_TYPE_QUEUE);
-    __uint(max_entries, 1000);
+    __uint(max_entries, 10000);
     __uint(value_size, sizeof(struct sock_key));
 } backend1_conns SEC(".maps"), backend2_conns SEC(".maps"), backend3_conns SEC(".maps"), backend4_conns SEC(".maps");
 
@@ -155,7 +155,7 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
         struct url_value url;
         __builtin_memset(&url, 0, sizeof(url));
 
-        char final_char = get_url_from_request(data, method_len + 1, max_header_size, &url);
+        char final_char = get_url_from_request(data, method_len + 1, max_header_size, http.state, &url);
 
         int *backend;
         backend = bpf_map_lookup_elem(&url_to_server_map, &url);
@@ -248,7 +248,7 @@ int _sock_ops(struct bpf_sock_ops *ops) {
         backend_key = bpf_map_lookup_elem(&c2b, &client_key->port);
 
         if (backend_key == NULL) {
-            bpf_log_printk("ERROR: Request with key [%pI4:%d] didn't exist in c2b", client_key->ip4, client_key->port);
+            // bpf_log_printk("ERROR: Request with key [%pI4:%d] didn't exist in c2b", client_key->ip4, client_key->port);
             return 0;
         }
 

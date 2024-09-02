@@ -46,6 +46,7 @@ static __always_inline uint32_t get_method_len(enum http_event_state state) {
 static __always_inline char get_url_from_request(const char *buf,
                                                  uint32_t start_off,
                                                  uint32_t end,
+                                                 enum http_event_state state,
                                                  struct url_value *url) {
     bool found_cr = false;
 
@@ -61,7 +62,7 @@ static __always_inline char get_url_from_request(const char *buf,
         }
     }
 
-    http_url_len = i - 14;
+    http_url_len = i - 11 - get_method_len(state);
     char last_c = '1';
 
     if (http_url_len > 0) {
