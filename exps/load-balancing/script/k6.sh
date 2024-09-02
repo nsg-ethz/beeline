@@ -15,7 +15,12 @@ then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR=${ROOT}/../res/${NAME}/logs
+SUMMARY_DIR=${ROOT}/../res/${NAME}/summary
 
-CMD="PAYLOAD_SIZE=${SIZE} taskset --cpu-list 2-8 k6 run -o csv=${ROOT}/../res/${NAME}/logs/stress-${PROXY}-${SIZE}B.gz --summary-export=${ROOT}/../res/${NAME}/summary/stress-${PROXY}-${SIZE}B.json bench/stress.js"
+mkdir -p ${LOG_DIR}
+mkdir -p ${SUMMARY_DIR}
+
+CMD="PAYLOAD_SIZE=${SIZE} taskset --cpu-list 2-8 k6 run -o csv=${LOG_DIR}/stress-${PROXY}-${SIZE}B.gz --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json bench/stress.js"
 echo ${CMD}
 eval ${CMD}

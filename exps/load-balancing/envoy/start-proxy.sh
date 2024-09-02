@@ -1,3 +1,5 @@
 trap "kill 0" SIGINT
 
-taskset --cpu-list 1 envoy -c config.yaml --concurrency 1
+ROOT=$(dirname "$(readlink -f "$0")")
+
+taskset --cpu-list 1 envoy -c ${ROOT}/config.yaml --concurrency 1
