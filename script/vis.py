@@ -165,7 +165,7 @@ if __name__ == "__main__":
 
     speedup = subparsers.add_parser("speedup")
     speedup.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
-    speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)"], help="The aggregation funcs")
+    speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)", "max"], help="The aggregation funcs")
 
     args = parser.parse_args()
     files = glob.glob(args.pattern)

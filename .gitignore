@@ -2,3 +2,5 @@
 target
 a.out
 venv
+servers.pid
+logs
