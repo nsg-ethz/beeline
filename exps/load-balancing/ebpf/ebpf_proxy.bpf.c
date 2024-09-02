@@ -22,7 +22,7 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define LOG_LEVEL 2
+#define LOG_LEVEL 1
 
 #if LOG_LEVEL == 0
 #define bpf_log(fmt, ...) (0)
@@ -115,16 +115,23 @@ static __always_inline int _try_redirect(struct __sk_buff *skb, struct sock_key 
 }
 
 static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hdr *hdr) {
-    __u32 len_max = 255;
-    __u32 len = skb->len | 1;
-    if (len > len_max) len = len_max;
-    char data[len_max];
-    len &= 1;
+    // this breaks the verifier for kernel 6.5
+    // __u32 len_max = 255;
+    // __u32 len = skb->len | 1;
+    // if (len > len_max) len = len_max;
+    // char data[len_max];
+    // len &= 0xFF;
+
+    __u32 len_max = 192;
+    __u32 len = len_max;
+    char data[len];
 
     if (bpf_skb_load_bytes(skb, 0, data, len) < 0) {
         bpf_err("ERROR: Failed to load data");
         return -1;
     }
+
+    bpf_log("%s", data);
 
     __u32 i = 0, j = 0;
     bool cr = false;
