@@ -1,8 +1,6 @@
-use std::{convert::Infallible, net::ToSocketAddrs};
-
 use clap::Parser;
 use hyper::header::HeaderValue;
-use hyper::{body::Body, server::conn::http1};
+use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use hyper::{
@@ -10,6 +8,7 @@ use hyper::{
     Request,
     Response
 };
+use std::net::ToSocketAddrs;
 use tokio::net::TcpListener;
 
 #[derive(Parser)]
