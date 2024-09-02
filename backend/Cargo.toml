@@ -2,8 +2,7 @@
 name = "backend"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "A simple HTTP server that echoes the request body. It optionally adds a header field to the response."
 
 [dependencies]
 clap = { version = "4.5.3", features = ["derive"] }

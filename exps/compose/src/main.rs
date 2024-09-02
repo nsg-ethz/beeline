@@ -1,13 +1,13 @@
 use anyhow::{bail, Result};
-use libbpf_rs::{libbpf_sys::bpf_program__attach_uprobe_opts, skel::{
+use libbpf_rs::{skel::{
     OpenSkel, Skel, SkelBuilder
-}, UprobeOpts};
+}, TcHookBuilder};
 use uprobe::*;
 
 mod uprobe {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/bpf/uprobe.skel.rs"
+        "/src/bpf/parser.skel.rs"
     ));
 }
 
@@ -25,7 +25,7 @@ fn bump_memlock_rlimit() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let mut skel_builder = UprobeSkelBuilder::default();
+    let mut skel_builder = ParserSkelBuilder::default();
     skel_builder.obj_builder.debug(true);
 
     bump_memlock_rlimit()?;
@@ -33,16 +33,11 @@ fn main() -> Result<()> {
     let open_skel = skel_builder.open()?;
     let mut skel = open_skel.load()?;
     let mut progs = skel.progs_mut();
-    let prog = progs.uprobe_read_req();
+    let parser = progs.bpf_prog_parser();
+    parser.attach()?;
 
-    let opts = UprobeOpts {
-        retprobe: false,
-        func_name: String::from("read_req"),
-        ..Default::default()
-    };
-
-    let bin_path = "/local/home/laurinb/projs/l7-offload/exps/echo/proxy";
-    prog.attach_uprobe_with_opts(653534, bin_path, 0, opts)?;
+    let verdict = progs.bpf_prog_verdict();
+    verdict.attach()?;
 
     loop {}
 }
