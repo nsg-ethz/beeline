@@ -18,7 +18,7 @@ struct Args {
     address: String,
     #[arg(short, long, default_value="8000")]
     port: u16,
-    #[arg(long)]
+    #[arg(short='H', long="header")]
     headers: Option<Vec<String>>,
 }
 

@@ -206,7 +206,7 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 50; i++) {
         int sd = start_backend_conn(0, backend_addrs, sockmap_fd);
         printf("Established a new connection to backend %d: %d\n", 1, sd);
 
