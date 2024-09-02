@@ -1,0 +1,194 @@
+{
+  "RunType": "HTTP",
+  "Labels": "127.0.0.1:3000/server1 , ee-tik-nsgvm044",
+  "StartTime": "2024-03-22T10:37:13.275354541+01:00",
+  "RequestedQPS": "200",
+  "RequestedDuration": "exactly 10000 calls",
+  "ActualQPS": 22.690730501446932,
+  "ActualDuration": 440708596815,
+  "NumThreads": 1,
+  "Version": "1.63.4",
+  "DurationHistogram": {
+    "Count": 10000,
+    "Min": 0.0021468,
+    "Max": 0.051915787,
+    "Sum": 440.37751692099886,
+    "Avg": 0.044037751692099884,
+    "StdDev": 0.0006971240167185818,
+    "Data": [
+      {
+        "Start": 0.0021468,
+        "End": 0.003,
+        "Percent": 0.01,
+        "Count": 1
+      },
+      {
+        "Start": 0.04,
+        "End": 0.045,
+        "Percent": 98.14,
+        "Count": 9813
+      },
+      {
+        "Start": 0.045,
+        "End": 0.05,
+        "Percent": 99.98,
+        "Count": 184
+      },
+      {
+        "Start": 0.05,
+        "End": 0.051915787,
+        "Percent": 100,
+        "Count": 2
+      }
+    ],
+    "Percentiles": [
+      {
+        "Percentile": 50,
+        "Value": 0.04254713135636401
+      },
+      {
+        "Percentile": 75,
+        "Value": 0.04382095179863446
+      },
+      {
+        "Percentile": 90,
+        "Value": 0.044585244063996735
+      },
+      {
+        "Percentile": 99,
+        "Value": 0.047336956521739124
+      },
+      {
+        "Percentile": 99.9,
+        "Value": 0.04978260869565218
+      }
+    ]
+  },
+  "ErrorsDurationHistogram": {
+    "Count": 0,
+    "Min": 0,
+    "Max": 0,
+    "Sum": 0,
+    "Avg": 0,
+    "StdDev": 0,
+    "Data": null
+  },
+  "Exactly": 10000,
+  "Jitter": false,
+  "Uniform": false,
+  "NoCatchUp": false,
+  "RunID": 0,
+  "AccessLoggerInfo": "",
+  "ID": "2024-03-22-103713_127_0_0_1_3000_server1_ee_tik_nsgvm044",
+  "RetCodes": {
+    "200": 10000
+  },
+  "IPCountMap": {
+    "127.0.0.1:3000": 1
+  },
+  "Insecure": false,
+  "MTLS": false,
+  "CACert": "",
+  "Cert": "",
+  "Key": "",
+  "UnixDomainSocket": "",
+  "URL": "http://127.0.0.1:3000/server1",
+  "NumConnections": 1,
+  "Compression": false,
+  "DisableFastClient": false,
+  "HTTP10": false,
+  "H2": false,
+  "DisableKeepAlive": false,
+  "AllowHalfClose": false,
+  "FollowRedirects": false,
+  "Resolve": "",
+  "HTTPReqTimeOut": 3000000000,
+  "UserCredentials": "",
+  "ContentType": "",
+  "Payload": "",
+  "MethodOverride": "",
+  "LogErrors": true,
+  "SequentialWarmup": false,
+  "ConnReuseRange": [
+    0,
+    0
+  ],
+  "NoResolveEachConn": false,
+  "Offset": 0,
+  "Resolution": 0.001,
+  "Sizes": {
+    "Count": 10000,
+    "Min": 135,
+    "Max": 135,
+    "Sum": 1350000,
+    "Avg": 135,
+    "StdDev": 0,
+    "Data": [
+      {
+        "Start": 135,
+        "End": 135,
+        "Percent": 100,
+        "Count": 10000
+      }
+    ]
+  },
+  "HeaderSizes": {
+    "Count": 10000,
+    "Min": 115,
+    "Max": 115,
+    "Sum": 1150000,
+    "Avg": 115,
+    "StdDev": 0,
+    "Data": [
+      {
+        "Start": 115,
+        "End": 115,
+        "Percent": 100,
+        "Count": 10000
+      }
+    ]
+  },
+  "Sockets": [
+    1
+  ],
+  "SocketCount": 1,
+  "ConnectionStats": {
+    "Count": 1,
+    "Min": 0.000772321,
+    "Max": 0.000772321,
+    "Sum": 0.000772321,
+    "Avg": 0.000772321,
+    "StdDev": 0,
+    "Data": [
+      {
+        "Start": 0.000772321,
+        "End": 0.000772321,
+        "Percent": 100,
+        "Count": 1
+      }
+    ],
+    "Percentiles": [
+      {
+        "Percentile": 50,
+        "Value": 0.000772321
+      },
+      {
+        "Percentile": 75,
+        "Value": 0.000772321
+      },
+      {
+        "Percentile": 90,
+        "Value": 0.000772321
+      },
+      {
+        "Percentile": 99,
+        "Value": 0.000772321
+      },
+      {
+        "Percentile": 99.9,
+        "Value": 0.000772321
+      }
+    ]
+  },
+  "AbortOn": 0
+}
