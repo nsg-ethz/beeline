@@ -41,7 +41,7 @@ int sockmap_fd;
 struct sockaddr_storage addr;
 
 const int NUM_WORKERS = 1;
-const int MAX_NUM_CONN = 1000;
+const int MAX_NUM_CONN = 3000;
 const int MAX_EVENTS = 1000;
 const int SPLICE_MAX = (512*1024);
 struct sockaddr_storage *backend_addrs;
@@ -421,6 +421,7 @@ void* worker(void* arg) {
                     // check if this is an exisiting connection
                     bind = (struct sock_bind *)hashmap_get(c2b, &(struct sock_bind){ .key=fd_key });
                     if (bind != NULL) {                    
+                        assert(bind->key.remote_port == fd_key.remote_port);
                         struct sock_key backend_key = bind->val;
                         if (backend_key.backend == backend) {
                             // request to the same backend
@@ -430,6 +431,7 @@ void* worker(void* arg) {
                         else {
                             // put backend connection back into the pool
                             int old_backend = bind->val.backend;
+                            assert(old_backend > 0);
                             memcpy(&conn_pool[old_backend-1][num_conn_pool[old_backend-1]], bind, sizeof(struct sock_bind));
                             num_conn_pool[old_backend-1]++;
 
@@ -446,14 +448,14 @@ void* worker(void* arg) {
 
                             // check if we have an open connection to the current backend
                             if (num_conn_pool[backend-1] > 0) {
-                                bind = &conn_pool[backend-1][num_conn_pool[backend-1]-1];
+                                struct sock_bind rbind = conn_pool[backend-1][num_conn_pool[backend-1]-1];
                                 num_conn_pool[backend-1]--;
-                                fd = bind->val_fd;
-                                if (assign_client_to_backend(c2b, b2c, &fd_key, events[i].data.fd, &bind->val, bind->val_fd) < 0) {
+                                fd = rbind.val_fd;
+                                if (assign_client_to_backend(c2b, b2c, &fd_key, events[i].data.fd, &rbind.val, rbind.val_fd) < 0) {
                                     print_err("Failed to assign client to backend\n");
                                     exit(-1);
                                 }
-                                print_log("Reusing backend connection: %d\n", bind->val_fd);
+                                print_log("Reusing backend connection: %d\n", rbind.val_fd);
                             }
                             else {
                                 // start a new connection
