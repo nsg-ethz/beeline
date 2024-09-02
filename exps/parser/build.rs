@@ -18,9 +18,7 @@ fn main() {
         .source(SRC)
         .clang_args([
             OsStr::new("-I"),
-            OsStr::new("../../lb/ebpf/vmlinux"),
-            OsStr::new("-I"),
-            OsStr::new("../../lb/ebpf/libbpf/include/uapi"),
+            OsStr::new("../../lb/ebpf/vmlinux")
         ])
         .build_and_generate(&out)
         .unwrap();
