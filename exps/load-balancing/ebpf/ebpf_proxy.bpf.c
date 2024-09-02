@@ -137,7 +137,8 @@ static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hd
                 __s32 line_len = i - j - 1;
                 if (j < len_max && line_len > 0 && j + line_len < len_max) {
                     _parse_http_hdr_line(data+(j & 0xFF), line_len, hdr);
-                    bpf_log("hdr: %d %s %d %d", hdr->method, hdr->url, hdr->url_len, hdr->content_length);
+                    // this is somehow necessary to make the verifier happy
+                    bpf_err("HTTP header: %d %s %d %d", hdr->method, hdr->url, hdr->url_len, hdr->content_length);
                     j = i + 1;
                 }
                 else if (line_len == 0) {
