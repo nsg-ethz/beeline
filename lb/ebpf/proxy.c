@@ -402,6 +402,8 @@ void* forward_reqs(void* arg) {
                 // contacting userspace later is buggy
                 struct sock_key backend_key = { 0 };
                 int bd = -1;
+                // TODO: reusing the backends improves performance in cases with lots of reconnects
+                // But it's also buggy -> unsolicited responses
                 if (num_backend_unused > 0) {
                     num_backend_unused--;
 
