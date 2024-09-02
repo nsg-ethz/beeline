@@ -276,7 +276,8 @@ poll:
             // EAGAIN means we have to wait for eBPF verdict first
             if (len < 0 && errno != EAGAIN) {
                 printf("Error reading socket: %s\n", strerror(errno));
-                goto cleanup;
+                close(fds[i].fd);
+                continue;
             }
             
             // if we couldn't read yet, but also don't have an error
@@ -320,13 +321,13 @@ poll:
                 printf("Assign backend connection [%s:%d] to client connection: [%s:%d]\n", inet_ntoa(backend_addr.sin_addr), backend_key.port, inet_ntoa(client_addr.sin_addr), client_key.port);
 
                 // book keeping
-                if (bpf_map_update_elem(b2c_fd, &backend_key.port, &client_key, BPF_NOEXIST) < 0) {
-                    fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
+                if (bpf_map_update_elem(c2b_fd, &client_key.port, &backend_key, BPF_NOEXIST) < 0) {
+                    fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
                     goto cleanup;
                 }
 
-                if (bpf_map_update_elem(c2b_fd, &client_key.port, &backend_key, BPF_NOEXIST) < 0) {
-                    fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
+                if (bpf_map_update_elem(b2c_fd, &backend_key.port, &client_key, BPF_NOEXIST) < 0) {
+                    fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
                     goto cleanup;
                 }
 
@@ -350,6 +351,7 @@ poll:
 
         if (fds[i].revents & POLLRDHUP || fds[i].revents & POLLHUP || fds[i].revents & POLLERR) {
             printf("Closing socket %d\n", fds[i].fd);
+            shutdown(fds[i].fd, SHUT_RDWR);
             close(fds[i].fd);
         }
         else {
