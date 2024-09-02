@@ -202,6 +202,18 @@ def overhead_graph(paths, base, metric, agg, absolute, dst):
     _save_to_path(f"overhead-{metric}-{agg}.pdf", dst)
 
 
+def cdf_graph(paths, metric, dst):
+    df = _load_log_data(paths)
+    df = df[df.index.get_level_values("metric_name") == metric]
+
+    g = sns.ecdfplot(data=df, x="metric_value", hue="proxy")
+
+    g.set_xlabel(metric)
+    # g.legend.set_title(None)
+    plt.xscale("log")
+    _save_to_path(f"cdf-{metric}.pdf", dst)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--pattern", help="Pattern to find files to consider")
@@ -228,6 +240,9 @@ if __name__ == "__main__":
     overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
     overhead.add_argument("--absolute", default=False, help="Report the overhead in absolute numbers")
 
+    cdf = subparsers.add_parser("cdf")
+    cdf.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+
     args = parser.parse_args()
     files = glob.glob(args.pattern)
 
@@ -239,3 +254,5 @@ if __name__ == "__main__":
         duration_graph(files, args.proxy, args.agg, args.output)
     elif args.command == "overhead":
         overhead_graph(files, args.base, args.metric, args.agg, args.absolute, args.output)
+    elif args.command == "cdf":
+        cdf_graph(files, args.metric, args.output)
