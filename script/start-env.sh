@@ -56,6 +56,7 @@ function ping_cycle {
 }
 
 delete_veth 5
+cargo b -r --bin backend
 
 echo -e "${COLOR_YELLOW}Disable HyperThreading${COLOR_OFF}"
 echo off | sudo tee /sys/devices/system/cpu/smt/control

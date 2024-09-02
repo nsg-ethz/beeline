@@ -52,7 +52,7 @@ for SIZE in ${SIZE_LIST}; do
     # WARMUP_CMD="k6 run -q --no-summary -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} bench/warmup.js" 
     # eval ${WARMUP_CMD}
 
-    BENCH_CMD="k6 run -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} bench/latency.js" 
+    BENCH_CMD="k6 run -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} bench/stress.js" 
     echo ${BENCH_CMD}
     eval ${BENCH_CMD}
 done
