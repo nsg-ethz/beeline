@@ -2,5 +2,5 @@
 resolver = "2"
 
 members = [
-    "exps/load-balancing/backend",
+    "backend",
 ]
