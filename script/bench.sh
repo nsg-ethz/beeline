@@ -22,11 +22,16 @@ fi
 
 ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
+DIRECT=0
+if [ "${PROXY}" = "none" ]; then
+    echo "Running without proxy"
+    DIRECT=1
+fi
 
 mkdir -p ${SUMMARY_DIR}
 
 for SIZE in ${SIZE_LIST}; do
-    CMD="k6 run -e PAYLOAD_SIZE=${SIZE} --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json bench/stress.js"
+    CMD="k6 run -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} --summary-export=${SUMMARY_DIR}/stress-${PROXY}-${SIZE}B.json bench/stress.js" 
     echo ${CMD}
     eval ${CMD}
 done

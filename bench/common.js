@@ -7,8 +7,15 @@ export function randomRequest() {
   const payload_size = __ENV.PAYLOAD_SIZE || 1024;
   const server = randomIntBetween(1, 4);
   const signature = `server${server}`;
-  const url = `http://127.0.0.1:3000/${signature}`;
-  // const url = `http://10.0.${server}.1:8000/${signature}`;
+
+  var url = null;
+  if (__ENV.DIRECT || false) {
+    url = `http://10.0.${server}.1:8000/${signature}`;
+  }
+  else {
+    url = `http://127.0.0.1:3000/${signature}`;
+  }
+
   const data = JSON.stringify({ "text": randomString(payload_size) });
   const res = http.post(url, data);
 
