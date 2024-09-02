@@ -10,7 +10,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <linux/bpf.h>
-#include <linux/tcp.h>
+// #include <linux/tcp.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -324,6 +324,10 @@ void* forward_reqs(void* arg) {
 
     size_t buf_len = 128 * 1024;
     char buf[buf_len];
+
+    int num_backend_unused = 0;
+    int bds[65536];
+    memset(bds, 0, 65536 * sizeof(int));
     
     while (true) {
         pthread_mutex_lock(&fds_lock); 
@@ -336,7 +340,7 @@ void* forward_reqs(void* arg) {
             continue;
         }
 
-        int nfds = poll(fds_, num_fds_, 10);
+        int nfds = poll(fds_, num_fds_, 1);
         if (nfds == -1) {
             print_err("Error in poll syscall\n");
             exit(-1);
@@ -398,31 +402,57 @@ void* forward_reqs(void* arg) {
                 // contacting userspace later is buggy
                 struct sock_key backend_key = { 0 };
                 int bd = -1;
-                for (int i = 1; i < 5; i++) {
-                    struct sock_key key = { 0 };
-                    int fd = start_backend_conn(i, backend_addrs, sockmap_fd, &key);
-                    print_log("Established a new connection to backend %d: %d\n", key.backend, fd);
+                if (num_backend_unused > 0) {
+                    num_backend_unused--;
 
-                    if (add_to_sockmap(sockmap_fd, fd, &key) < 0) {
+                    int conns_fd = -1;
+                    switch (backend) {
+                        case 1: conns_fd = backend1_conns_fd; break;
+                        case 2: conns_fd = backend2_conns_fd; break;
+                        case 3: conns_fd = backend3_conns_fd; break;
+                        case 4: conns_fd = backend4_conns_fd; break;
+                    }
+
+                    if (bpf_map_lookup_and_delete_elem(conns_fd, NULL, &backend_key) < 0) {
+                        print_err("bpf_map_lookup_and_delete_elem(backend%d_conns) failed: %s\n", backend, strerror(errno));
                         exit(-1);
                     }
 
-                    if (i == backend) {
-                        backend_key = key;
-                        bd = fd;
+                    bd = bds[backend_key.local_port];
+                    if (bd == 0) {
+                        print_err("No backend connection found\n");
+                        exit(-1);
                     }
-                    else {
-                        int conns_fd = -1;
-                        switch (i) {
-                            case 1: conns_fd = backend1_conns_fd; break;
-                            case 2: conns_fd = backend2_conns_fd; break;
-                            case 3: conns_fd = backend3_conns_fd; break;
-                            case 4: conns_fd = backend4_conns_fd; break;
+                }
+                else {
+                    for (int j = 1; j < 5; j++) {
+                        struct sock_key key = { 0 };
+                        int fd = start_backend_conn(j, backend_addrs, sockmap_fd, &key);
+                        print_log("Established a new connection to backend %d: %d\n", key.backend, fd);
+
+                        if (add_to_sockmap(sockmap_fd, fd, &key) < 0) {
+                            exit(-1);
                         }
 
-                        if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
-                            print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", i, strerror(errno));
-                            exit(-1);
+                        bds[key.local_port] = fd;
+
+                        if (j == backend) {
+                            backend_key = key;
+                            bd = fd;
+                        }
+                        else {
+                            int conns_fd = -1;
+                            switch (j) {
+                                case 1: conns_fd = backend1_conns_fd; break;
+                                case 2: conns_fd = backend2_conns_fd; break;
+                                case 3: conns_fd = backend3_conns_fd; break;
+                                case 4: conns_fd = backend4_conns_fd; break;
+                            }
+
+                            if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
+                                print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", j, strerror(errno));
+                                exit(-1);
+                            }
                         }
                     }
                 }
@@ -467,6 +497,21 @@ void* forward_reqs(void* arg) {
                     print_err("bpf_lookup_elem(c2b) failed: %s\n", strerror(errno));
                     exit(-1);
                 }
+
+                // put currently assigned backend back in pool
+                int conns_fd = -1;
+                switch (backend_key.backend) {
+                    case 1: conns_fd = backend1_conns_fd; break;
+                    case 2: conns_fd = backend2_conns_fd; break;
+                    case 3: conns_fd = backend3_conns_fd; break;
+                    case 4: conns_fd = backend4_conns_fd; break;
+                }
+
+                if (bpf_map_update_elem(conns_fd, NULL, &backend_key, BPF_ANY) < 0) {
+                    print_err("bpf_map_update_elem(backend%d_conns) failed: %s\n", backend_key.backend, strerror(errno));
+                    exit(-1);
+                }
+                num_backend_unused++;
 
                 // remove the connection from the sock mappings
                 if (bpf_map_delete_elem(c2b_fd, &client_key) < 0) {
