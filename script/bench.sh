@@ -48,7 +48,11 @@ for SIZE in ${SIZE_LIST}; do
         SUM_OPT="--summary-export=${SUMMARY_DIR}/stress@${RATE_DSC}-${PROXY}-${SIZE}B.json"
     fi
 
-    CMD="k6 run -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} bench/stress.js" 
-    echo ${CMD}
-    eval ${CMD}
+    # echo "Warming up..."
+    # WARMUP_CMD="k6 run -q --no-summary -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} bench/warmup.js" 
+    # eval ${WARMUP_CMD}
+
+    BENCH_CMD="k6 run -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} bench/latency.js" 
+    echo ${BENCH_CMD}
+    eval ${BENCH_CMD}
 done

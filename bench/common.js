@@ -4,8 +4,8 @@ import exec from 'k6/execution';
 import { randomString, randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.3.0/index.js';
 import { Counter } from 'k6/metrics';
 
-const payload_size = __ENV.PAYLOAD_SIZE || 1024;
-const data = randomString(payload_size);
+const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
+const data = randomString(payloadSize);
 
 const backends = [
   new Counter('backend1'),
@@ -16,11 +16,10 @@ const backends = [
 
 export function randomRequest() {
   const server = __ENV.BACKEND || randomIntBetween(1, 4);
-  const id = exec.scenario.iterationInInstance.toString();
-  requestTo(server, id);
+  requestTo(server);
 }
 
-export function requestTo(server, id) {
+export function requestTo(server) {
   const signature = `server${server}`;
 
   var url = null;
@@ -34,10 +33,8 @@ export function requestTo(server, id) {
 
   backends[server-1].add(1);
 
-  let payload = data;
-  if (id) {
-    payload = data.substring(0, payload_size-id.length) + id;
-  }
+  const id = exec.scenario.iterationInInstance.toString();
+  const payload = data.substring(0, payloadSize-id.length) + id;
 
   const res = http.post(url, payload);
   let passed = check(res, {

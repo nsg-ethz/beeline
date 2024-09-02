@@ -1,5 +1,5 @@
 use anyhow::Result;
-use io_uring::{cqueue, opcode, squeue, types, IoUring};
+use io_uring::{cqueue, opcode, squeue, types};
 use log::{
     debug,
     error,
@@ -9,11 +9,7 @@ use std::{
     collections::{
         HashMap,
         VecDeque
-    },
-    io,
-    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
-    os::unix::io::{AsRawFd, RawFd},
-    vec,
+    }, io, net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs}, os::unix::io::{AsRawFd, RawFd}, vec
 };
 use slab::Slab;
 
@@ -61,7 +57,13 @@ impl Proxy {
     }
 
     pub fn listen(&mut self) -> Result<()> {
-        let mut ring = IoUring::new(2048)?;
+        let mut ring = io_uring::IoUring::builder()
+            .setup_cqsize((2 as u32).pow(16))
+            .setup_defer_taskrun()
+            .setup_coop_taskrun()
+            .setup_single_issuer()
+            .build(16384)?;
+
         let (submitter, mut sq, mut cq) = ring.split();
         let mut backlog = VecDeque::new();
 
@@ -79,17 +81,19 @@ impl Proxy {
 
             match submitter.submit_and_wait(1) {
                 Ok(_) => (),
-                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => (),
+                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => error!("ring is busy: {:?}", err),
                 Err(err) => return Err(err.into()),
             }
-            cq.sync();
 
             // clean backlog
             loop {
                 if sq.is_full() {
                     match submitter.submit() {
                         Ok(_) => (),
-                        Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => break,
+                        Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => {
+                            error!("ring is busy: {:?}", err);
+                            break;
+                        },
                         Err(err) => return Err(err.into()),
                     }
                 }
@@ -102,17 +106,16 @@ impl Proxy {
                     None => break,
                 }
             }
-    
+
+            cq.sync();
             for cqe in &mut cq {
                 let next_tokens = self.handle_cqe(cqe);
     
-                if !next_tokens.is_empty() {
-                    for tok in next_tokens {    
-                        let sqe = self.sqe_from_token(tok);
-                        unsafe {
-                            if sq.push(&sqe).is_err() {
-                                backlog.push_back(sqe);
-                            }
+                for tok in next_tokens {    
+                    let sqe = self.sqe_from_token(tok);
+                    unsafe {
+                        if sq.push(&sqe).is_err() {
+                            backlog.push_back(sqe);
                         }
                     }
                 }
