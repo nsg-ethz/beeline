@@ -23,9 +23,10 @@ trap cleanup EXIT
 
 TEST_EBPF=0
 TEST_ENVOY=0
+SIZE_LIST="128 256 512 1024 2048 4096 8192"
 
 # Parse arguments
-while getopts ":n:p:" opt; do
+while getopts ":n:p:s:" opt; do
     case $opt in
         n ) NAME=${OPTARG} ;;
         p)
@@ -41,6 +42,7 @@ while getopts ":n:p:" opt; do
                     ;;
             esac
             ;;
+        s ) SIZE_LIST=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
             ;;
@@ -56,14 +58,14 @@ echo off | sudo tee /sys/devices/system/cpu/smt/control
 ROOT=$(dirname "$(readlink -f "$0")")
 
 if [ $TEST_ENVOY -eq 1 ]; then
-    for SIZE in 128 256 512 1024 2048 4096 8192; do
+    for SIZE in ${SIZE_LIST}; do
         ${ROOT}/k6.sh -n ${NAME} -p envoy -s ${SIZE}
     done
 fi
 
 if [ $TEST_EBPF -eq 1 ]; then
 
-    for SIZE in 128 256 512 1024 2048 4096 8192; do
+    for SIZE in ${SIZE_LIST}; do
         ${ROOT}/k6.sh -n ${NAME} -p ebpf -s ${SIZE}
     done
 fi
