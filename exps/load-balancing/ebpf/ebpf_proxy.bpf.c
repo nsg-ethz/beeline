@@ -22,12 +22,17 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define DISABLE_BPF_PRINTK 0
+#define LOG_LEVEL 1
 
-#if DISABLE_BPF_PRINTK == 1
-#define bpf_log_printk(fmt, ...) (0)
-#else
-#define bpf_log_printk(...) bpf_printk(__VA_ARGS__)
+#if LOG_LEVEL == 0
+#define bpf_log(fmt, ...) (0)
+#define bpf_err(fmt, ...) (0)
+#elif LOG_LEVEL == 1
+#define bpf_log(...) (0)
+#define bpf_err(...) bpf_printk(__VA_ARGS__)
+#elif LOG_LEVEL == 2
+#define bpf_log(...) bpf_printk(__VA_ARGS__)
+#define bpf_err(...) bpf_printk(__VA_ARGS__)
 #endif
 
 struct {
@@ -101,10 +106,10 @@ static __always_inline void _copy_sock_key(struct sock_key *src, struct sock_key
 }
 
 static __always_inline int _try_redirect(struct __sk_buff *skb, struct sock_key *key) {
-    bpf_log_printk("Redirecting to connection [%pI4:%d -> %pI4:%d]", key->local_ip4, key->local_port, key->remote_ip4, key->remote_port);
+    bpf_log("Redirecting to connection [%pI4:%d -> %pI4:%d]", key->local_ip4, key->local_port, key->remote_ip4, key->remote_port);
     int r = bpf_sk_redirect_hash(skb, &sock_map, key, 0);
     if (r == SK_DROP) {
-        bpf_log_printk("ERROR: Redirect failed\n");
+        bpf_err("ERROR: Redirect failed\n");
     }
     return r;
 }
@@ -157,7 +162,7 @@ int bpf_prog_parser(struct __sk_buff *skb) {
 
     struct http_hdr hdr = { 0 };
     if (_parse_http_hdr(skb, &hdr) < 0) {
-        bpf_log_printk("ERROR: Failed to parse HTTP header");
+        bpf_err("ERROR: Failed to parse HTTP header");
         return skb->len;
     }
 
@@ -169,14 +174,14 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     struct sock_key key = { 0 };
     _skb_extract_key(skb, &key);
 
-    bpf_log_printk("Process packet [%pI4:%u->%pI4:%u (%d)]", 
+    bpf_log("Process packet [%pI4:%u->%pI4:%u (%d)]", 
         key.local_ip4, key.local_port, key.remote_ip4, key.remote_port, key.backend); 
 
     // check if this is a backend packet that 
     // we can forward to a client connection
     struct sock_key *client_key = bpf_map_lookup_elem(&b2c, &key);
     if (client_key != NULL) {
-        bpf_log_printk("Received a packet from an existing backend connection");
+        bpf_log("Received a packet from an existing backend connection");
         return _try_redirect(skb, client_key);
     }
 
@@ -184,16 +189,16 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     // we just assume this is comes from the client
     struct http_hdr hdr = { 0 };
     if (_parse_http_hdr(skb, &hdr) < 0) {
-        bpf_log_printk("ERROR: Failed to parse HTTP header");
+        bpf_err("ERROR: Failed to parse HTTP header");
         return SK_DROP;
     }
 
     if (hdr.method == HTTP_NONE) {
-        bpf_log_printk("ERROR: Unknown packet");
+        bpf_err("ERROR: Unknown packet");
         return SK_DROP;
     }
 
-    bpf_log_printk("Received HTTP request: %s (%d)", hdr.url, hdr.url_len);
+    bpf_log("Received HTTP request: %s (%d)", hdr.url, hdr.url_len);
 
     struct url_key url = { 0 };
     for (int i = 0; i < _MAX_URL_SIZE; i++) url.url[i] = hdr.url[i];
@@ -201,7 +206,7 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     int *backend;
     backend = bpf_map_lookup_elem(&url_to_server_map, &url);
     if (backend == NULL) {
-        bpf_log_printk("ERROR: unknown URL");
+        bpf_err("ERROR: unknown URL");
         return SK_DROP;
     }
 
@@ -211,11 +216,11 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     struct sock_key *backend_key = bpf_map_lookup_elem(&c2b, &key);
     if (backend_key != NULL) {
         if (backend_key->backend == *backend) {
-            bpf_log_printk("Received a packet from an existing client connection addressing the same backend");
+            bpf_log("Received a packet from an existing client connection addressing the same backend");
             return _try_redirect(skb, backend_key);
         }
 
-        bpf_log_printk("Received a packet from an existing client connection addressing a different backend: [%pI4:%u->%pI4:%u (%d)]", backend_key->local_ip4, backend_key->local_port, 
+        bpf_log("Received a packet from an existing client connection addressing a different backend: [%pI4:%u->%pI4:%u (%d)]", backend_key->local_ip4, backend_key->local_port, 
             backend_key->remote_ip4, backend_key->remote_port, 
             backend_key->backend);
 
@@ -225,7 +230,7 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
         _copy_sock_key(backend_key, &backend_key_copy);
         backend_key_copy.backend = 0;
         if (bpf_map_delete_elem(&b2c, &backend_key_copy) < 0) {
-            bpf_log_printk("ERROR: Failed to unassign a backend connection");
+            bpf_err("ERROR: Failed to unassign a backend connection");
             return SK_DROP;    
         }
 
@@ -234,12 +239,12 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
         int idx = backend_key->backend - 1;
         conns = bpf_map_lookup_elem(&conn_pool, &idx);
         if (conns == NULL) {
-            bpf_log_printk("ERROR: Failed to find pool for backend connection");
+            bpf_err("ERROR: Failed to find pool for backend connection");
             return SK_DROP;
         }
 
         if (bpf_map_push_elem(conns, backend_key, 0) < 0) {
-            bpf_log_printk("ERROR: Failed to reenqueue a backend connection");
+            bpf_err("ERROR: Failed to reenqueue a backend connection");
             return SK_DROP;    
         }
 
@@ -253,7 +258,7 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     int idx = *backend - 1;
     conns = bpf_map_lookup_elem(&conn_pool, &idx);
     if (conns == NULL) {
-        bpf_log_printk("ERROR: Failed to find backend to handle request");
+        bpf_err("ERROR: Failed to find backend to handle request");
         return SK_DROP;
     }
 
@@ -262,14 +267,14 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     if (bpf_map_pop_elem(conns, &reused_backend_key) < 0) {
         // no open connection that we can reuse
         // forward the packet to the userspace program
-        bpf_log_printk("Connection pool is empty. Redirect to userspace.");
+        bpf_log("Connection pool is empty. Redirect to userspace.");
         return SK_PASS;
     }
 
     // assign client req to backend session
     // sock key for the current skb
     if (bpf_map_update_elem(&c2b, &key, &reused_backend_key, c2b_exist) < 0) {
-        bpf_log_printk("ERROR: Failed to assign client to backend connection");
+        bpf_err("ERROR: Failed to assign client to backend connection");
         return SK_DROP;
     }
 
@@ -277,15 +282,15 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     struct sock_key reused_backend_key_copy;
     _copy_sock_key(&reused_backend_key, &reused_backend_key_copy);
     reused_backend_key_copy.backend = 0;
-    bpf_log_printk("B2C update [%pI4:%u->%pI4:%u (%d)]", reused_backend_key_copy.local_ip4, reused_backend_key_copy.local_port, 
+    bpf_log("B2C update [%pI4:%u->%pI4:%u (%d)]", reused_backend_key_copy.local_ip4, reused_backend_key_copy.local_port, 
             reused_backend_key_copy.remote_ip4, reused_backend_key_copy.remote_port, 
             reused_backend_key_copy.backend);
     if (bpf_map_update_elem(&b2c, &reused_backend_key_copy, &key, BPF_NOEXIST) < 0) {
-        bpf_log_printk("ERROR: Failed to assign backend to client connection");
+        bpf_err("ERROR: Failed to assign backend to client connection");
         return SK_DROP;
     }
 
-    bpf_log_printk("Reuse backend connection [%pI4:%u->%pI4:%u (%d)] for client connection: [%pI4:%u->%pI4:%u]", 
+    bpf_log("Reuse backend connection [%pI4:%u->%pI4:%u (%d)] for client connection: [%pI4:%u->%pI4:%u]", 
         reused_backend_key.local_ip4, reused_backend_key.local_port, 
         reused_backend_key.remote_ip4, reused_backend_key.remote_port, 
         reused_backend_key.backend, 
@@ -306,15 +311,15 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
 //     struct sock_key key = { 0 };
 //     _ops_extract_key(ops, &key);
 
-//     bpf_log_printk("Process sockops %d for connection: [%pI4:%u->%pI4:%u]", ops->op,
+//     bpf_log("Process sockops %d for connection: [%pI4:%u->%pI4:%u]", ops->op,
 //         key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
 
 //     if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
-//         bpf_log_printk("Add socket");
+//         bpf_log("Add socket");
 
 //         bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
 //         if (bpf_sock_hash_update(ops, &sock_map, &key, BPF_NOEXIST) < 0) {
-//             bpf_log_printk("ERROR: Adding socket failed.");
+//             bpf_err("ERROR: Adding socket failed.");
 //         }
 
 //         // put backend connection into queue
@@ -323,35 +328,35 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
 //             int idx = 0;
 //             socks = bpf_map_lookup_elem(&conn_pool, &idx);
 //             if (socks == NULL) {
-//                 bpf_log_printk("ERROR: Failed to find queue to put backend connection back in");
+//                 bpf_err("ERROR: Failed to find queue to put backend connection back in");
 //                 return 0;
 //             }
 
-//             bpf_log_printk("Enqueuing connection [%pI4:%d]", key.ip4, key.port);
+//             bpf_log("Enqueuing connection [%pI4:%d]", key.ip4, key.port);
 //             if (bpf_map_push_elem(socks, &key, 0) < 0) {
-//                 bpf_log_printk("ERROR: Failed to push connection back into queue");
+//                 bpf_err("ERROR: Failed to push connection back into queue");
 //                 return 0;
 //             }
 //         }
 //     }
 //     else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE && ops->local_port == 3000) {
-//         bpf_log_printk("Close client connection [%pI4:%d]", key.ip4, key.port);
+//         bpf_log("Close client connection [%pI4:%d]", key.ip4, key.port);
 
 //         struct sock_key *client_key = &key;
 //         struct sock_key *backend_key;
 //         backend_key = bpf_map_lookup_elem(&c2b, &client_key->port);
 
 //         if (backend_key == NULL) {
-//             // bpf_log_printk("ERROR: Request with key [%pI4:%d] didn't exist in c2b", client_key->ip4, client_key->port);
+//             // bpf_err("ERROR: Request with key [%pI4:%d] didn't exist in c2b", client_key->ip4, client_key->port);
 //             return 0;
 //         }
 
 //         if (bpf_map_delete_elem(&c2b, &client_key->port) < 0) {
-//             bpf_log_printk("ERROR: Failed to delete c2b entry with key [%pI4:%d]", client_key->ip4, client_key->port);
+//             bpf_err("ERROR: Failed to delete c2b entry with key [%pI4:%d]", client_key->ip4, client_key->port);
 //         }
 
 //         if (bpf_map_delete_elem(&b2c, &backend_key->port) < 0) {
-//             bpf_log_printk("ERROR: Failed to delete b2c entry with key [%pI4:%d]", backend_key->ip4, backend_key->port);
+//             bpf_err("ERROR: Failed to delete b2c entry with key [%pI4:%d]", backend_key->ip4, backend_key->port);
 //         }
 
 //         // put backend connection back into queue
@@ -359,19 +364,19 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
 //         int idx = backend_key->backend - 1;
 //         socks = bpf_map_lookup_elem(&conn_pool, &idx);
 //         if (socks == NULL) {
-//             bpf_log_printk("ERROR: Failed to find queue to put backend connection back in");
+//             bpf_err("ERROR: Failed to find queue to put backend connection back in");
 //             return 0;
 //         }
 
-//         bpf_log_printk("Enqueuing connection [%pI4:%d]", backend_key->ip4, backend_key->port);
+//         bpf_log("Enqueuing connection [%pI4:%d]", backend_key->ip4, backend_key->port);
 //         if (bpf_map_push_elem(socks, backend_key, 0) < 0) {
-//             bpf_log_printk("ERROR: Failed to push connection back into queue");
+//             bpf_err("ERROR: Failed to push connection back into queue");
 //             return 0;
 //         }
 //     }
 
 //     if (op == BPF_SOCK_OPS_STATE_CB) {
-//         bpf_log_printk("Socket with key [%pI4:%d] changed state %d | %d | %d | %d", key.ip4, key.port, ops->args[0], ops->args[1], ops->args[2], ops->args[3]);
+//         bpf_log("Socket with key [%pI4:%d] changed state %d | %d | %d | %d", key.ip4, key.port, ops->args[0], ops->args[1], ops->args[2], ops->args[3]);
 //     }
 
 //     return 0;
