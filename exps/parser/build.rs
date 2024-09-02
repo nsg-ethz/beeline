@@ -19,6 +19,8 @@ fn main() {
         .clang_args([
             OsStr::new("-I"),
             OsStr::new("../../lb/ebpf/vmlinux"),
+            OsStr::new("-I"),
+            OsStr::new("../../lb/ebpf/libbpf/include/uapi"),
         ])
         .build_and_generate(&out)
         .unwrap();

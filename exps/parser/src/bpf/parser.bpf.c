@@ -15,11 +15,10 @@ static __always_inline int _search(struct __sk_buff *skb, char* query, int query
     void* data = (void*)(long)skb->data;
     void* data_end = (void*)(long)skb->data_end;
 
-    // int v;
-
-    // bpf_for(v, 0, 5) {
-    //     bpf_printk("X = %d", v);
-    // }
+    __u32 v = 0;
+    bpf_for(v, 0, 5) {
+        bpf_printk("X = %d", v);
+    }
 
     return -1;
 }
