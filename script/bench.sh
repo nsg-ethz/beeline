@@ -26,16 +26,6 @@ cleanup() {
     
     echo "Disable CPU performance governor"
     sudo cpupower frequency-set --governor ondemand
-    
-    if [ ! -z "$ENVOY_PID" ]; then
-        echo "Kill envoy"
-        kill $ENVOY_PID
-    fi
-
-    if [ ! -z "$EBPF_PID" ]; then
-        echo "Kill ebpf"
-        kill $EBPF_PID
-    fi
 }
 
 # Define the trap to call the cleanup function
