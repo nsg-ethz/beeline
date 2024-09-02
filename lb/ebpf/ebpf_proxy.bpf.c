@@ -115,14 +115,7 @@ static __always_inline int _try_redirect(struct __sk_buff *skb, struct sock_key 
 }
 
 static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hdr *hdr) {
-    // this breaks the verifier for kernel 6.5
-    // __u32 len_max = 255;
-    // __u32 len = skb->len | 1;
-    // if (len > len_max) len = len_max;
-    // char data[len_max];
-    // len &= 0xFF;
-
-    __u32 len_max = 192;
+    __u32 len_max = 0xFF;
     __u32 len = len_max;
     char data[len];
 
@@ -143,9 +136,12 @@ static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hd
             if (cr) {
                 __s32 line_len = i - j - 1;
                 if (j < len_max && line_len > 0 && j + line_len < len_max) {
-                    _parse_http_hdr_line(data+(j & 0xFF), line_len, hdr);
-                    // this is somehow necessary to make the verifier happy
-                    bpf_err("HTTP header: %d %s %d %d", hdr->method, hdr->url, hdr->url_len, hdr->content_length);
+                    if (j > 127) {
+                        bpf_err("ERROR: HTTP header line too long");
+                        return -1;
+                    }
+                    _parse_http_hdr_line(data+(j & 127), line_len, hdr);
+
                     j = i + 1;
                 }
                 else if (line_len == 0) {
@@ -183,6 +179,8 @@ int bpf_prog_parser(struct __sk_buff *skb) {
         return skb->len;
     }
 
+    bpf_log("Parse HTTP header: %d %s %d %d", hdr.method, hdr.url, hdr.url_len, hdr.content_length);
+
     return hdr.content_length + hdr.header_length;
 }
 
@@ -209,13 +207,6 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
         bpf_err("ERROR: Failed to parse HTTP header");
         return SK_DROP;
     }
-
-    if (hdr.method == HTTP_NONE) {
-        bpf_err("ERROR: Unknown packet");
-        return SK_DROP;
-    }
-
-    bpf_log("Received HTTP request: %s (%d)", hdr.url, hdr.url_len);
 
     struct url_key url = { 0 };
     for (int i = 0; i < _MAX_URL_LEN; i++) url.url[i] = hdr.url[i];
