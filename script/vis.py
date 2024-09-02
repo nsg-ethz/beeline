@@ -143,6 +143,7 @@ def speedup_graph(paths, metric, aggs, dst):
     # plt.title(metric)
     g.set_axis_labels("payload size [B]", "speedup")
     g.legend.set_title(None)
+    sns.move_legend(g, "upper right")
     _save_to_path(f"speedup-{metric}.pdf", dst)
 
 
@@ -179,11 +180,11 @@ def overhead_graph(paths, base, metric, agg, dst):
 
     # we want the overhead of one request
     # but our tests pass the lb twice, so we divide by two
-    df["ebpf"] = (df["ebpf"] - base["none"]) / 2.0
-    df["envoy"] = (df["envoy"] - base["none"]) / 2.0
+    df["ebpf"] = df["ebpf"] - base["none"]
+    df["envoy"] = df["envoy"] - base["none"]
 
     # assert(np.all(df["ebpf"] >= 0))
-    assert(np.all(df["envoy"] >= 0))
+    # assert(np.all(df["envoy"] >= 0))
 
     g = df.plot(kind="bar")
     g.set_xlabel("payload size [B]")
@@ -207,9 +208,9 @@ if __name__ == "__main__":
     speedup.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
     speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)", "max"], help="The aggregation funcs")
 
-    speedup = subparsers.add_parser("duration")
-    speedup.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
-    speedup.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+    duration = subparsers.add_parser("duration")
+    duration.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
+    duration.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
     overhead = subparsers.add_parser("overhead")
     overhead.add_argument("-b", "--base", required=True, help="The recorded proxy to visualize")

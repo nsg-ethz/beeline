@@ -12,10 +12,6 @@ function stop_http_server {
   rm servers.pid
 }
 
-function stop_iperf_server {
-  sudo pkill iperf3
-}
-
 function delete_veth {
   for i in `seq 1 $1`;
   do
@@ -24,9 +20,20 @@ function delete_veth {
   done
 }
 
+echo -e "${COLOR_YELLOW}Enable HyperThreading${COLOR_OFF}"
+echo on | sudo tee /sys/devices/system/cpu/smt/control
+
+echo -e "${COLOR_YELLOW}Disable CPU performance governor${COLOR_OFF}"
+sudo cpupower frequency-set --governor ondemand
+
+echo -e "${COLOR_YELLOW}Reset CPU shielding${COLOR_OFF}"
+sudo systemctl set-property --runtime user.slice AllowedCPUs=
+sudo systemctl set-property --runtime system.slice AllowedCPUs=
+sudo systemctl set-property --runtime init.scope AllowedCPUs=
+
 stop_http_server
 delete_veth 4
 
-echo -e "${COLOR_YELLOW}Environment cleaned${COLOR_OFF}"
+echo -e "${COLOR_GREEN}Environment cleaned${COLOR_OFF}"
 
 exit 0

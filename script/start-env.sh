@@ -8,29 +8,15 @@ COLOR_OFF='\033[0m' # No Color
 ROOT=$(dirname "$(readlink -f "$0")")
 BACKEND_BIN=${ROOT}/../target/release/backend
 
-if [ -z ${BACKEND_CPU} ]; then
-    echo "Error: BACKEND_CPU is not set"
-    exit 1
-fi
-
 function start_http_server {
   rm -f servers.pid
   for i in `seq 1 $1`;
   do
-  	sudo ip netns exec ns${i} taskset --cpu-list ${BACKEND_CPU} ${BACKEND_BIN} -a 10.0.${i}.1 -p 8000 -H "signature: server${i}" > /dev/null 2>&1 &
+  	sudo ip netns exec ns${i} systemd-run --scope -p Slice=backend.slice ${BACKEND_BIN} -a 10.0.${i}.1 -p 8000 -H "signature: server${i}" > /dev/null 2>&1 &
     echo $! >> servers.pid
     echo -e "${COLOR_GREEN}Server server${i} in ns${i} started.${COLOR_OFF}"
   done
 
-}
-
-function start_iperf_server {
-  for i in `seq 1 $1`;
-  do
-    echo -e "${COLOR_GREEN}Starting server${i} in ns${i}...${COLOR_OFF}"
-    sudo ip netns exec ns${i} iperf3 --server --daemon --bind 10.0.${i}.1 -p 8000
-    echo -e "${COLOR_GREEN}Server server${i} in ns${i} started.${COLOR_OFF}"
-  done
 }
 
 function create_veth {
@@ -71,6 +57,24 @@ function ping_cycle {
 
 delete_veth 4
 
+echo -e "${COLOR_YELLOW}Disable HyperThreading${COLOR_OFF}"
+echo off | sudo tee /sys/devices/system/cpu/smt/control
+
+echo -e "${COLOR_YELLOW}Enable CPU performance governor${COLOR_OFF}"
+sudo cpupower frequency-set --governor performance
+
+echo -e "${COLOR_YELLOW}Shield CPU1 and CPU2 from the OS scheduler${COLOR_OFF}"
+CPU_ALLOWED="0,3-23"
+
+echo -e "${COLOR_YELLOW}System may now only use CPU: ${CPU_ALLOWED}${COLOR_OFF}"
+sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
+sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
+sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
+sudo systemctl set-property --runtime backend.slice AllowedCPUs=1
+sudo systemctl set-property --runtime proxy.slice AllowedCPUs=2
+
+echo -e "${COLOR_GREEN}CPUs prepared for performance testing...\n${COLOR_OFF}"
+
 echo -e "${COLOR_YELLOW}Creating namespaces.${COLOR_OFF}"
 create_veth 4
 echo -e "${COLOR_GREEN}Namespaces created.\n${COLOR_OFF}"
@@ -78,9 +82,10 @@ echo -e "${COLOR_GREEN}Namespaces created.\n${COLOR_OFF}"
 echo -e "${COLOR_YELLOW}Let's check if everything is setup correctly.${COLOR_OFF}"
 # All the namespaces try to ping each other
 ping_cycle 4
-echo -e "${COLOR_GREEN}Ping works, let's start the test.\n${COLOR_OFF}"
-echo -e "${COLOR_GREEN}Type 'node index.js to start the proxy'.\n${COLOR_OFF}"
+echo -e "${COLOR_GREEN}Ping works, starting backends...\n${COLOR_OFF}"
 
 start_http_server 4
+
+echo -e "${COLOR_GREEN}Done.\n${COLOR_OFF}"
 
 exit 0
