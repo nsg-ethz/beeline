@@ -25,7 +25,7 @@
 #include "proxy_struct.h"
 #include "hashmap.h"
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 #if LOG_LEVEL == 0
 #define print_log(...) (void)0
@@ -205,7 +205,6 @@ int add_accept_request(struct io_uring *ring, int fd, struct sockaddr *client_ad
 
     io_uring_prep_accept(sqe, fd, client_addr, client_addr_len, 0);
     io_uring_sqe_set_data(sqe, req);
-    io_uring_submit(ring);
 
     return 0;
 }
@@ -217,11 +216,12 @@ int add_read_request(struct io_uring* ring, int fd, struct sock_key* key) {
     memcpy(&req->key, key, sizeof(struct sock_key));
     req->fd = fd;
     req->event_type = EVENT_TYPE_READ;
-    req->buf = calloc(len, sizeof(char));
+    // sqe->buf_group = cbr->bgid;
+	sqe->flags |= IOSQE_BUFFER_SELECT;
 
-    io_uring_prep_recv(sqe, fd, req->buf, len, 0);
+    io_uring_prep_recv_multishot(sqe, fd, NULL, 0, 0);
     io_uring_sqe_set_data(sqe, req);
-    io_uring_submit(ring);
+    
     return 0;
 }
 
@@ -271,165 +271,166 @@ void* worker(void* arg) {
 
     struct hashmap *c2b = hashmap_new(sizeof(struct sock_bind), 0, 0, 0, sock_bind_hash, sock_bind_compare, NULL, NULL);
     struct hashmap *b2c = hashmap_new(sizeof(struct sock_bind), 0, 0, 0, sock_bind_hash, sock_bind_compare, NULL, NULL);
+    struct __kernel_timespec ts = { .tv_sec = 0, .tv_nsec = 1000000 };
 
     struct io_uring_cqe *cqe;
     while (true) {
-        if (io_uring_wait_cqe(&ring, &cqe) < 0) {
+        int to_wait = hashmap_count(c2b) / 2;
+        if (to_wait == 0) to_wait = 1;
+
+        if (io_uring_submit_and_wait_timeout(&ring, &cqe, to_wait, &ts, NULL) < 0) {
             print_err("io_uring_wait_cqe error: %s\n", strerror(errno));
             exit(-1);
         }
 
-        struct request *req = (struct request *)cqe->user_data;
-        if (cqe->res < 0) {
-            print_err("Async request failed: %s for socket: %d, event: %d\n", strerror(-cqe->res), req->fd, req->event_type);
-        }
-
-        switch (req->event_type) {
-            case EVENT_TYPE_ACCEPT: {
-                int cd = cqe->res;
-                struct sock_key key = { 0 };
-                get_sock_key(cd, &key);
-
-                add_accept_request(&ring, lfd, (struct sockaddr*)&addr, &addr_len);
-                add_read_request(&ring, cd, &key);
-                print_log("Accepted new client connection: %d\n", cd);
-                break;
+        unsigned int head;
+        io_uring_for_each_cqe(&ring, head, cqe) {
+            struct request *req = (struct request *)cqe->user_data;
+            if (cqe->res < 0) {
+                print_err("Async request failed: %s for socket: %d, event: %d\n", strerror(-cqe->res), req->fd, req->event_type);
             }
-            case EVENT_TYPE_READ: {
-                struct sock_key key = req->key;
 
-                // check if there is something to read
-                if (cqe->res == 0) {
-                    print_log("Closing socket: %d\n", req->fd);
-                    close(req->fd);
+            switch (req->event_type) {
+                case EVENT_TYPE_ACCEPT: {
+                    int cd = cqe->res;
+                    struct sock_key key = { 0 };
+                    get_sock_key(cd, &key);
+
+                    add_accept_request(&ring, lfd, (struct sockaddr*)&addr, &addr_len);
+                    add_read_request(&ring, cd, &key);
+                    print_log("Accepted new client connection: %d\n", cd);
                     break;
                 }
+                case EVENT_TYPE_READ: {
+                    struct sock_key key = req->key;
 
-                // check if this is a backend response
-                if (key.backend > 0) {
-                    print_log("Received response from backend: %d\n", key.backend);
-
-                    // read from the backend
-                    add_read_request(&ring, req->fd, &key);
-
-                    struct sock_bind *bind = (struct sock_bind *)hashmap_get(b2c, &(struct sock_bind){ .key=key });
-                    if (bind == NULL) {
-                        print_err("Failed to find client associated to backend: %d\n", req->fd);
-                        exit(-1);
-                    }
-
-                    // write to the client
-                    add_write_request(&ring, bind->val_fd, req->buf, cqe->res, &bind->val);   
-                    break;
-                }
-
-                struct sock_bind *bind = (struct sock_bind *)hashmap_get(c2b, &(struct sock_bind){ .key=key });
-
-                // we received a client request
-                // check which backend is requested
-                int backend = parse_backend(req->buf);
-                if (backend < 1) {
-                    // it's possible that the request got split up into multiple segments
-                    // because the payload is so large
-                    // in that case, we should already have a backend assigned
-                    if (bind == NULL) {
-                        print_err("Received partial request of len %d from client %d without backend\n", cqe->res, req->fd);
+                    // check if there is something to read
+                    if (cqe->res == 0) {
+                        print_log("Closing socket: %d\n", req->fd);
+                        close(req->fd);
                         break;
                     }
 
-                    backend = bind->val.backend;
-                }
+                    // check if this is a backend response
+                    if (key.backend > 0) {
+                        print_log("Received response from backend: %d, len: %d\n", key.backend, cqe->res);
 
-                assert(backend > 0);
+                        struct sock_bind *bind = (struct sock_bind *)hashmap_get(b2c, &(struct sock_bind){ .key=key });
+                        if (bind == NULL) {
+                            print_err("Failed to find client associated to backend: %d\n", req->fd);
+                            exit(-1);
+                        }
 
-                print_log("Received request of len %d from client %d to backend %d\n", cqe->res, req->fd, backend);
-                int fd = -1;
-                struct sock_key backend_key;
-
-                // check if this is an exisiting connection
-                if (bind != NULL) {                    
-                    if (bind->val.backend == backend) {
-                        // request to the same backend
-                        print_log("Request to the same backend: %d\n", backend);
-                        fd = bind->val_fd;
-                        backend_key = bind->val;
+                        // write to the client
+                        add_write_request(&ring, bind->val_fd, req->buf, cqe->res, &bind->val);   
+                        break;
                     }
-                    else {
-                        // put backend connection back into the pool
-                        int old_backend = bind->val.backend;
-                        assert(old_backend > 0);
-                        memcpy(&conn_pool[old_backend-1][num_conn_pool[old_backend-1]], bind, sizeof(struct sock_bind));
-                        num_conn_pool[old_backend-1]++;
 
-                        if (hashmap_delete(b2c, &(struct sock_bind){ .key=bind->val }) == NULL) {
-                            print_err("Failed to delete b2c binding\n");
-                            exit(-1);
+                    struct sock_bind *bind = (struct sock_bind *)hashmap_get(c2b, &(struct sock_bind){ .key=key });
+
+                    // we received a client request
+                    // check which backend is requested
+                    int backend = parse_backend(req->buf);
+                    if (backend < 1) {
+                        // it's possible that the request got split up into multiple segments
+                        // because the payload is so large
+                        // in that case, we should already have a backend assigned
+                        if (bind == NULL) {
+                            print_err("Received partial request of len %d from client %d without backend\n", cqe->res, req->fd);
+                            break;
                         }
-                        if (hashmap_delete(c2b, &(struct sock_bind){ .key=bind->key }) == NULL) {
-                            print_err("Failed to delete c2b binding\n");
-                            exit(-1);
-                        }
 
-                        // check if we have an open connection to the current backend
-                        if (num_conn_pool[backend-1] > 0) {
-                            struct sock_bind reuse_bind = conn_pool[backend-1][num_conn_pool[backend-1]-1];
-                            num_conn_pool[backend-1]--;
+                        backend = bind->val.backend;
+                    }
 
-                            fd = reuse_bind.val_fd;
-                            backend_key = reuse_bind.val;
-                            if (assign_client_to_backend(c2b, b2c, &key, req->fd, &backend_key, fd) < 0) {
-                                print_err("Failed to assign client to backend\n");
-                                exit(-1);
-                            }
-                            
-                            print_log("Reusing backend connection: %d\n", fd);
+                    assert(backend > 0);
+
+                    print_log("Received request of len %d from client %d to backend %d\n", cqe->res, req->fd, backend);
+                    int fd = -1;
+                    struct sock_key backend_key;
+
+                    // check if this is an exisiting connection
+                    if (bind != NULL) {                    
+                        if (bind->val.backend == backend) {
+                            // request to the same backend
+                            print_log("Request to the same backend: %d\n", backend);
+                            fd = bind->val_fd;
+                            backend_key = bind->val;
                         }
                         else {
-                            // start a new connection
-                            fd = start_backend_conn(backend, backend_addrs, &backend_key);
-                            print_log("Established a new connection to backend %d: %d\n", backend, fd);
-                            if (assign_client_to_backend(c2b, b2c, &key, req->fd, &backend_key, fd)) {
-                                print_err("Failed to assign client to backend\n");
+                            // put backend connection back into the pool
+                            int old_backend = bind->val.backend;
+                            assert(old_backend > 0);
+                            memcpy(&conn_pool[old_backend-1][num_conn_pool[old_backend-1]], bind, sizeof(struct sock_bind));
+                            num_conn_pool[old_backend-1]++;
+
+                            if (hashmap_delete(b2c, &(struct sock_bind){ .key=bind->val }) == NULL) {
+                                print_err("Failed to delete b2c binding\n");
                                 exit(-1);
+                            }
+                            if (hashmap_delete(c2b, &(struct sock_bind){ .key=bind->key }) == NULL) {
+                                print_err("Failed to delete c2b binding\n");
+                                exit(-1);
+                            }
+
+                            // check if we have an open connection to the current backend
+                            if (num_conn_pool[backend-1] > 0) {
+                                struct sock_bind reuse_bind = conn_pool[backend-1][num_conn_pool[backend-1]-1];
+                                num_conn_pool[backend-1]--;
+
+                                fd = reuse_bind.val_fd;
+                                backend_key = reuse_bind.val;
+                                if (assign_client_to_backend(c2b, b2c, &key, req->fd, &backend_key, fd) < 0) {
+                                    print_err("Failed to assign client to backend\n");
+                                    exit(-1);
+                                }
+                                
+                                print_log("Reusing backend connection: %d\n", fd);
+                            }
+                            else {
+                                // start a new connection
+                                fd = start_backend_conn(backend, backend_addrs, &backend_key);
+                                print_log("Established a new connection to backend %d: %d\n", backend, fd);
+                                if (assign_client_to_backend(c2b, b2c, &key, req->fd, &backend_key, fd)) {
+                                    print_err("Failed to assign client to backend\n");
+                                    exit(-1);
+                                }
                             }
                         }
                     }
-                }
-                else {
-                    print_log("New connection to backend %d\n", backend);
-                    fd = start_backend_conn(backend, backend_addrs, &backend_key);
-                    print_log("Established a new connection to backend %d: %d\n", backend, fd);
-                    if (assign_client_to_backend(c2b, b2c, &key, req->fd, &backend_key, fd)) {
-                        print_err("Failed to assign client to backend\n");
-                        exit(-1);
+                    else {
+                        print_log("New connection to backend %d\n", backend);
+                        fd = start_backend_conn(backend, backend_addrs, &backend_key);
+                        print_log("Established a new connection to backend %d: %d\n", backend, fd);
+                        if (assign_client_to_backend(c2b, b2c, &key, req->fd, &backend_key, fd)) {
+                            print_err("Failed to assign client to backend\n");
+                            exit(-1);
+                        }
+
+                        // read from the backend
+                        add_read_request(&ring, fd, &backend_key);
                     }
+
+                    assert(fd > 0);
+
+                    // write to the backend
+                    add_write_request(&ring, fd, req->buf, cqe->res, &backend_key);   
+
+                    break;
                 }
+                case EVENT_TYPE_WRITE: {
+                    print_log("Sent response of length: %d\n", cqe->res);
+                    free(req->buf);
 
-                assert(fd > 0);
-
-                // read from the client again
-                add_read_request(&ring, req->fd, &key);
-
-                // read from the backend
-                add_read_request(&ring, fd, &backend_key);
-
-                // write to the backend
-                add_write_request(&ring, fd, req->buf, cqe->res, &backend_key);   
-
-                break;
+                    break;
+                }
             }
-            case EVENT_TYPE_WRITE: {
-                print_log("Sent response of length: %d\n", cqe->res);
-                free(req->buf);
 
-                break;
-            }
+            free(req);
+
+            /* Mark this request as processed */
+            io_uring_cqe_seen(&ring, cqe);
         }
-
-        free(req);
-
-        /* Mark this request as processed */
-        io_uring_cqe_seen(&ring, cqe);
     }
 
     io_uring_queue_exit(&ring);

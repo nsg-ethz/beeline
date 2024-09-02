@@ -14,6 +14,7 @@ struct sock_bind {
     struct sock_key val;
     int key_fd;
     int val_fd;
+    struct conn_buf_ring *cbr;
 };
 
 struct request {
@@ -21,6 +22,12 @@ struct request {
     int fd;
     struct sock_key key;
     char* buf;
+};
+
+struct conn_buf_ring {
+	struct io_uring_buf_ring *br;
+	void *buf;
+	int bgid;
 };
 
 enum http_method {
