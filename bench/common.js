@@ -5,7 +5,7 @@ import { randomString, randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.3
 import { Counter } from 'k6/metrics';
 
 const payload_size = __ENV.PAYLOAD_SIZE || 1024;
-const data = JSON.stringify({ "text": randomString(payload_size) });
+const data = randomString(payload_size);
 
 const backends = [
   new Counter('backend1'),
@@ -29,12 +29,15 @@ export function randomRequest() {
 
   backends[server-1].add(1);
 
-  const res = http.post(url, data);
+  let salt = exec.scenario.iterationInInstance.toString();
+  let payload = data.substring(0, payload_size-salt.length) + salt;
+
+  const res = http.post(url, payload);
 
   let passed = check(res, {
     'status is 200': (r) => r.status === 200,
     'processed by correct backend': (r) => r.headers["Signature"] == signature,
-    'body is the same': (r) => r.body === data
+    'body is the same': (r) => r.body === payload
   });
 
   let abortOnFail = __ENV.ABORT_ON_FAIL || "0";
