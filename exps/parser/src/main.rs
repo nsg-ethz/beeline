@@ -1,11 +1,11 @@
 use anyhow::{bail, Result};
-use compose::*;
+use parser::*;
 use libbpf_rs::skel::{
     OpenSkel, SkelBuilder
 };
 use std::os::fd::{AsFd, AsRawFd};
 
-mod compose {
+mod parser {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/bpf/parser.skel.rs"
