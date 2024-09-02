@@ -24,7 +24,6 @@ function delete_veth {
   done
 }
 
-# stop_http_server
 stop_http_server
 delete_veth 4
 
