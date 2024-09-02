@@ -84,8 +84,8 @@ struct {
 } c2b SEC(".maps");
 
 static __always_inline void _skb_extract_key(struct __sk_buff *skb, struct sock_key *key) {
-    // key->remote_ip4 = bpf_ntohl(skb->remote_ip4);
-    // key->local_ip4 = bpf_ntohl(skb->local_ip4);
+    key->remote_ip4 = bpf_ntohl(skb->remote_ip4);
+    key->local_ip4 = bpf_ntohl(skb->local_ip4);
     key->remote_port = bpf_ntohl(skb->remote_port);
     key->local_port = skb->local_port;
 }

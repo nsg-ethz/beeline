@@ -80,13 +80,13 @@ int get_sock_key(int fd, struct sock_key *key) {
     int res = getsockname(fd, (struct sockaddr *)&addr, (socklen_t*)&len);
     if (res < 0) return res;
 
-    // key->local_ip4 = ntohl(addr.sin_addr.s_addr);
+    key->local_ip4 = ntohl(addr.sin_addr.s_addr);
     key->local_port = ntohs(addr.sin_port);
 
     res = getpeername(fd, (struct sockaddr *)&addr, (socklen_t*)&len);
     if (res < 0) return res;
 
-    // key->remote_ip4 = ntohl(addr.sin_addr.s_addr);
+    key->remote_ip4 = ntohl(addr.sin_addr.s_addr);
     key->remote_port = ntohs(addr.sin_port);
 
     return 0;
@@ -186,28 +186,26 @@ int add_to_sockmap(int sockmap_fd, int fd, struct sock_key *key) {
 }
 
 int assign_client_to_backend(int c2b_fd, int b2c_fd, struct sock_key* client_key, struct sock_key* backend_key) {
-    // the client_key may already exist in c2b, because the connection
-    // might have requested a different backend before
-    if (bpf_map_update_elem(c2b_fd, client_key, backend_key, BPF_ANY) < 0) {
-        fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
-        return -1;
-    }
-
-    // when retrieving a client connection given a backend connection
-    // we don't know which backend was addressed, so we set backend to 0
-    int backend = backend_key->backend;
-    backend_key->backend = 0;
-    if (bpf_map_update_elem(b2c_fd, backend_key, client_key, BPF_ANY) < 0) {
-        fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
-        return -1;
-    }
-    backend_key->backend = backend;
-
     printf("Assign client connection [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d] to [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
         (client_key->local_ip4 >> 24) & 0xff, (client_key->local_ip4 >> 16) & 0xff, (client_key->local_ip4 >> 8) & 0xff, client_key->local_ip4 & 0xff, client_key->local_port,
         (client_key->remote_ip4 >> 24) & 0xff, (client_key->remote_ip4 >> 16) & 0xff, (client_key->remote_ip4 >> 8) & 0xff, client_key->remote_ip4 & 0xff, client_key->remote_port,
         (backend_key->local_ip4 >> 24) & 0xff, (backend_key->local_ip4 >> 16) & 0xff, (backend_key->local_ip4 >> 8) & 0xff, backend_key->local_ip4 & 0xff, backend_key->local_port,
         (backend_key->remote_ip4 >> 24) & 0xff, (backend_key->remote_ip4 >> 16) & 0xff, (backend_key->remote_ip4 >> 8) & 0xff, backend_key->remote_ip4 & 0xff, backend_key->remote_port);
+
+    // when retrieving a client connection given a backend connection
+    // we don't know which backend was addressed, so we set backend to 0
+    int backend = backend_key->backend;
+    backend_key->backend = 0;
+    if (bpf_map_update_elem(b2c_fd, backend_key, client_key, BPF_NOEXIST) < 0) {
+        fprintf(stderr, "bpf_map_update_elem(b2c) failed: %s\n", strerror(errno));
+        exit(-1);
+    }
+    backend_key->backend = backend;
+
+    if (bpf_map_update_elem(c2b_fd, client_key, backend_key, BPF_NOEXIST) < 0) {
+        fprintf(stderr, "bpf_map_update_elem(c2b) failed: %s\n", strerror(errno));
+        exit(-1);
+    }
 
     return 0;
 }
@@ -268,7 +266,7 @@ void* wait_for_conns(void* arg) {
     int lfd = net_bind_tcp(&addr);
     if (lfd < 0) {
         fprintf(stderr, "Bind failed\n");
-        return NULL;
+        exit(-1);
     }
 
     while (true) {
@@ -282,7 +280,7 @@ void* wait_for_conns(void* arg) {
         int cd = accept_client_conn(lfd, sockmap_fd, &client_key);
         if (cd < 0) {
             printf("Error accepting new connections: %s\n", strerror(errno));
-            return NULL;
+            exit(-1);
         }
 
         pthread_mutex_lock(&fds_lock); 
@@ -328,7 +326,7 @@ void* forward_reqs(void* arg) {
         int nfds = poll(fds_, num_fds_, 10);
         if (nfds == -1) {
             fprintf(stderr, "Error in poll syscall\n");
-            return NULL;
+            exit(-1);
         }
         else if (nfds == 0) {
             continue;
@@ -392,7 +390,10 @@ void* forward_reqs(void* arg) {
                     int fd = start_backend_conn(i, backend_addrs, sockmap_fd, &key);
                     printf("Established a new connection to backend %d: %d\n", key.backend, fd);
 
-                    add_to_sockmap(sockmap_fd, fd, &key);
+                    if (add_to_sockmap(sockmap_fd, fd, &key) < 0) {
+                        exit(-1);
+                    }
+
                     if (i == backend) {
                         backend_key = key;
                         bd = fd;
@@ -408,17 +409,19 @@ void* forward_reqs(void* arg) {
 
                         if (bpf_map_update_elem(conns_fd, NULL, &key, BPF_ANY) < 0) {
                             fprintf(stderr, "bpf_map_update_elem(backend%d_conns) failed: %s\n", i, strerror(errno));
-                            return NULL;
+                            exit(-1);
                         }
                     }
                 }
 
                 // book keeping
                 if (assign_client_to_backend(c2b_fd, b2c_fd, &client_key, &backend_key) < 0) {
-                    return NULL;
+                    exit(-1);
                 }
 
-                add_to_sockmap(sockmap_fd, fds_[i].fd, &client_key);
+                if (add_to_sockmap(sockmap_fd, fds_[i].fd, &client_key) < 0) {
+                    exit(-1);
+                }
 
                 size_t res_len = 0;
                 do {
@@ -445,6 +448,25 @@ void* forward_reqs(void* arg) {
                     (client_key.local_ip4 >> 24) & 0xff, (client_key.local_ip4 >> 16) & 0xff, (client_key.local_ip4 >> 8) & 0xff, client_key.local_ip4 & 0xff, client_key.local_port,
                     (client_key.remote_ip4 >> 24) & 0xff, (client_key.remote_ip4 >> 16) & 0xff, (client_key.remote_ip4 >> 8) & 0xff, client_key.remote_ip4 & 0xff, client_key.remote_port);
                 close(fds_[i].fd);
+
+                struct sock_key backend_key = { 0 };
+                if (bpf_map_lookup_elem(c2b_fd, &client_key, &backend_key) < 0) {
+                    fprintf(stderr, "bpf_lookup_elem(c2b) failed: %s\n", strerror(errno));
+                    exit(-1);
+                }
+
+                // remove the connection from the sock mappings
+                if (bpf_map_delete_elem(c2b_fd, &client_key) < 0) {
+                    fprintf(stderr, "bpf_map_delete_elem(c2b) failed: %s\n", strerror(errno));
+                    exit(-1);
+                }
+
+
+                backend_key.backend = 0;
+                if (bpf_map_delete_elem(b2c_fd, &backend_key) < 0) {
+                    fprintf(stderr, "bpf_map_delete_elem(b2c) failed: %s\n", strerror(errno));
+                    exit(-1);
+                }
 
                 fds_new[num_fds_new].fd = 0;
                 num_fds_new--;
