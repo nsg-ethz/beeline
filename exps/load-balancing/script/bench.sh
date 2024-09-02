@@ -51,29 +51,16 @@ sudo cpupower frequency-set --governor performance
 ROOT=$(dirname "$(readlink -f "$0")")
 
 if [ $TEST_ENVOY -eq 1 ]; then
-    echo "Start envoy"
-    sudo -b su -c "${ROOT}/../envoy/start-proxy.sh"
-    ENVOY_PID=$!
-
-    for SIZE in 128 256 512 1024 2048; do
+    for SIZE in 128 256 512 1024 2048 4096 8192; do
         ${ROOT}/k6.sh -n ${NAME} -p envoy -s ${SIZE}
     done
-
-    echo "Kill envoy"
-    kill ${ENVOY_PID}
 fi
 
 if [ $TEST_EBPF -eq 1 ]; then
-    echo "Start ebpf"
-    sudo -b su -c "${ROOT}/../ebpf/start-proxy.sh"
-    EBPF_PID=$!
 
-    for SIZE in 128 256 512 1024 2048; do
+    for SIZE in 128 256 512 1024 2048 4096 8192; do
         ${ROOT}/k6.sh -n ${NAME} -p ebpf -s ${SIZE}
     done
-
-    echo "Kill ebpf"
-    kill ${EBPF_PID}
 fi
 
 cleanup
