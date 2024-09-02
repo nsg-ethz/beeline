@@ -128,7 +128,7 @@ def line_graph(paths, metric, agg, dst):
     
 
 def speedup_graph(paths, metric, aggs, dst):
-    df, _ = _load_summary_data(paths)
+    df = _load_summary_data(paths)
     ebpf = df.xs("ebpf", level="proxy")
     envoy = df.xs("envoy", level="proxy")
 
