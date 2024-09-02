@@ -1,4 +1,4 @@
-#define _MAX_URL_SIZE 30
+#define _MAX_URL_LEN 30
 #define _MAX_STATUS_CODE 3
 
 struct sock_key {
@@ -19,7 +19,7 @@ enum http_method {
 };
 
 struct http_hdr {
-    char url[_MAX_URL_SIZE];
+    char url[_MAX_URL_LEN];
     __u32 url_len;
 
     enum http_method method;
@@ -29,5 +29,5 @@ struct http_hdr {
 };
 
 struct url_key {
-    char url[_MAX_URL_SIZE];
+    char url[_MAX_URL_LEN];
 };

@@ -1,21 +1,21 @@
-static __always_inline int _parse_http_method(const char *data, const char *data_end, struct http_hdr *http) {
-    if (data + 6 > data_end) return -1;
+static __always_inline int _parse_http_method(const char *line, __u32 len, struct http_hdr *http) {
+    if (len < 6) return -1;
 
-    if (data[0] == 'G' && data[1] == 'E' && data[2] == 'T') {
+    if (line[0] == 'G' && line[1] == 'E' && line[2] == 'T') {
         http->method = HTTP_GET;
     }
-    else if (data[0] == 'P' && data[1] == 'O' && data[2] == 'S' && data[3] == 'T') {
+    else if (line[0] == 'P' && line[1] == 'O' && line[2] == 'S' && line[3] == 'T') {
         http->method = HTTP_POST;
     }
-    else if ((data[0] == 'P') && (data[1] == 'U') && (data[2] == 'T')) {
+    else if ((line[0] == 'P') && (line[1] == 'U') && (line[2] == 'T')) {
         http->method = HTTP_PUT;
     }
-    else if ((data[0] == 'D') && (data[1] == 'E') && (data[2] == 'L') &&
-        (data[3] == 'E') && (data[4] == 'T') && (data[5] == 'E')) {
+    else if ((line[0] == 'D') && (line[1] == 'E') && (line[2] == 'L') &&
+        (line[3] == 'E') && (line[4] == 'T') && (line[5] == 'E')) {
         http->method = HTTP_DELETE;
     }
-    else if ((data[0] == 'H') && (data[1] == 'E') && (data[2] == 'A') &&
-        (data[3] == 'D')) {
+    else if ((line[0] == 'H') && (line[1] == 'E') && (line[2] == 'A') &&
+        (line[3] == 'D')) {
         http->method = HTTP_HEAD;
     }
     else {
@@ -40,54 +40,38 @@ static __always_inline __u32 _get_method_len(enum http_method method) {
     }
 }
 
-static __always_inline int _parse_http_req_url(const char *line, const char *line_end, struct http_hdr *hdr) {
+static __always_inline int _parse_http_req_url(const char *line, __u32 len, struct http_hdr *hdr) {
     if (hdr->method == HTTP_NONE) return 0;
 
     __u32 method_len = _get_method_len(hdr->method);
-    __u32 data_len = line_end - line;
-    __u32 line_len = data_len - method_len - 1;
+    __s32 url_len = len - method_len - 1 - 9; // 9 is the length of " HTTP/1.1"
+    if (url_len <= 0 || url_len > _MAX_URL_LEN) return -1;
 
-    hdr->url_len = 0;
-    for (__u32 i = 0; i < _MAX_URL_SIZE && i < line_len; i++) {
-        char c = line[i + method_len + 1];
-        if (c == ' ') break;
-
-        hdr->url[i] = c;
-        hdr->url_len++;
+    if (bpf_probe_read_kernel(hdr->url, url_len, line + method_len + 1) < 0) {
+        return -1;
     }
-    
+
+    hdr->url_len = url_len;
     return 0;
 }
 
-static __always_inline int _parse_content_length(const char *data, const char *data_end, struct http_hdr *hdr) {
-    if (data + 15 > data_end) return -1;
+static __always_inline int _parse_content_length(const char *line, __u32 len, struct http_hdr *hdr) {
+    const char* key = "Content-Length:";
+    __u32 key_len = 15;
 
-    bpf_printk("LINE: %s", data);
+    if (len < key_len) return -1;
+    if (bpf_strncmp(line, key_len, key) < 0) return -1;
 
-    if (data[0] == 'C' && data[1] == 'o' && data[2] == 'n' &&
-        data[3] == 't' && data[4] == 'e' && data[5] == 'n' &&
-        data[6] == 't' && data[7] == '-' && data[8] == 'L' &&
-        data[9] == 'e' && data[10] == 'n' && data[11] == 'g' &&
-        data[12] == 't' && data[13] == 'h' && data[14] == ':') {
-            char *start = (char*)((__u64)data + 15);
-            __u32 len = data_end-data-15;
-            char buf[20];
-            if (bpf_probe_read_kernel_str(buf, 20, start) < 0) {
-                bpf_printk("failed reading");
-            }
-        return bpf_strtoul(start, len, 0, (unsigned long*)&hdr->content_length);
-    }
-
-    return -1;
+    return bpf_strtoul(line + key_len, 10, 0, (unsigned long*)&hdr->content_length);
 }
 
-static __always_inline int _parse_http_hdr_line(const char *line, const char *line_end, struct http_hdr *hdr) {
-    if (_parse_http_method(line, line_end, hdr) == 0) {
-        return _parse_http_req_url(line, line_end, hdr);
+static __always_inline int _parse_http_hdr_line(const char *line, __u32 len, struct http_hdr *hdr) {
+    if (_parse_http_method(line, len, hdr) >= 0) {
+        return _parse_http_req_url(line, len, hdr);
     }
-    // else if (_parse_content_length(line, line_end, hdr) == 0) {
-    //     return 0;
-    // }
+    else if (_parse_content_length(line, len, hdr) >= 0) {
+        return 0;
+    }
     
     return -1; 
 }

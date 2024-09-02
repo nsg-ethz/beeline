@@ -22,7 +22,7 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 #if LOG_LEVEL == 0
 #define bpf_log(fmt, ...) (0)
@@ -115,49 +115,54 @@ static __always_inline int _try_redirect(struct __sk_buff *skb, struct sock_key 
 }
 
 static __always_inline int _parse_http_hdr(struct __sk_buff *skb, struct http_hdr *hdr) {
-    __u32 len = 48;
-    // uncommenting this breaks it even using the regular for loop
-    // if (len > skb->len) len = skb->len;
+    __u32 len_max = 255;
+    __u32 len = skb->len;
+    if (len > len_max) len = len_max;
+    char data[len_max];
+    if (len == 0) return 0;
 
-    if (bpf_skb_pull_data(skb, len) < 0) {
+    if (bpf_skb_load_bytes(skb, 0, data, len) < 0) {
+        bpf_err("ERROR: Failed to load data");
         return -1;
     }
 
-    char *data_end = (char *)(long)skb->data_end;
-    char *data = (char *)(long)skb->data;
-
-    if (data + len > data_end) {
-        return -1;
+    __u32 i = 0, j = 0;
+    bool cr = false;
+    bpf_for(i, 0, len) {        
+        if (data[i] == '\r') {
+            cr = true;
+        }
+        else if (data[i] == '\n') {
+            if (cr) {
+                __s32 line_len = i - j - 1;
+                if (j < len_max && line_len > 0 && j + line_len < len_max) {
+                    _parse_http_hdr_line(data+(j & 0xFF), line_len, hdr);
+                    bpf_log("hdr: %d %s %d %d", hdr->method, hdr->url, hdr->url_len, hdr->content_length);
+                    j = i + 1;
+                }
+                else if (line_len == 0) {
+                    hdr->header_length = i + 1;
+                    return 0;
+                }
+            }
+            cr = false;
+        }
+        else {
+            cr = false;
+        }
     }
 
-    // hdr->content_length = 8359;
-    // hdr->content_length = 400;
-
-    return _parse_http_hdr_line(data, data_end, hdr);
-
-    // __u16 k = 0;
-    // bpf_for(k, 0, len) {     
-    //     __u16 i = k & 0xFF;
-    //     if (i < len && data + i > data_end) break;
-    //     bpf_printk("data[i] = %d", data[i]);
-    // }
-
-    // this works!
-    // for (__u32 i = 0; i < len; i++) {
-    //     if (data + i > data_end) break;
-    //     bpf_printk("data[i] = %d", data[i]);
-    // }
-
-    return 0;
+    bpf_err("ERROR: HTTP header too long");
+    return -1;
 }
 
 SEC("sk_skb/stream_parser")
 int bpf_prog_parser(struct __sk_buff *skb) {
-    return skb->len;
-
-    // this is not working yet
     struct sock_key key = { 0 };
     _skb_extract_key(skb, &key);
+
+    bpf_log("Parse packet [%pI4:%u->%pI4:%u (%d)]", 
+        key.local_ip4, key.local_port, key.remote_ip4, key.remote_port, key.backend); 
 
     struct sock_key *client_key = bpf_map_lookup_elem(&b2c, &key);
     if (client_key != NULL) {
@@ -205,7 +210,7 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     bpf_log("Received HTTP request: %s (%d)", hdr.url, hdr.url_len);
 
     struct url_key url = { 0 };
-    for (int i = 0; i < _MAX_URL_SIZE; i++) url.url[i] = hdr.url[i];
+    for (int i = 0; i < _MAX_URL_LEN; i++) url.url[i] = hdr.url[i];
 
     int *backend;
     backend = bpf_map_lookup_elem(&url_to_server_map, &url);

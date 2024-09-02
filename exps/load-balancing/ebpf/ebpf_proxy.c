@@ -328,7 +328,7 @@ int main(int argc, char **argv) {
 
     struct url_key url_to_server[4];
     for (int i = 0; i < 4; i++) {
-        bzero(url_to_server[i].url, sizeof(char) * _MAX_URL_SIZE);
+        bzero(url_to_server[i].url, sizeof(char) * _MAX_URL_LEN);
     }
     strcpy(url_to_server[0].url, "/server1");
     strcpy(url_to_server[1].url, "/server2");
