@@ -12,7 +12,7 @@ import pandas as pd
 sns.set_theme(style="whitegrid")
 
 def parse_path(path):
-    match = re.search(r"smoke-(\w+)-(\d+)B.json", path)
+    match = re.search(r"stress-(\w+)-(\d+)B.json", path)
     proxy = match.group(1)
     size = match.group(2)
 
@@ -40,21 +40,27 @@ def load_data(paths):
     df = pd.DataFrame.from_dict(rows)
     df.set_index(["proxy", "payload_size", "metric"], inplace=True)
 
+    # larger payloads are buggy for ebpf
+    df = df[df.index.get_level_values("payload_size") < 4000]
+
     return df
 
 
 def line_graph(paths, metric, agg):
     df = load_data(paths)
     df = df.xs(metric, level="metric")
-    # df = df[df.index.get_level_values("payload_size") < 4000]
 
     g = sns.lineplot(data=df, x="payload_size", y=agg, hue="proxy", palette="dark", alpha=.6)
+    sizes = set(df.index.get_level_values("payload_size"))
+    sizes = sorted(sizes)
     
     g.set_title(f"{metric} {agg}")
     g.set_xlabel("payload size [B]")
+    g.set_xticks(sizes)
     g.set_ylabel("time [ms]")
+    g.set_xbound(lower=sizes[0], upper=sizes[-1])
     plt.yscale("log")
-    plt.savefig(f"res/smoke-{metric}.pdf")           
+    plt.savefig(f"res/stress-{metric}.pdf")           
     
 
 def speedup_graph(paths, metric, aggs):
@@ -79,7 +85,7 @@ def speedup_graph(paths, metric, aggs):
     plt.title(metric)
     g.set_axis_labels("payload size [B]", "speedup")
     g.legend.set_title(None)
-    g.savefig(f"res/smoke-speedup-{metric}.pdf")
+    g.savefig(f"res/stress-speedup-{metric}.pdf")
 
 
 if __name__ == "__main__":
@@ -95,7 +101,7 @@ if __name__ == "__main__":
     speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)"], help="The aggregation funcs")
 
     args = parser.parse_args()
-    files = glob.glob("res/smoke-*.json")
+    files = glob.glob("res/stress-*.json")
 
     if args.command == "line":
         line_graph(files, args.metric, args.agg)
