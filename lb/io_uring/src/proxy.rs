@@ -6,10 +6,7 @@ use log::{
     info
 };
 use std::{
-    collections::{
-        HashMap,
-        VecDeque
-    },
+    collections::HashMap,
     io,
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     os::unix::io::{AsRawFd, RawFd},
@@ -64,7 +61,6 @@ impl Proxy {
     pub fn listen(&mut self) -> Result<()> {
         let mut ring = IoUring::new(2048)?;
         let (submitter, mut sq, mut cq) = ring.split();
-        let mut backlog = VecDeque::new();
 
         let listener = TcpListener::bind(self.addr)?;
         let accept = Token::Accept { fd: listener.as_raw_fd() };
@@ -93,10 +89,7 @@ impl Proxy {
                     for tok in next_tokens {    
                         let sqe = self.sqe_from_token(tok);
                         unsafe {
-                            if sq.push(&sqe).is_err() {
-                                debug!("squeue full, caching in backlog: {:?}", sqe);
-                                backlog.push_back(sqe);
-                            }
+                            sq.push(&sqe)?;
                         }
                     }
                 }
