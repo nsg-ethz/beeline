@@ -82,6 +82,8 @@ def _load_data(paths, aggs):
 
 
 def _save_to_path(name, dst):
+    name = name.replace("{expected_response:true}", "_exp_res")
+
     plt.tight_layout()
     path = os.path.join(dst, name) if os.path.isdir(dst) else dst
     print("Writing to", path)
@@ -102,10 +104,16 @@ def _aggregate_fn(name):
     elif name in ["count", "sum"]:
         return np.sum
     else:
-        raise KeyError(f"Unknown aggregation function: ${name}")
+        raise KeyError(f"Unknown aggregation function: {name}")
 
 
-def line_graph(paths, metric, agg, dst):
+def _get_file_paths(name, filename_pattern="*.json"):
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    return glob.glob(os.path.join(dir_path, "..", "res", "runs", args.name, filename_pattern))
+
+
+def line_graph(name, metric, agg, dst):
+    paths = _get_file_paths(name)
     df, is_summary = _load_data(paths, [agg])
     df = df.xs(metric, level="metric_name")
 
@@ -120,17 +128,17 @@ def line_graph(paths, metric, agg, dst):
     g.set_ylabel("time [ms]")
     g.set_xbound(lower=sizes[0], upper=sizes[-1])
     plt.yscale("log")
-    _save_to_path(f"line-{metric}-{agg}.pdf", dst)           
+    _save_to_path(f"{name}-line-{metric}-{agg}.pdf", dst)           
     
 
-def speedup_graph(paths, base, metric, aggs, dst):
+def speedup_graph(name, base, metric, aggs, dst):
+    paths = _get_file_paths(name)
     df = _load_summary_data(paths)
     ebpf = df.xs("ebpf", level="proxy")
     envoy = df.xs("envoy", level="proxy")
 
     if base is not None:
-        base = _load_summary_data(glob.glob(base))
-        base = base.xs("none", level="proxy")
+        base = df.xs(base, level="proxy")
     else:
         base = pd.DataFrame(0, index=ebpf.index, columns=ebpf.columns)
 
@@ -152,10 +160,11 @@ def speedup_graph(paths, base, metric, aggs, dst):
     g.set_axis_labels("payload size [B]", "speedup")
     g.legend.set_title(None)
     sns.move_legend(g, "upper right")
-    _save_to_path(f"speedup-{metric}.pdf", dst)
+    _save_to_path(f"{name}-speedup-{metric}.pdf", dst)
 
 
-def duration_graph(paths, proxy, agg, dst):
+def duration_graph(name, proxy, agg, dst):
+    paths = _get_file_paths(name)
     df = _load_summary_data(paths)
     df = df.xs(proxy, level="proxy")
 
@@ -169,10 +178,11 @@ def duration_graph(paths, proxy, agg, dst):
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]")
     
-    _save_to_path(f"duration-{proxy}-{agg}.pdf", dst)
+    _save_to_path(f"{name}-duration-{proxy}-{agg}.pdf", dst)
 
 
-def overhead_graph(paths, base, metric, agg, absolute, dst):
+def overhead_graph(name, base, metric, agg, absolute, dst):
+    paths = _get_file_paths(name)
     def _preprocess(df):
         df = df[df.index.get_level_values("metric_name") == metric]
         df = df.drop((c for c in df.columns if c != agg), axis=1)
@@ -180,12 +190,11 @@ def overhead_graph(paths, base, metric, agg, absolute, dst):
         df = df.pivot(index="payload_size", columns="proxy", values=agg)
 
         return df
-    
-    df = _preprocess(_load_summary_data(paths))
-    df.drop("none", axis=1, inplace=True)
 
-    files = glob.glob(base)
-    base = _preprocess(_load_summary_data(files))
+    df = _preprocess(_load_summary_data(paths))
+
+    base = df.drop((c for c in df.columns if c != base), axis=1)
+    df.drop(base, axis=1, inplace=True)
 
     proxies = df.columns
     if absolute:
@@ -198,14 +207,17 @@ def overhead_graph(paths, base, metric, agg, absolute, dst):
     # assert(np.all(df["ebpf"] >= 0))
     # assert(np.all(df["envoy"] >= 0))
 
+    df = df[df.index.get_level_values("payload_size") <= 1024]
+
     g = df.plot(kind="bar")
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]" if absolute else "overhead [%]")
     
-    _save_to_path(f"overhead-{metric}-{agg}.pdf", dst)
+    _save_to_path(f"{name}-overhead-{metric}-{agg}.pdf", dst)
 
 
-def cdf_graph(paths, metric, crop, dst):
+def cdf_graph(name, metric, crop, dst):
+    paths = _get_file_paths(name)
     df = _load_log_data(paths)
     df = df[df["metric_name"] == metric]
 
@@ -222,10 +234,11 @@ def cdf_graph(paths, metric, crop, dst):
     g.set_xlabel(metric)
     # g.set_ybound(lower=0.9, upper=1.0)
     plt.xscale("log")
-    _save_to_path(f"cdf-{metric}.pdf", dst)
+    _save_to_path(f"{name}-cdf-{metric}-@{crop}s.pdf", dst)
 
 
-def scatter_graph(paths, metric, drop_rate, dst):
+def scatter_graph(name, metric, drop_rate, dst):
+    paths = _get_file_paths(name)
     df = _load_log_data(paths)
     df = df[df["metric_name"] == metric]
 
@@ -244,23 +257,23 @@ def scatter_graph(paths, metric, drop_rate, dst):
     g.set_ylabel(f"{metric} [ms]")
     plt.yscale("log")
 
-    _save_to_path(f"cdf-{metric}.pdf", dst)
+    _save_to_path(f"cdf-{metric}-@{1-drop_rate}%.pdf", dst)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--pattern", help="Pattern to find files to consider")
+    parser.add_argument("-n", "--name", help="Name of the experiment")
     parser.add_argument("-o", "--output", default="res/vis", help="Can be an output directory or file")
 
     subparsers = parser.add_subparsers(dest="command")
     
     line = subparsers.add_parser("line")
-    line.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+    line.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
     line.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
     speedup = subparsers.add_parser("speedup")
     speedup.add_argument("-b", "--base", required=False, help="The data that serves as the critical path")
-    speedup.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+    speedup.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
     speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)", "max"], help="The aggregation funcs")
 
     duration = subparsers.add_parser("duration")
@@ -268,31 +281,30 @@ if __name__ == "__main__":
     duration.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
     overhead = subparsers.add_parser("overhead")
-    overhead.add_argument("-b", "--base", required=True, help="The data that serves as the critical path")
-    overhead.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+    overhead.add_argument("-b", "--base", default="none", help="The data that serves as the critical path")
+    overhead.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
     overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
     overhead.add_argument("--absolute", default=False, help="Report the overhead in absolute numbers")
 
     cdf = subparsers.add_parser("cdf")
-    cdf.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+    cdf.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
     cdf.add_argument("-c", "--crop", default=0, help="Crop the given number of seconds from the beginning of the trace")
 
     scatter = subparsers.add_parser("scatter")
-    scatter.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
+    scatter.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
     scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
-
+    
     args = parser.parse_args()
-    files = glob.glob(args.pattern)
 
     if args.command == "line":
-        line_graph(files, args.metric, args.agg, args.output)
+        line_graph(args.name, args.metric, args.agg, args.output)
     elif args.command == "speedup":
-        speedup_graph(files, args.base, args.metric, args.agg, args.output)
+        speedup_graph(args.name, args.base, args.metric, args.agg, args.output)
     elif args.command == "duration":
-        duration_graph(files, args.proxy, args.agg, args.output)
+        duration_graph(args.name, args.proxy, args.agg, args.output)
     elif args.command == "overhead":
-        overhead_graph(files, args.base, args.metric, args.agg, args.absolute, args.output)
+        overhead_graph(args.name, args.base, args.metric, args.agg, args.absolute, args.output)
     elif args.command == "cdf":
-        cdf_graph(files, args.metric, float(args.crop), args.output)
+        cdf_graph(args.name, args.metric, float(args.crop), args.output)
     elif args.command == "scatter":
-        scatter_graph(files, args.metric, float(args.drop), args.output)
+        scatter_graph(args.name, args.metric, float(args.drop), args.output)
