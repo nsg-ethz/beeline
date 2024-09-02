@@ -17,7 +17,6 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 
-#include "common.h"
 #include "ebpf_proxy_struct.h"
 #include "http_helpers.h"
 
@@ -34,7 +33,7 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, 40000);
-    __uint(key_size, sizeof(__u32));
+    __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
 
@@ -68,16 +67,44 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 5000);
-    __uint(key_size, sizeof(__u32));
+    __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(struct sock_key));
 } b2c SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 5000);
-    __uint(key_size, sizeof(__u32));
+    __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(struct sock_key));
 } c2b SEC(".maps");
+
+static __always_inline void _extract_key(struct __sk_buff *skb, struct sock_key *key) {
+    // key->remote_ip4 = bpf_ntohl(skb->remote_ip4);
+    // key->local_ip4 = bpf_ntohl(skb->local_ip4);
+    key->remote_port = bpf_ntohl(skb->remote_port);
+    key->local_port = skb->local_port;
+}
+
+static __always_inline bool _pull_and_validate_data(struct __sk_buff *skb, void **data_, void **data_end_, uint16_t size) {
+    int err;
+    void *data, *data_end;
+    if (bpf_skb_pull_data(skb, size) < 0) {
+        return false;
+    }
+
+    data_end = (void *)(long)skb->data_end;
+    data = (void *)(long)skb->data;
+
+    if (data + size > data_end) {
+        bpf_printk("Unable to pull %d data from skb\n", size);
+        return false;
+    }
+
+    *data_end_ = (void *)(long)skb->data_end;
+    *data_ = (void *)(long)skb->data;
+
+    return true;
+}
 
 SEC("sk_skb/stream_verdict")
 int bpf_prog_parser(struct __sk_buff *skb) {
@@ -89,9 +116,11 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
     void *data_end = (void *)(long)skb->data_end;
     void *data = (void *)(long)skb->data;
 
-    bpf_log_printk("Process packet: local [%pI4:%u] remote: [%pI4:%u]", 
-        bpf_ntohl(skb->local_ip4), skb->local_port,
-        bpf_ntohl(skb->remote_ip4), bpf_ntohl(skb->remote_port));  
+    struct sock_key key = { 0 };
+    _extract_key(skb, &key);
+
+    bpf_log_printk("Process packet [%pI4:%u->%pI4:%u]", 
+        key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
 
     // print content 
     int len = 128;
@@ -104,13 +133,12 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
 
     // check if this is a client packet that already 
     // has an open backend connection
-    __u32 port = bpf_ntohl(skb->remote_port);
-    struct sock_key *backend_key = bpf_map_lookup_elem(&c2b, &port);
+    struct sock_key *backend_key = bpf_map_lookup_elem(&c2b, &key);
     if (backend_key != NULL) {
         bpf_log_printk("Received a packet from an existing client connection");
-        bpf_log_printk("Redirecting to connection [%pI4:%d]", backend_key->ip4, backend_key->port);
+        bpf_log_printk("Redirecting to connection [%pI4:%d -> %pI4:%d]", backend_key->local_ip4, backend_key->local_port, backend_key->remote_ip4, backend_key->remote_port);
         
-        int r = bpf_sk_redirect_hash(skb, &sock_map, &backend_key->port, 0);
+        int r = bpf_sk_redirect_hash(skb, &sock_map, backend_key, 0);
         if (r == SK_DROP) {
             bpf_log_printk("ERROR: Redirect failed\n");
         }
@@ -119,13 +147,12 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
 
     // check if this is a backend packet that 
     // we can forward to a client connection
-    port = skb->local_port;
-    struct sock_key *client_key = bpf_map_lookup_elem(&b2c, &port);
+    struct sock_key *client_key = bpf_map_lookup_elem(&b2c, &key);
     if (client_key != NULL) {
         bpf_log_printk("Received a packet from an existing backend connection");
-        bpf_log_printk("Redirecting to connection [%pI4:%d]", client_key->ip4, client_key->port);
+        bpf_log_printk("Redirecting to connection [%pI4:%d -> %pI4:%d]", client_key->local_ip4, client_key->local_port, client_key->remote_ip4, client_key->remote_port);
 
-        int r = bpf_sk_redirect_hash(skb, &sock_map, &client_key->port, 0);
+        int r = bpf_sk_redirect_hash(skb, &sock_map, client_key, 0);
         if (r == SK_DROP) {
             bpf_log_printk("ERROR: Redirect failed\n");
         }
@@ -185,20 +212,23 @@ int bpf_prog_verdict(struct __sk_buff *skb) {
 
         // assign client req to backend session
         // sock key for the current skb
-        struct sock_key new_client_key = { 0 };
-        new_client_key.port = bpf_ntohl(skb->remote_port);
-        if (bpf_map_update_elem(&c2b, &new_client_key.port, &reused_backend_key, BPF_NOEXIST) < 0) {
+        if (bpf_map_update_elem(&c2b, &key, &reused_backend_key, BPF_NOEXIST) < 0) {
             bpf_log_printk("ERROR: Failed to assign client to backend connection");
             return SK_DROP;
         }
 
-        if (bpf_map_update_elem(&b2c, &reused_backend_key.port, &new_client_key, BPF_NOEXIST) < 0) {
+        if (bpf_map_update_elem(&b2c, &reused_backend_key, &key, BPF_NOEXIST) < 0) {
             bpf_log_printk("ERROR: Failed to assign backend to client connection");
             return SK_DROP;
         }
 
-        bpf_log_printk("Reuse socket [%pI4:%d->%d] for connection from: %d", reused_backend_key.ip4, reused_backend_key.port, reused_backend_key.backend, bpf_ntohl(skb->remote_port));
-        int r = bpf_sk_redirect_hash(skb, &sock_map, &reused_backend_key.port, 0);
+        bpf_log_printk("Reuse backend connection [%pI4:%u->%pI4:%u (%d)] for client connection: [%pI4:%u->%pI4:%u]", 
+            reused_backend_key.local_ip4, reused_backend_key.local_port, 
+            reused_backend_key.remote_ip4, reused_backend_key.remote_port, 
+            reused_backend_key.backend, 
+            key.local_ip4, key.local_port, 
+            key.remote_ip4, key.remote_port);
+        int r = bpf_sk_redirect_hash(skb, &sock_map, &reused_backend_key, 0);
         if (r == SK_DROP) {
             bpf_log_printk("ERROR: Redirect failed\n");
         }

@@ -94,6 +94,26 @@ int parse_backend(char* req) {
     return -1;
 }
 
+int get_sock_key(int fd, struct sock_key *key) {
+    memset(key, 0, sizeof(struct sock_key));
+
+    struct sockaddr_in addr;
+    int len = sizeof(addr);
+    int res = getsockname(fd, (struct sockaddr *)&addr, (socklen_t*)&len);
+    if (res < 0) return res;
+
+    // key->local_ip4 = ntohl(addr.sin_addr.s_addr);
+    key->local_port = ntohs(addr.sin_port);
+
+    res = getpeername(fd, (struct sockaddr *)&addr, (socklen_t*)&len);
+    if (res < 0) return res;
+
+    // key->remote_ip4 = ntohl(addr.sin_addr.s_addr);
+    key->remote_port = ntohs(addr.sin_port);
+
+    return 0;
+}
+
 int main(int argc, char **argv) {
     // make sure we properly detach all BPF programs
     signal(SIGINT, bpf_detach);
@@ -206,39 +226,32 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    for (int i = 0; i < 50; i++) {
+    for (int i = 0; i < 1000; i++) {
         int sd = start_backend_conn(0, backend_addrs, sockmap_fd);
         printf("Established a new connection to backend %d: %d\n", 1, sd);
 
         fds[i].fd = sd;
         fds[i].events = POLLRDHUP|POLLHUP;
 
-        struct sockaddr_in backend_addr;
-        int len = sizeof(backend_addr);
-        if (getsockname(sd, (struct sockaddr *)&backend_addr, (socklen_t*)&len) < 0) {
-            printf("Error getting peer name: %s\n", strerror(errno));
-            goto cleanup;
-        }
-
-        __u32 port = htons(backend_addr.sin_port);
-
-        printf("Adding socket with key: %d\n", port);
         struct sock_key key = { 0 };
-        key.port = port;
+        get_sock_key(sd, &key);
+        printf("Adding socket with key: [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+            (key.local_ip4 >> 24) & 0xff, (key.local_ip4 >> 16) & 0xff, (key.local_ip4 >> 8) & 0xff, key.local_ip4 & 0xff, key.local_port,
+            (key.remote_ip4 >> 24) & 0xff, (key.remote_ip4 >> 16) & 0xff, (key.remote_ip4 >> 8) & 0xff, key.remote_ip4 & 0xff, key.remote_port);
 
-        int r = bpf_map_update_elem(sockmap_fd, &key.port, &sd, BPF_NOEXIST);
+        int r = bpf_map_update_elem(sockmap_fd, &key, &sd, BPF_NOEXIST);
         if (r != 0) {
             if (errno == EOPNOTSUPP) {
                 perror("pushing closed socket to sockmap?");
                 return false;
             }
-            fprintf(stderr, "bpf_map_update_elem failed\n");
+            fprintf(stderr, "bpf_map_update_elem(sock_map) failed: %s\n", strerror(errno));
             goto cleanup;
         }
 
         r = bpf_map_update_elem(backend1_conns_fd, NULL, &key, BPF_ANY);
         if (r != 0) {
-            fprintf(stderr, "bpf_map_update_elem failed: %s\n", strerror(errno));
+            fprintf(stderr, "bpf_map_update_elem(backend1_conns) failed: %s\n", strerror(errno));
             goto cleanup;
         }
     }
@@ -297,25 +310,19 @@ accept:
         PFATAL("setsockopt(TCP_NODELAY)");
     }
 
-    struct sockaddr_in client_addr;
-    int len = sizeof(client_addr);
-    if (getpeername(fd, (struct sockaddr *)&client_addr, (socklen_t*)&len) < 0) {
-        printf("Error getting peer name: %s\n", strerror(errno));
-        goto cleanup;
-    }
+    struct sock_key key = { 0 };
+    get_sock_key(fd, &key);
+    printf("Adding socket with key: [%d.%d.%d.%d:%d -> %d.%d.%d.%d:%d]\n", 
+            (key.local_ip4 >> 24) & 0xff, (key.local_ip4 >> 16) & 0xff, (key.local_ip4 >> 8) & 0xff, key.local_ip4 & 0xff, key.local_port,
+            (key.remote_ip4 >> 24) & 0xff, (key.remote_ip4 >> 16) & 0xff, (key.remote_ip4 >> 8) & 0xff, key.remote_ip4 & 0xff, key.remote_port);
 
-    __u32 port = htons(client_addr.sin_port);
-    printf("Adding socket with key: %d\n", port);
-
-    if (bpf_map_update_elem(sockmap_fd, &port, &fd, BPF_NOEXIST) < 0) {
+    if (bpf_map_update_elem(sockmap_fd, &key, &fd, BPF_NOEXIST) < 0) {
         if (errno == EOPNOTSUPP) {
             perror("pushing closed socket to sockmap?");
         }
-        fprintf(stderr, "bpf_map_update_elem failed\n");
+        fprintf(stderr, "bpf_map_update_elem(sock_map) failed: %s\n", strerror(errno));
         goto cleanup;
     }
-
-    printf("New connection accepted: [%s:%d] socket: %d\n", inet_ntoa(client_addr.sin_addr), htons(client_addr.sin_port), fd);
 
     goto accept;
 
