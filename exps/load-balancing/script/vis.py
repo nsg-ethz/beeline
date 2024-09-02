@@ -48,7 +48,7 @@ def line_graph(paths, metric, agg):
     df = df.xs(metric, level="metric")
     # df = df[df.index.get_level_values("payload_size") < 4000]
 
-    g = sns.lineplot(data=df, x="payload_size", y=agg, hue="proxy")
+    g = sns.lineplot(data=df, x="payload_size", y=agg, hue="proxy", palette="dark", alpha=.6)
     
     g.set_title(f"{metric} {agg}")
     g.set_xlabel("payload size [B]")
@@ -73,12 +73,12 @@ def speedup_graph(paths, metric, aggs):
     g = sns.catplot(
         data=speedup, kind="bar",
         x="payload_size", y="value", hue="variable",
-        errorbar="sd", palette="dark", alpha=.6, height=6
+        errorbar="sd", palette="dark", alpha=.6
     )
 
-    g.set_titles(f"Speedup {metric}")
+    plt.title(metric)
     g.set_axis_labels("payload size [B]", "speedup")
-    g.despine(left=True)
+    g.legend.set_title(None)
     g.savefig(f"res/smoke-speedup-{metric}.pdf")
 
 
