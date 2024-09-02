@@ -9,23 +9,25 @@ struct sock_key {
     __u32 backend; // [1, 4] for backend, otherwise 0
 };
 
-enum http_event_state {
-    HTTP_GET = 0,
-    HTTP_POST = 1,
-    HTTP_HEAD = 2,
-    HTTP_DELETE = 3,
-    HTTP_PUT = 4,
-    HTTP_RESPONSE = 5,
-    NO_HTTP_PACKET = 6,
+enum http_method {
+    HTTP_NONE = 0,
+    HTTP_GET = 1,
+    HTTP_POST = 2,
+    HTTP_HEAD = 3,
+    HTTP_DELETE = 4,
+    HTTP_PUT = 5,
 };
 
-struct http_state {
+struct http_hdr {
     char url[_MAX_URL_SIZE];
-    char code[_MAX_STATUS_CODE];
-    enum http_event_state state;
-    uint32_t url_size;
+    __u32 url_len;
+
+    enum http_method method;
+    __u32 content_length;
+    __u32 header_length;
+    // char code[_MAX_STATUS_CODE];
 };
 
-struct url_value {
+struct url_key {
     char url[_MAX_URL_SIZE];
 };

@@ -244,8 +244,6 @@ int parse_content_length(char* req) {
         if (strncmp(line, key, key_len) == 0) {
             return atoi(line + key_len);
         }
-
-        printf("%s\n", line);
     
         line = next ? (next+sep_len) : NULL;
     }
@@ -328,7 +326,7 @@ int main(int argc, char **argv) {
         net_parse_sockaddr(&backend_addrs[i], argv[i + 2]);
     }
 
-    struct url_value url_to_server[4];
+    struct url_key url_to_server[4];
     for (int i = 0; i < 4; i++) {
         bzero(url_to_server[i].url, sizeof(char) * _MAX_URL_SIZE);
     }
