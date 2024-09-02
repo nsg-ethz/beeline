@@ -39,9 +39,6 @@ def _load_summary_data(paths):
     df = pd.DataFrame.from_dict(rows)
     df.set_index(["proxy", "payload_size", "metric_name"], inplace=True)
 
-    # larger payloads are buggy for ebpf
-    df = df[df.index.get_level_values("payload_size") < 4000]
-
     return df
 
 
@@ -58,9 +55,6 @@ def _load_log_data(paths):
 
     df = pd.concat(dfs)
     df.set_index(["proxy", "payload_size", "metric_name"], inplace=True)
-
-    # larger payloads are buggy for ebpf
-    df = df[df.index.get_level_values("payload_size") < 4000]
 
     return df
 
@@ -114,7 +108,7 @@ def line_graph(paths, metric, agg, dst):
     df = df.xs(metric, level="metric_name")
 
     key = agg if is_summary else ("metric_value", agg)
-    g = sns.lineplot(data=df, x="payload_size", y=key, hue="proxy", palette="dark", alpha=.6)
+    g = sns.lineplot(data=df, x="payload_size", y=key, hue="proxy")
     sizes = set(df.index.get_level_values("payload_size"))
     sizes = sorted(sizes)
     
@@ -124,7 +118,7 @@ def line_graph(paths, metric, agg, dst):
     g.set_ylabel("time [ms]")
     g.set_xbound(lower=sizes[0], upper=sizes[-1])
     plt.yscale("log")
-    _save_to_path(f"stress-{metric}.pdf", dst)           
+    _save_to_path(f"line-{metric}.pdf", dst)           
     
 
 def speedup_graph(paths, metric, aggs, dst):
@@ -143,13 +137,28 @@ def speedup_graph(paths, metric, aggs, dst):
     g = sns.catplot(
         data=speedup, kind="bar",
         x="payload_size", y="value", hue="variable",
-        errorbar="sd", palette="dark", alpha=.6
+        errorbar="sd"
     )
 
     # plt.title(metric)
     g.set_axis_labels("payload size [B]", "speedup")
     g.legend.set_title(None)
-    _save_to_path(f"stress-speedup-{metric}.pdf", dst)
+    _save_to_path(f"speedup-{metric}.pdf", dst)
+
+
+def duration_graph(paths, proxy, agg, dst):
+    df = _load_summary_data(paths)
+    df = df.xs(proxy, level="proxy")
+
+    columns = ["http_req_sending", "http_req_waiting", "http_req_receiving"]
+    df = df[df.index.get_level_values("metric_name").isin(columns)]
+    df = df.drop((c for c in df.columns if c != agg), axis=1)
+    df = df.reset_index()
+    df = df.pivot(index="payload_size", columns="metric_name", values=agg)
+
+    df.plot(kind="bar", stacked=True)
+    
+    _save_to_path(f"duration-{proxy}.pdf", dst)
 
 
 if __name__ == "__main__":
@@ -167,6 +176,10 @@ if __name__ == "__main__":
     speedup.add_argument("-m", "--metric", required=True, help="The recorded metric to visualize")
     speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)", "max"], help="The aggregation funcs")
 
+    speedup = subparsers.add_parser("duration")
+    speedup.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
+    speedup.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+
     args = parser.parse_args()
     files = glob.glob(args.pattern)
 
@@ -174,3 +187,5 @@ if __name__ == "__main__":
         line_graph(files, args.metric, args.agg, args.output)
     elif args.command == "speedup":
         speedup_graph(files, args.metric, args.agg, args.output)
+    elif args.command == "duration":
+        duration_graph(files, args.proxy, args.agg, args.output)
