@@ -68,7 +68,7 @@ int get_sock_key(int fd, struct sock_key *key) {
 }
 
 int sock_key_compare(const struct sock_key *a, const struct sock_key *b) {
-    int res = a->local_ip4 < a->local_ip4;
+    int res = a->local_ip4 < b->local_ip4;
     if (res != 0) return res;
 
     res = a->local_port < b->local_port;
@@ -211,7 +211,7 @@ int parse_http_hdr_len(const char* hdr) {
     const char *sep = "\r\n\r\n";
     char *next = strstr(hdr, sep);
     if (next != NULL) {
-        return next-hdr;
+        return next-hdr + strlen(sep);
     }
 
     return -1;

@@ -36,7 +36,7 @@ export function requestTo(server, id) {
 
   let payload = data;
   if (id) {
-    data.substring(0, payload_size-id.length) + id;
+    payload = data.substring(0, payload_size-id.length) + id;
   }
 
   const res = http.post(url, payload);

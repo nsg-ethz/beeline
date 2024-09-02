@@ -69,7 +69,7 @@ int get_sock_key(int fd, struct sock_key *key) {
 }
 
 int sock_key_compare(const struct sock_key *a, const struct sock_key *b) {
-    int res = a->local_ip4 < a->local_ip4;
+    int res = a->local_ip4 < b->local_ip4;
     if (res != 0) return res;
 
     res = a->local_port < b->local_port;
@@ -212,7 +212,7 @@ int parse_http_hdr_len(const char* hdr) {
     const char *sep = "\r\n\r\n";
     char *next = strstr(hdr, sep);
     if (next != NULL) {
-        return next-hdr;
+        return next-hdr + strlen(sep);
     }
 
     return -1;
@@ -241,27 +241,30 @@ const void* parse_http_hdr(const char *hdr, const char *key) {
 }
 
 int read_req(int fd, char *buf, size_t buf_len, int *seg_len) {
-    int recv_len = 0;
-    int con_len = 0;
-    int hdr_len = 0;
-    ssize_t len = 0;
+    assert(buf_len > 128);
+    ssize_t len = recv(fd, buf, 128, MSG_DONTWAIT);
 
-    do {
-        const void* val = parse_http_hdr(buf, "Content-Length");
-        if (val != NULL) {
-            con_len = atoi(val);
-            hdr_len = parse_http_hdr_len(buf);
-        }
+    if (len < 0) {
+        print_err("Failed to read request: %s\n", strerror(errno));
+        return -1;
+    }
+    if (len == 0) {
+        read_req(fd, buf, buf_len, seg_len);
+    }
 
-        if (len > 0) recv_len += len;
-        len = recv(fd, buf+recv_len, buf_len-recv_len, MSG_DONTWAIT);
-    } while ((hdr_len == 0 || recv_len < hdr_len) && len != 0);
+    const void* val = parse_http_hdr(buf, "Content-Length");
+    if (val == NULL) {
+        print_err("Failed to find Content-Length\n");
+        return -1;
+    }
 
     if (seg_len != NULL) {
+        int con_len = atoi(val);
+        int hdr_len = parse_http_hdr_len(buf);
         *seg_len = con_len + hdr_len;
     }
 
-    return recv_len;
+    return len;
 }
 
 int write_req(int fd, char *buf, size_t req_len) {

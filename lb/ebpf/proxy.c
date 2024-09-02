@@ -250,7 +250,7 @@ int parse_http_hdr_len(const char* hdr) {
     const char *sep = "\r\n\r\n";
     char *next = strstr(hdr, sep);
     if (next != NULL) {
-        return next-hdr;
+        return next-hdr + strlen(sep);
     }
 
     return -1;
