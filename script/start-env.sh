@@ -49,7 +49,7 @@ function ping_cycle {
     for j in `seq 1 $1`;
     do
       if [ "$i" -ne "$j" ]; then
-        sudo ip netns exec ns$i ping 10.0.$j.1 -c 2 -i 0.5
+        sudo ip netns exec ns$i ping 10.0.$j.1 -c 2 -i 0.1
       fi
     done
   done

@@ -10,7 +10,7 @@ A load balancing experiment forked from [ebpf-http-offload](https://github.com/s
 cd ebpf
 ./start-proxy.sh
 
-script/bench -n new_benchmark -p ebpf
+script/bench -n new_benchmark -p ebpf -s "1024 2048 4096"
 
 ./clean-env.sh
 ```
@@ -20,8 +20,13 @@ script/bench -n new_benchmark -p ebpf
 * [What are best practices for benchmarking Envoy?](https://www.envoyproxy.io/docs/envoy/latest/faq/performance/how_to_benchmark_envoy)
 
 
-## Dependencies
+## Requirements
+
+First, install the following packets:
 
 ```
 sudo apt install llvm clang libc6-dev-i386 linux-tools-common linux-tools-`uname -r`
 ```
+
+For some tests, it's necessary to raise the limit for open files of the root user (since that user is running the systemd tasks).
+This can be done by following [this question](https://unix.stackexchange.com/a/443467) or by modifying `/etc/security/limits.conf`.
