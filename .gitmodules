@@ -1,7 +1,3 @@
-[submodule "lb/ebpf/libbpf"]
-	path = lb/ebpf/libbpf
+[submodule "exp/lb/ebpf/libbpf"]
+	path = exp/lb/ebpf/libbpf
 	url = https://github.com/libbpf/libbpf.git
-
-[submodule "lb/io_uring/liburing"]
-	path = lb/io_uring/liburing
-	url = https://github.com/axboe/liburing.git
