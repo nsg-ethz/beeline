@@ -2,7 +2,7 @@
 resolver = "2"
 
 members = [
-    "backend", 
+    "exp/backend", 
     "exp/parser",
     "exp/lb/io_uring",
 ]
