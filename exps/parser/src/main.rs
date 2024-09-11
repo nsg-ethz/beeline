@@ -72,7 +72,9 @@ fn main() -> Result<()> {
         .attach_sockmap(sock_map_fd)?;
 
     let mut sm = StateMachine::new(&mut skel)?;
-    sm.match_http_hdr_field("hello".into(), "world".into())?;
+    // sm.match_http_hdr("hello", "world")?;
+    sm.match_http_hdr("hallo", "welt")?;
+    sm.match_http_uri("/hello/world.html")?;
 
     listen(skel.maps_mut().sock_map())?;
     Ok(())

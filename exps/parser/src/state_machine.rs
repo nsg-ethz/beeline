@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use libbpf_rs::{MapHandle, MapType, MapFlags};
 use libbpf_sys;
 use std::{
@@ -8,11 +8,14 @@ use std::{
 
 use crate::parser;
 
+const CRLF: &str = "\r\n";
+
 pub struct StateMachine<'a, 'b> {
     skel: &'a mut parser::ParserSkel<'b>,
     tss: Vec<MapHandle>
 }
 
+#[allow(dead_code)]
 impl StateMachine<'_, '_> {
 
     pub fn new<'a, 'b>(skel: &'a mut parser::ParserSkel<'b>) -> Result<StateMachine<'a, 'b>> {
@@ -24,7 +27,26 @@ impl StateMachine<'_, '_> {
         // create s_init
         sm.create_state()?;
 
+        // create s_any
+        sm.create_state()?;
+
         Ok(sm)
+    }
+
+    fn s_init(&self) -> usize {
+        self.skel.rodata().s_init as usize
+    }
+
+    fn s_any(&self) -> usize {
+        self.skel.rodata().s_any as usize
+    }
+
+    fn s_match(&self) -> usize {
+        self.skel.rodata().s_match as usize
+    }
+
+    fn s_no_match(&self) -> usize {
+        self.skel.rodata().s_no_match as usize
     }
 
     fn create_state(&mut self) -> Result<()> {
@@ -51,30 +73,67 @@ impl StateMachine<'_, '_> {
     }
     
     fn add_transition(&mut self, from: usize, to: usize, input: char) -> Result<()> {
-        let ts = self.tss.get_mut(from).ok_or_else(|| anyhow!("Invalid from state {}", from))?;
+        assert!(self.tss.len() > from);
+
+        let ts = self.tss.get_mut(from).unwrap();
         let key = (input as u8).to_ne_bytes();
         let val = (to as u32).to_ne_bytes();
         ts.update(&key, &val, MapFlags::ANY)?;
     
         Ok(())
     }
-    
-    pub fn match_http_hdr_field(&mut self, key: String, val: String) -> Result<()> {
-        let crlf = "\r\n";
-        let num_states = 2*crlf.len() + key.len() + val.len();
 
+    fn add_word_transition(&mut self, from: usize, to: usize, input: &str) -> Result<()> {
+        assert!(input.len() >= 2);
+        assert!(self.tss.len() > from);
+
+        let mut s = self.tss.len();
+        for _ in 0..input.len() {
+            self.create_state()?;
+        }
+
+        self.add_transition(from, s, input.chars().nth(0).unwrap())?;
+
+        for i in 1..input.len()-1 {
+            self.add_transition(s, s + 1, input.chars().nth(i).unwrap())?;
+            s += 1;
+        }
+
+        self.add_transition(s, to, input.chars().last().unwrap())?;
+
+        Ok(())
+    }
+
+    fn add_not_word_transition(&mut self, from: usize, to: usize, input: &str) -> Result<()> {
+        assert!(input.len() >= 2);
+
+        self.add_transition(from, from, '*')?;
+        self.add_word_transition(from, to, input)?;
+
+
+        Ok(())
+    }
+
+    pub fn match_http_uri(&mut self, uri: &str) -> Result<()> {
+        // if we encounter a newline, abort this match
+        self.add_not_word_transition(self.s_init(), self.s_no_match(), CRLF)?;
+        self.add_word_transition(self.s_init(), self.s_match(), &uri)?;
+
+        Ok(())
+    }
+    
+    pub fn match_http_hdr(&mut self, key: &str, val: &str) -> Result<()> {
+        let mut s = self.tss.len();
+        let num_states = 2*CRLF.len() + key.len() + val.len();
         for _ in 0..num_states {
             self.create_state()?;
         }
-    
-        let s_init = self.skel.rodata().s_init;
-        let s_match = self.skel.rodata().s_match;
-        let mut s = s_init as usize;
-    
-        for c in crlf.chars() {
-            self.add_transition(s, s + 1, c)?;
-            s += 1;
-        }
+
+        // the first state of our new pattern needs to get 
+        // hooked up to s_init
+        self.add_transition(self.s_any(), s, CRLF.chars().nth(0).unwrap())?;
+        self.add_transition(s, s + 1, CRLF.chars().nth(1).unwrap())?;
+        s += 1;
     
         for c in key.chars() {
             self.add_transition(s, s + 1, c.to_ascii_lowercase())?;
@@ -97,9 +156,9 @@ impl StateMachine<'_, '_> {
             s += 1;
         }
     
-        self.add_transition(s, s + 1, crlf.chars().nth(0).unwrap())?;
+        self.add_transition(s, s + 1, CRLF.chars().nth(0).unwrap())?;
         s += 1;
-        self.add_transition(s, s_match as usize, crlf.chars().nth(1).unwrap())?;
+        self.add_transition(s, self.s_match(), CRLF.chars().nth(1).unwrap())?;
     
         Ok(())
     }
