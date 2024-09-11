@@ -1,5 +1,5 @@
 [package]
-name = "naive"
+name = "parser-naive"
 version = "0.1.0"
 edition = "2021"
 description = "A naive HTTP parser in userspace"
@@ -11,3 +11,4 @@ anyhow = "1.0.87"
 clap = { version = "4.5.17", features = ["derive"] }
 env_logger = "0.11.5"
 log = "0.4.22"
+regex = "1.10.6"

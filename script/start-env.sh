@@ -65,7 +65,7 @@ echo -e "${COLOR_YELLOW}Enable CPU performance governor${COLOR_OFF}"
 sudo cpupower frequency-set --governor performance
 
 echo -e "${COLOR_YELLOW}Shield CPU1 and CPU2 from the OS scheduler${COLOR_OFF}"
-CPU_ALLOWED="0,6-17,24-47"
+CPU_ALLOWED="0,6-47"
 
 echo -e "${COLOR_YELLOW}System may now only use CPU: ${CPU_ALLOWED}${COLOR_OFF}"
 sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}

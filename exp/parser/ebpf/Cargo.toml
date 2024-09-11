@@ -1,5 +1,5 @@
 [package]
-name = "parser"
+name = "parser-ebpf"
 version = "0.1.0"
 edition = "2021"
 description = "An experiment to explore the feasibility of composing valid BPF code snippets."

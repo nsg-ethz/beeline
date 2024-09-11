@@ -1,17 +1,16 @@
 use anyhow::Result;
 use clap::Parser;
+use core::str;
 use log::{debug, error, info};
+use regex::Regex;
 use std::{
     io::{Read, Write}, net::{TcpListener, TcpStream}, os::fd::AsRawFd
 };
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value="127.0.0.1")]
+    #[arg(short, long, default_value="127.0.0.1:3000")]
     address: String,
-
-    #[arg(short, long, default_value="3000")]
-    port: u16,
 
     #[arg(short, long)]
     destination: String,
@@ -20,7 +19,7 @@ struct Args {
     removals: Option<Vec<String>>,
 }
 
-fn listen(addr: &str, backend: &mut TcpStream) -> Result<()> {
+fn listen<F>(addr: &str, backend: &mut TcpStream, modify: F) -> Result<()> where F: Fn(&mut [u8]) -> usize {
     let listener = TcpListener::bind(addr)?;
 
     let (mut client, _) = listener.accept()?;
@@ -38,8 +37,10 @@ fn listen(addr: &str, backend: &mut TcpStream) -> Result<()> {
                     return Ok(());
                 }
 
+                let new_len = modify(&mut buf[0..len]);
+
                 debug!("Read {} bytes from client", len);
-                backend.write_all(&buf[0..len])?
+                backend.write_all(&buf[0..new_len])?
             },
             Err(e) => error!("Error reading from client: {}", e),
         }
@@ -64,10 +65,44 @@ fn main() -> Result<()> {
     let mut dest = TcpStream::connect(args.destination)?;
     dest.set_nodelay(true)?;
 
-    let addr = format!("{}:{}", args.address, args.port);
-    info!("Listening on {}", addr);
+    info!("Listening on {}", args.address);
 
+    let re = Regex::new(r"(?<key>.+)\s*:\s*(?<val>.+)\n")?;
+    let removals = args.removals
+        .unwrap_or_default()
+        .iter()
+        .map(|s| s.to_lowercase())
+        .collect::<Vec<_>>();
+
+    let modify = move |buf: &mut [u8]| {
+        let str = str::from_utf8(buf);
+        let mut start = None;
+        let mut end = None;
+        if let Ok(str) = str {
+            for m in re.captures_iter(str) {
+                if let Some(key) = m.name("key") {
+                    let key = key.as_str().to_lowercase();
+                    if removals.contains(&key) {
+                        start = m.name("val").map(|m| m.start());
+                        end = m.name("val").map(|m| m.end());
+                    }
+                }
+            }
+        }
+
+        match (start, end) {
+            (Some(start), Some(end)) => {
+                buf[start..end].fill(b'X');
+            },
+            _ => {},
+        }
+        
+        buf.len()
+    };
+
+
+    
     loop {
-        listen(&addr, &mut dest)?;
+        listen(&args.address, &mut dest, &modify)?;
     }
 }

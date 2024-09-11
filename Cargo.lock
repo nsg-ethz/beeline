@@ -616,7 +616,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "parser"
+name = "parser-ebpf"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -627,6 +627,17 @@ dependencies = [
  "libbpf-sys",
  "libc",
  "log",
+]
+
+[[package]]
+name = "parser-naive"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "log",
+ "regex",
 ]
 
 [[package]]
