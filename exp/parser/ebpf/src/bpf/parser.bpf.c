@@ -186,16 +186,25 @@ SEC("sockops")
 int sock_ops(struct bpf_sock_ops *ops) {
     int op = (int)ops->op;
 
+    __u32 lport = ops->local_port;
+    if (lport != PORT) {
+        return 0;
+    }
+
+    bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
     if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
-
-        if (ops->local_port == PORT) {
-            __u32 key = ops->local_port;
-            if (bpf_sock_hash_update(ops, &sock_map, &key, BPF_NOEXIST) < 0) {
-                bpf_printk("ERROR: Adding socket failed.");
-            }
-
-            bpf_printk("Added socket %d", ops->local_port);
+        if (bpf_sock_hash_update(ops, &sock_map, &lport, BPF_NOEXIST) < 0) {
+            bpf_printk("ERROR: Adding socket failed.");
         }
+
+        bpf_printk("Added socket %d", lport);
+    }
+    else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE) {
+        if (bpf_map_delete_elem(&sock_map, &lport) < 0) {
+            bpf_printk("ERROR: Deleting socket failed.");
+        }
+
+        bpf_printk("Deleted socket %d", lport);
     }
 
     return 0;

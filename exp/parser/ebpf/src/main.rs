@@ -129,7 +129,6 @@ fn inject_matcher_raw(mut matcher: HttpMatcher, skel: &mut parser::OpenParserSke
     Ok(())
 }
 
-
 fn main() -> Result<()> {
     env_logger::init();
     set_print(Some((PrintLevel::Debug, print)));
@@ -162,10 +161,6 @@ fn main() -> Result<()> {
 
     // not sure why we need to retain this link?
     let _sockops = skel.progs_mut()
-        .sock_ops()
-        .attach_cgroup(cgroup_fd)?;
-
-    skel.progs_mut()
         .sock_ops()
         .attach_cgroup(cgroup_fd)?;
 
