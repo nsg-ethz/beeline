@@ -4,8 +4,8 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-const __u32 s_matched = 9999;
-const __u32 s_init = 7;
+const __u32 s_init = 0;
+const __u32 s_match = 0xFFFFFFFF;
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
@@ -19,25 +19,14 @@ struct trans {
     __uint(max_entries, 256);
     __uint(key_size, sizeof(char));
     __uint(value_size, sizeof(__u32));
-} t0 SEC(".maps"), t1 SEC(".maps"), t2 SEC(".maps"), t3 SEC(".maps"), t4 SEC(".maps"), t5 SEC(".maps"), t6 SEC(".maps"), t_init SEC(".maps");
+};
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
     __uint(max_entries, 1024);
     __uint(key_size, sizeof(__u32));
     __array(values, struct trans);
-} s2ts SEC(".maps") = {
-    .values = {
-        &t0,
-        &t1,
-        &t2,
-        &t3,
-        &t4,
-        &t5,
-        &t6,
-        &t_init
-    }
-};
+} s2ts SEC(".maps");
 
 static __always_inline __u32 next_state(__u32 s, char input) {
     __u32* ts = bpf_map_lookup_elem(&s2ts, &s);
@@ -78,7 +67,7 @@ static __always_inline int _search(struct __sk_buff *skb) {
         __u32 s_old = s;
         s = next_state(s, c);
         bpf_printk("%d - %c -> %d", s_old, c, s);
-        if (s == s_matched) {
+        if (s == s_match) {
             return i;
         }
     }

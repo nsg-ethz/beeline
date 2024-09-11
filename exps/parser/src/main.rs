@@ -1,9 +1,11 @@
 use anyhow::{bail, Result};
-use parser::*;
 use libbpf_rs::{skel::{
     OpenSkel, SkelBuilder
 }, Map, MapFlags};
 use std::{collections::HashMap, net::TcpListener, os::fd::{AsFd, AsRawFd}};
+
+use state_machine::StateMachine;
+use parser::*;
 
 mod parser {
     include!(concat!(
@@ -11,6 +13,8 @@ mod parser {
         "/src/bpf/parser.skel.rs"
     ));
 }
+
+mod state_machine;
 
 fn bump_memlock_rlimit() -> Result<()> {
     let rlimit = libc::rlimit {
@@ -67,62 +71,8 @@ fn main() -> Result<()> {
         .bpf_prog_verdict()
         .attach_sockmap(sock_map_fd)?;
 
-    // construct a state machine to match "hello : "
-    // s_init - h -> s0
-    let key = ('h' as u8).to_ne_bytes();
-    let val = (0 as u32).to_ne_bytes();
-    skel.maps_mut()
-        .t_init()
-        .update(&key, &val, MapFlags::ANY)?;
-
-    // s0 - e -> s1
-    let key = ('e' as u8).to_ne_bytes();
-    let val = (1 as u32).to_ne_bytes();
-    skel.maps_mut()
-        .t0()
-        .update(&key, &val, MapFlags::ANY)?;
-
-    // s1 - l -> s2
-    let key = ('l' as u8).to_ne_bytes();
-    let val = (2 as u32).to_ne_bytes();
-    skel.maps_mut()
-        .t1()
-        .update(&key, &val, MapFlags::ANY)?;
-
-    // s2 - l -> s3
-    let key = ('l' as u8).to_ne_bytes();
-    let val = (3 as u32).to_ne_bytes();
-    skel.maps_mut()
-        .t2()
-        .update(&key, &val, MapFlags::ANY)?;
-
-    // s3 - o -> s4
-    let key = ('o' as u8).to_ne_bytes();
-    let val = (4 as u32).to_ne_bytes();
-    skel.maps_mut()
-        .t3()
-        .update(&key, &val, MapFlags::ANY)?;
-
-    // s4 - HT -> s4
-    let key = ('\t' as u8).to_ne_bytes();
-    let val = (4 as u32).to_ne_bytes();
-    skel.maps_mut()
-        .t4()
-        .update(&key, &val, MapFlags::ANY)?;
-
-    // s4 - SP -> s4
-    let key = (' ' as u8).to_ne_bytes();
-    let val = (4 as u32).to_ne_bytes();
-    skel.maps_mut()
-        .t4()
-        .update(&key, &val, MapFlags::ANY)?;
-
-    // s4 - : -> s_match
-    let key = (':' as u8).to_ne_bytes();
-    let val = (9999 as u32).to_ne_bytes();
-    skel.maps_mut()
-        .t4()
-        .update(&key, &val, MapFlags::ANY)?;
+    let mut sm = StateMachine::new(&mut skel)?;
+    sm.match_http_hdr_field("hello".into(), "world".into())?;
 
     listen(skel.maps_mut().sock_map())?;
     Ok(())
