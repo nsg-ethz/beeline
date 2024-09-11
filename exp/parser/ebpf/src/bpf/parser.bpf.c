@@ -26,6 +26,9 @@ const __u16 s_any = 1;
 const __u16 a_match = 1 << 15;
 const __u16 a_done = 1 << 14;
 
+volatile const __u8 use_raw_stm = 1;
+volatile const __u32 s2ts_raw[128][256] = { s_init };
+
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, 1000);
@@ -45,11 +48,11 @@ struct {
     __uint(max_entries, 1024);
     __uint(key_size, sizeof(__u32));
     __array(values, struct trans);
-} s2ts_mat SEC(".maps");
+} s2ts_bpf SEC(".maps");
 
-static __always_inline void next(__u16 state, char input, __u16 *next_state, __u16 *action) {
+static __always_inline void next_bpf(__u16 state, char input, __u16 *next_state, __u16 *action) {
     __u32 idx = state;
-    __u32* ts = bpf_map_lookup_elem(&s2ts_mat, &idx);
+    __u32* ts = bpf_map_lookup_elem(&s2ts_bpf, &idx);
     if (ts == NULL) {
         bpf_printk("Failed to find state %d", idx);
         *next_state = s_any;
@@ -72,6 +75,33 @@ static __always_inline void next(__u16 state, char input, __u16 *next_state, __u
 
     *next_state = *sa & s_mask;
     *action = (*sa & a_mask) >> 16;
+}
+
+static __always_inline void next_raw(__u16 state, __u32 input, __u16 *next_state, __u16 *action) {
+    state &= 0x7F;
+    input &= 0xFF;
+
+    __u32 sa = s2ts_raw[state][input];
+    if (sa == 0) {
+        sa = s2ts_raw[state]['*'];
+        if (sa == 0) {
+            *next_state = s_any;
+            *action = 0;   
+            return;
+        }
+    }
+
+    *next_state = sa & s_mask;
+    *action = (sa & a_mask) >> 16;
+}
+
+static __always_inline void next(__u16 state, char input, __u16 *next_state, __u16 *action) {
+    if (use_raw_stm) {
+        next_raw(state, input, next_state, action);
+    }
+    else {
+        next_bpf(state, input, next_state, action);
+    }
 }
 
 static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, __u32 *cg_len) {
