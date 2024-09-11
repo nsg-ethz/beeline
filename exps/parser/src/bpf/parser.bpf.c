@@ -5,11 +5,16 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-const __u32 s_init = 0;
-const __u32 s_any = 1;
+const __u32 a_mask = 0xFFFF0000;
+const __u32 s_mask = 0x0000FFFF;
 
-const __u32 a_match = 0xFFFFFFFF;
-const __u32 a_done = 0xFFFFFFFE;
+const __u16 s_init = 0;
+const __u16 s_any = 1;
+
+const __u16 a_match = 1 << 15;
+const __u16 a_done = 1 << 14;
+const __u16 a_capture_start = 1 << 13;
+const __u16 a_capture_end = 1 << 12;
 
 // these restrictions are needed to make the verifier happy
 const __u32 MAX_BYTES = 0xFFFF;
@@ -36,25 +41,31 @@ struct {
     __array(values, struct trans);
 } s2ts_mat SEC(".maps"), s2ts_mod SEC(".maps");
 
-static __always_inline __u32 next_match_state(__u32 s, char input) {
-    __u32* ts = bpf_map_lookup_elem(&s2ts_mat, &s);
+static __always_inline void next(__u16 state, char input, __u16 *next_state, __u16 *action) {
+    __u32 idx = state;
+    __u32* ts = bpf_map_lookup_elem(&s2ts_mat, &idx);
     if (ts == NULL) {
-        bpf_printk("Failed to find state %d", s);
-        return s_any;
+        bpf_printk("Failed to find state %d", idx);
+        *next_state = s_any;
+        *action = 0;
+        return;
     }
 
-    __u32* ns = bpf_map_lookup_elem(ts, &input);
-    if (ns == NULL) {
+    __u32* sa = bpf_map_lookup_elem(ts, &input);
+    if (sa == NULL) {
         // check if there's a wildcard transition
         char wildcard = '*';
-        ns = bpf_map_lookup_elem(ts, &wildcard);
+        sa = bpf_map_lookup_elem(ts, &wildcard);
 
-        if (ns == NULL) {
-            return s_any;   
+        if (sa == NULL) {
+            *next_state = s_any;
+            *action = 0;   
+            return;
         }
     }
 
-    return *ns;
+    *next_state = *sa & s_mask;
+    *action = (*sa & a_mask) >> 16;
 }
 
 static __always_inline int _match(struct __sk_buff *skb) {
@@ -70,32 +81,46 @@ static __always_inline int _match(struct __sk_buff *skb) {
         return -1;
     }
 
-    __u32 s_mat = s_init;
-    __u32 s_mod = s_init;
+    __u16 s = s_init;
+
     __u32 num_matches = 0;
+    __u32 cap_idx = 0;
+    __u32 cap_len = 0;
+
     __u32 i = 0;
     bpf_for(i, 0, len-1) {
         if (data + i + 1 > data_end) {
             return -1;
         }
 
-        char c = data[i];
+        __u16 a = 0;
+        next(s, data[i], &s, &a);
 
-        s_mat = next_match_state(s_mat, c);
+        // bpf_printk("State %d, action %d", s, a);
 
-        switch (s_mat) {
-            case a_match:
-                bpf_printk("Match at %d", i);
-                num_matches++;
-                if (num_matches >= MAX_MATCHES) return num_matches;
-                s_mat = s_any;
-                break;
-            case a_done:
-                bpf_printk("Done at %d", i);
-                return num_matches;
-            case s_any:
-                s_mat = next_match_state(s_any, c);
-                break;
+        switch (a) {
+        case a_match:
+            bpf_printk("Match at %d", i);
+            num_matches++;
+            if (num_matches >= MAX_MATCHES) return num_matches;
+            s = s_any;
+            break;
+        case a_done:
+            bpf_printk("Done at %d", i);
+            return num_matches;
+        case a_capture_start:
+            cap_idx = i;
+            cap_len = 0;
+            break;
+        case a_capture_end:
+            cap_len = i - cap_idx - 1;
+            break;
+        }
+
+        // this means that we failed to match the current pattern
+        // but maybe a new one starts now?
+        if (s == s_any) {
+            next(s_any, data[i], &s, &a);
         }
     }
 

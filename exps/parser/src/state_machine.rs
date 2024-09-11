@@ -20,8 +20,8 @@ impl StateMachine<'_, '_> {
 
     pub fn new<'a, 'b>(skel: &'a mut parser::ParserSkel<'b>) -> StateMachine<'a, 'b> {
         let states = vec![
-            skel.rodata().s_init as usize,
-            skel.rodata().s_any as usize,
+            skel.rodata().s_init,
+            skel.rodata().s_any,
         ];
 
         StateMachine {
@@ -30,20 +30,20 @@ impl StateMachine<'_, '_> {
         }
     }
 
-    fn s_init(&self) -> usize {
-        self.skel.rodata().s_init as usize
+    fn s_init(&self) -> u16 {
+        self.skel.rodata().s_init
     }
 
-    fn s_any(&self) -> usize {
-        self.skel.rodata().s_any as usize
+    fn s_any(&self) -> u16 {
+        self.skel.rodata().s_any
     }
 
-    fn a_match(&self) -> usize {
-        self.skel.rodata().a_match as usize
+    fn a_match(&self) -> u16 {
+        self.skel.rodata().a_match
     }
 
-    fn a_done(&self) -> usize {
-        self.skel.rodata().a_done as usize
+    fn a_done(&self) -> u16 {
+        self.skel.rodata().a_done
     }
 
     pub fn inject_match_dfa(&mut self) -> Result<()> {
@@ -53,7 +53,6 @@ impl StateMachine<'_, '_> {
 
         let mut states = self.dfa.iter_states()
             .map(|s| s.clone())
-            .filter(|s| *s != self.a_match() && *s != self.a_done()) // actions are not states
             .collect::<Vec<_>>();
 
         states.sort();
@@ -62,22 +61,25 @@ impl StateMachine<'_, '_> {
             .map (|idx| self.create_match_state(*idx))
             .collect::<Result<Vec<_>>>()?;
 
-        for (from, to, input) in self.dfa.iter_transitions() {
-            let ts = tss.get_mut(*from).unwrap();
+        for (from, to, input, action) in self.dfa.iter_transitions() {
+            let ts = tss.get_mut(*from as usize).unwrap();
             let key = (*input as u8).to_ne_bytes();
-            let val = (*to as u32).to_ne_bytes();
+
+            let val = (*action as u32) << 16 | (*to as u32);
+            let val = val.to_ne_bytes();
             ts.update(&key, &val, MapFlags::ANY)?;
         }
 
         Ok(())
     }
 
-    fn create_match_state(&mut self, idx: usize) -> Result<MapHandle> {
+    fn create_match_state(&mut self, state: u16) -> Result<MapHandle> {
         let opts = libbpf_sys::bpf_map_create_opts {
             sz: size_of::<libbpf_sys::bpf_map_create_opts>() as libbpf_sys::size_t,
             ..Default::default()
         };
         
+        let idx = state as u32;
         let name = format!("t{}", idx);
         let map = MapHandle::create(MapType::Hash, Some(name), 1, 4, 256, &opts)
             .context("Failed to create map")?;
@@ -86,7 +88,7 @@ impl StateMachine<'_, '_> {
         self.skel
             .maps()
             .s2ts_mat()
-            .update(&(idx as u32).to_ne_bytes(), &fd.to_ne_bytes(), MapFlags::ANY)
+            .update(&idx.to_ne_bytes(), &fd.to_ne_bytes(), MapFlags::ANY)
             .context("Failed to insert state into s2ts")?;
 
         Ok(map)
@@ -94,29 +96,29 @@ impl StateMachine<'_, '_> {
 
     fn done_at_http_hdr_end(&mut self) {
         let hdr_end = format!("{}{}", CRLF, CRLF);
-        self.dfa.add_transitions(self.s_any(), self.a_done(), &hdr_end);
+        self.dfa.add_transitions_to_new_state(self.s_any(), &hdr_end, self.a_done());
     }
 
     pub fn match_http_uri(&mut self, uri: &str) {
         // if we encounter a newline, abort this match
-        self.dfa.add_transition(self.s_init(), self.s_init(), '*');
-        self.dfa.add_transitions(self.s_init(), self.a_match(), &uri);
+        self.dfa.add_transition(self.s_init(), self.s_init(), '*', 0);
+        self.dfa.add_transitions_to_new_state(self.s_init(), &uri, self.a_match());
     }
     
     pub fn match_http_hdr(&mut self, key: &str, val: &str) {
-        let s = self.dfa.add_transitions_to_new_state(self.s_any(), CRLF);
-        let s = self.dfa.add_transitions_to_new_state(s, key);
+        let s = self.dfa.add_transitions_to_new_state(self.s_any(), CRLF, 0);
+        let s = self.dfa.add_transitions_to_new_state(s, key, 0);
 
-        self.dfa.add_transition(s, s, '\t');
-        self.dfa.add_transition(s, s, ' ');
+        self.dfa.add_transition(s, s, '\t', 0);
+        self.dfa.add_transition(s, s, ' ', 0);
 
-        let s = self.dfa.add_transition_to_new_state(s, ':');
+        let s = self.dfa.add_transition_to_new_state(s, ':', 0);
 
-        self.dfa.add_transition(s, s, '\t');
-        self.dfa.add_transition(s, s, ' ');
+        self.dfa.add_transition(s, s, '\t', 0);
+        self.dfa.add_transition(s, s, ' ', 0);
 
-        let s = self.dfa.add_transitions_to_new_state(s, val);
-        self.dfa.add_transitions(s, self.a_match(), CRLF);
+        let s = self.dfa.add_transitions_to_new_state(s, val, 0);
+        self.dfa.add_transitions_to_new_state(s, CRLF, self.a_match());
     }
 
 }
