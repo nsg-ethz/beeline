@@ -187,12 +187,12 @@ int sock_ops(struct bpf_sock_ops *ops) {
     int op = (int)ops->op;
 
     bpf_printk("sockops | local: %d, remote: %d", ops->local_port, bpf_ntohl(ops->remote_port));
-    __u32 key = ops->local_port;
+    // __u32 key = ops->local_port;
 
-    bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
-    if (bpf_sock_hash_update(ops, &sock_map, &key, BPF_NOEXIST) < 0) {
-        bpf_printk("ERROR: Adding socket failed.");
-    }
+    // bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
+    // if (bpf_sock_hash_update(ops, &sock_map, &key, BPF_NOEXIST) < 0) {
+    //     bpf_printk("ERROR: Adding socket failed.");
+    // }
 
     return 0;
 }

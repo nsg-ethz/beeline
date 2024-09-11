@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use clap::Parser;
 use libbpf_rs::{
     set_print, skel::{OpenSkel, SkelBuilder}, Map, MapFlags, MapHandle, MapType, PrintLevel
 };
@@ -22,19 +23,6 @@ mod parser {
         env!("CARGO_MANIFEST_DIR"),
         "/src/bpf/parser.skel.rs"
     ));
-}
-
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
 }
 
 fn listen(sock_map: &mut Map) -> Result<()> {
@@ -169,8 +157,6 @@ fn main() -> Result<()> {
     env_logger::init();
     set_print(Some((PrintLevel::Debug, print)));
 
-    bump_memlock_rlimit()?;
-
     let skel_builder = ParserSkelBuilder::default();
     let mut open_skel = skel_builder.open()?;
 
@@ -188,15 +174,20 @@ fn main() -> Result<()> {
         .as_fd()
         .as_raw_fd();
 
-    // let cgroup_fd = std::fs::OpenOptions::new()
-    //     .read(true)
-    //     .custom_flags(libc::O_DIRECTORY)
-    //     .open("/sys/fs/cgroup/")?
-    //     .into_raw_fd();
+    let cgroup_fd = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY)
+        .open("/sys/fs/cgroup/")?
+        .into_raw_fd();
 
-    // skel.progs_mut()
-    //     .sock_ops()
-    //     .attach_cgroup(cgroup_fd)?;
+    // not sure why we need to retain this link?
+    let _sockops = skel.progs_mut()
+        .sock_ops()
+        .attach_cgroup(cgroup_fd)?;
+
+    skel.progs_mut()
+        .sock_ops()
+        .attach_cgroup(cgroup_fd)?;
 
     skel.progs_mut()
         .stream_parser()
