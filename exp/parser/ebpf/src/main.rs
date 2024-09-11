@@ -1,14 +1,17 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::Parser;
 use libbpf_rs::{
-    set_print, skel::{OpenSkel, SkelBuilder}, Map, MapFlags, MapHandle, MapType, PrintLevel
+    set_print, skel::{OpenSkel, SkelBuilder}, MapFlags, MapHandle, MapType, PrintLevel
 };
 use log::{
     debug,
     warn,
     info
 };
-use std::os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt};
+use std::{
+    mem::size_of,
+    os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}
+};
 
 use matcher::{
     dfa::Action,
