@@ -14,7 +14,7 @@ char LICENSE[] SEC("license") = "GPL";
 const __u32 MAX_BYTES = 0xFFFF;
 const __u32 MAX_MATCHES = 20;
 
-// volatile const __u32 TEST = 10;
+volatile const __u32 PORT;
 
 const __u32 a_mask = 0xFFFF0000;
 const __u16 a_cap_mask = 0x000F;
@@ -186,13 +186,17 @@ SEC("sockops")
 int sock_ops(struct bpf_sock_ops *ops) {
     int op = (int)ops->op;
 
-    bpf_printk("sockops | local: %d, remote: %d", ops->local_port, bpf_ntohl(ops->remote_port));
-    // __u32 key = ops->local_port;
+    if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
 
-    // bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
-    // if (bpf_sock_hash_update(ops, &sock_map, &key, BPF_NOEXIST) < 0) {
-    //     bpf_printk("ERROR: Adding socket failed.");
-    // }
+        if (ops->local_port == PORT) {
+            __u32 key = ops->local_port;
+            if (bpf_sock_hash_update(ops, &sock_map, &key, BPF_NOEXIST) < 0) {
+                bpf_printk("ERROR: Adding socket failed.");
+            }
+
+            bpf_printk("Added socket %d", ops->local_port);
+        }
+    }
 
     return 0;
 }

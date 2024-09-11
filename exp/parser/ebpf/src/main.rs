@@ -8,8 +8,7 @@ use log::{
     warn,
     info
 };
-use std::{io::{Read, Write}, net::TcpListener, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, mem::size_of
-};
+use std::os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt};
 
 use matcher::{
     dfa::Action,
@@ -25,35 +24,10 @@ mod parser {
     ));
 }
 
-fn listen(sock_map: &mut Map) -> Result<()> {
-    // start listening on port 8080
-    let addr = "127.0.0.1:8080";
-    let listener = TcpListener::bind(addr)?;
-    info!("Listening on {}", addr);
-
-    loop {
-        let (mut stream, _) = listener.accept()?;
-        let fd = stream.as_raw_fd();
-        info!("Accepted connection {:?}", fd);
-
-        // add socket to sockmap
-        let key = 0u32.to_ne_bytes();
-        let val = fd.to_ne_bytes();
-        sock_map.update(&key, &val, MapFlags::ANY)?;
-
-        let mut buf = [0; 256];
-        loop {
-            match stream.read(&mut buf) {
-                Ok(_) => break,
-                Err(_) => ()
-            }
-        }
-
-        info!("Received data: {:?}", std::str::from_utf8(&buf).unwrap());
-
-        let response = "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello World!";
-        stream.write(response.as_bytes())?;    
-    }
+#[derive(Parser)]
+struct Args {
+    #[arg(short, long)]
+    port: u32,
 }
 
 fn print(level: PrintLevel, msg: String) {
@@ -157,6 +131,7 @@ fn main() -> Result<()> {
     env_logger::init();
     set_print(Some((PrintLevel::Debug, print)));
 
+    let args = Args::parse();
     let skel_builder = ParserSkelBuilder::default();
     let mut open_skel = skel_builder.open()?;
 
@@ -165,6 +140,8 @@ fn main() -> Result<()> {
     matcher.match_http_uri("/hello/world.html")?;
     matcher.remove_http_hdr("user-agent")?;
     inject_matcher_raw(matcher, &mut open_skel)?;
+
+    open_skel.rodata_mut().PORT = args.port;
 
     let mut skel = open_skel.load()?;
 
@@ -197,6 +174,5 @@ fn main() -> Result<()> {
         .stream_verdict()
         .attach_sockmap(sock_map_fd)?;
 
-    listen(skel.maps_mut().sock_map())?;
-    Ok(())
+    loop {}
 }

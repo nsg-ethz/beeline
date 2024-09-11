@@ -8,12 +8,11 @@ use hyper::{
     Request,
     Response
 };
-use std::net::ToSocketAddrs;
 use tokio::net::TcpSocket;
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value="localhost")]
+    #[arg(short, long, default_value="127.0.0.1")]
     address: String,
     #[arg(short, long, default_value="8000")]
     port: u16,
@@ -29,9 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         headers
     } = Args::parse();
     let addr = format!("{}:{}", address, port)
-        .to_socket_addrs()?
-        .next()
-        .unwrap();
+        .parse()?;
 
     println!("Listening on {addr}");
 
