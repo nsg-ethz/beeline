@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use parser::*;
 use libbpf_rs::{skel::{
     OpenSkel, SkelBuilder
-}, MapFlags};
+}, Map, MapFlags};
 use std::{collections::HashMap, net::TcpListener, os::fd::{AsFd, AsRawFd}};
 
 mod parser {
@@ -25,6 +25,25 @@ fn bump_memlock_rlimit() -> Result<()> {
     Ok(())
 }
 
+fn listen(sock_map: &mut Map) -> Result<()> {
+    // start listening on port 8080
+    let listener = TcpListener::bind("127.0.0.1:8080")?;
+    let mut streams = HashMap::new();
+
+    loop {
+        let (stream, _) = listener.accept()?;
+        let fd = stream.as_raw_fd();
+        println!("Accepted connection {:?}", fd);
+
+        // add socket to sockmap
+        let key = 0u32.to_ne_bytes();
+        let val = fd.to_ne_bytes();
+        sock_map.update(&key, &val, MapFlags::ANY)?;
+
+        streams.insert(stream.as_raw_fd(), stream);
+    }
+}
+
 fn main() -> Result<()> {
     let mut skel_builder = ParserSkelBuilder::default();
     skel_builder.obj_builder.debug(true);
@@ -40,32 +59,71 @@ fn main() -> Result<()> {
         .as_fd()
         .as_raw_fd();
 
-    skel
-        .progs_mut()
+    skel.progs_mut()
         .bpf_prog_parser()
         .attach_sockmap(sock_map_fd)?;
 
-    skel
-        .progs_mut()
+    skel.progs_mut()
         .bpf_prog_verdict()
         .attach_sockmap(sock_map_fd)?;
 
-    // start listening on port 8080
-    let listener = TcpListener::bind("127.0.0.1:8080")?;
-    let mut streams = HashMap::new();
+    // construct a state machine to match "hello : "
+    // s_init - h -> s0
+    let key = ('h' as u8).to_ne_bytes();
+    let val = (0 as u32).to_ne_bytes();
+    skel.maps_mut()
+        .t_init()
+        .update(&key, &val, MapFlags::ANY)?;
 
-    loop {
-        let (stream, _) = listener.accept()?;
-        let fd = stream.as_raw_fd();
-        println!("Accepted connection {:?}", fd);
+    // s0 - e -> s1
+    let key = ('e' as u8).to_ne_bytes();
+    let val = (1 as u32).to_ne_bytes();
+    skel.maps_mut()
+        .t0()
+        .update(&key, &val, MapFlags::ANY)?;
 
-        // add socket to sockmap
-        let key = 0u32.to_ne_bytes();
-        let val = fd.to_ne_bytes();
-        skel.maps_mut()
-            .sock_map()
-            .update(&key, &val, MapFlags::ANY)?;
+    // s1 - l -> s2
+    let key = ('l' as u8).to_ne_bytes();
+    let val = (2 as u32).to_ne_bytes();
+    skel.maps_mut()
+        .t1()
+        .update(&key, &val, MapFlags::ANY)?;
 
-        streams.insert(stream.as_raw_fd(), stream);
-    }
+    // s2 - l -> s3
+    let key = ('l' as u8).to_ne_bytes();
+    let val = (3 as u32).to_ne_bytes();
+    skel.maps_mut()
+        .t2()
+        .update(&key, &val, MapFlags::ANY)?;
+
+    // s3 - o -> s4
+    let key = ('o' as u8).to_ne_bytes();
+    let val = (4 as u32).to_ne_bytes();
+    skel.maps_mut()
+        .t3()
+        .update(&key, &val, MapFlags::ANY)?;
+
+    // s4 - HT -> s4
+    let key = ('\t' as u8).to_ne_bytes();
+    let val = (4 as u32).to_ne_bytes();
+    skel.maps_mut()
+        .t4()
+        .update(&key, &val, MapFlags::ANY)?;
+
+    // s4 - SP -> s4
+    let key = (' ' as u8).to_ne_bytes();
+    let val = (4 as u32).to_ne_bytes();
+    skel.maps_mut()
+        .t4()
+        .update(&key, &val, MapFlags::ANY)?;
+
+    // s4 - : -> s_match
+    let key = (':' as u8).to_ne_bytes();
+    let val = (9999 as u32).to_ne_bytes();
+    skel.maps_mut()
+        .t4()
+        .update(&key, &val, MapFlags::ANY)?;
+
+    listen(skel.maps_mut().sock_map())?;
+    Ok(())
 }
