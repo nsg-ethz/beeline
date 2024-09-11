@@ -10,7 +10,12 @@ use log::{
 };
 use std::{
     mem::size_of,
-    os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}
+    os::{
+        fd::{AsFd, AsRawFd, IntoRawFd}, 
+        unix::fs::OpenOptionsExt
+    },
+    time::Duration,
+    thread
 };
 
 use matcher::{
@@ -172,5 +177,7 @@ fn main() -> Result<()> {
         .stream_verdict()
         .attach_sockmap(sock_map_fd)?;
 
-    loop {}
+    loop {
+        thread::sleep(Duration::from_millis(200));
+    }
 }
