@@ -1,9 +1,21 @@
+#include "vmlinux.h"
 #include <stdbool.h>
-#include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
+#include <bpf/bpf_endian.h>
+
+extern int bpf_dynptr_from_skb(struct __sk_buff *skb, u64 flags, struct bpf_dynptr *ptr__uninit) __ksym;
+extern void *bpf_dynptr_slice(const struct bpf_dynptr *ptr, u32 offset, void *buffer__opt, u32 buffer__szk) __ksym;
+extern __u32 bpf_dynptr_size(const struct bpf_dynptr *ptr) __ksym;
 
 char LICENSE[] SEC("license") = "GPL";
+
+// these restrictions are needed to make the verifier happy
+const __u32 MAX_BYTES = 0xFFFF;
+const __u32 MAX_MATCHES = 20;
+const __u32 MAX_CAPTURE_GROUPS = 10;
+
+// volatile const __u32 TEST = 10;
 
 const __u32 a_mask = 0xFFFF0000;
 const __u32 s_mask = 0x0000FFFF;
@@ -15,10 +27,6 @@ const __u16 a_match = 1 << 15;
 const __u16 a_done = 1 << 14;
 const __u16 a_capture_start = 1 << 13;
 const __u16 a_capture_end = 1 << 12;
-
-// these restrictions are needed to make the verifier happy
-const __u32 MAX_BYTES = 0xFFFF;
-const __u32 MAX_MATCHES = 0xFF;
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
@@ -39,7 +47,7 @@ struct {
     __uint(max_entries, 1024);
     __uint(key_size, sizeof(__u32));
     __array(values, struct trans);
-} s2ts_mat SEC(".maps"), s2ts_mod SEC(".maps");
+} s2ts_mat SEC(".maps");
 
 static __always_inline void next(__u16 state, char input, __u16 *next_state, __u16 *action) {
     __u32 idx = state;
@@ -68,79 +76,109 @@ static __always_inline void next(__u16 state, char input, __u16 *next_state, __u
     *action = (*sa & a_mask) >> 16;
 }
 
-static __always_inline int _match(struct __sk_buff *skb) {
-    __u32 len = skb->len & MAX_BYTES;
-    if (bpf_skb_pull_data(skb, len) != 0) {
-        return -1;
-    }
-
-    char* data = (char*)(long)skb->data;
-    char* data_end = (char*)(long)skb->data_end;
-
-    if (data + len > data_end || len == 0) {
-        return -1;
-    }
-
+static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, __u32 *cg_len) {
+    __u32 len = bpf_dynptr_size(ptr) & MAX_BYTES;
+    // __u32 len = MAX_BYTES;
     __u16 s = s_init;
-
     __u32 num_matches = 0;
+    __u32 num_captures = 0;
     __u32 cap_idx = 0;
-    __u32 cap_len = 0;
 
-    __u32 i = 0;
-    bpf_for(i, 0, len-1) {
-        if (data + i + 1 > data_end) {
-            return -1;
-        }
+    __u32 i;
+    bpf_for(i, 0, len) {
+        char c;
+        bpf_dynptr_slice(ptr, i, &c, 1);
 
         __u16 a = 0;
-        next(s, data[i], &s, &a);
-
-        // bpf_printk("State %d, action %d", s, a);
+        next(s, c, &s, &a);
 
         switch (a) {
         case a_match:
-            bpf_printk("Match at %d", i);
+            // bpf_printk("Match at %d", i);
             num_matches++;
             if (num_matches >= MAX_MATCHES) return num_matches;
             s = s_any;
             break;
         case a_done:
-            bpf_printk("Done at %d", i);
+            // bpf_printk("Done at %d", i);
             return num_matches;
         case a_capture_start:
-            cap_idx = i;
-            cap_len = 0;
+            cap_idx = i + 1;
             break;
         case a_capture_end:
-            cap_len = i - cap_idx - 1;
+            // if (num_captures < MAX_CAPTURE_GROUPS) {
+            //     cg_idx[num_captures] = cap_idx;
+            //     cg_len[num_captures] = i - cap_idx - 1;
+            // }
+            *cg_idx = cap_idx;
+            *cg_len = i - cap_idx;
+
+            cap_idx = 0;
+            num_captures++;
             break;
         }
 
         // this means that we failed to match the current pattern
         // but maybe a new one starts now?
         if (s == s_any) {
-            next(s_any, data[i], &s, &a);
+            next(s_any, c, &s, &a);
         }
     }
 
     return num_matches;
 }
 
+static __always_inline int _modify(const struct bpf_dynptr *ptr, __u16 idx, __u16 len) {
+    __u16 i;
+    bpf_for(i, idx, idx+len) {
+        char x = 'X';
+        bpf_dynptr_write(ptr, i, &x, 1, BPF_F_RECOMPUTE_CSUM);
+    }
+
+    return 0;
+}
+
 SEC("sk_skb/stream_parser")
-int bpf_prog_parser(struct __sk_buff *skb) {
+int stream_parser(struct __sk_buff *skb) {
     bpf_printk("Parsing %d bytes", skb->len);
     return skb->len;
 }
 
 SEC("sk_skb/stream_verdict")
-int bpf_prog_verdict(struct __sk_buff *skb) {
-    if (_match(skb) == 2) {
-        bpf_printk("Matched packet");
-    }
-    else {
-        bpf_printk("Failed to match packet");
+int stream_verdict(struct __sk_buff *skb) {
+    // __u32 cg_idx[MAX_CAPTURE_GROUPS] = { 0 };
+    // __u32 cg_len[MAX_CAPTURE_GROUPS] = { 0 };
+
+    struct bpf_dynptr ptr;
+    bpf_dynptr_from_skb(skb, 0, &ptr);
+    __u32 cg_idx, cg_len;
+
+    if (_match(&ptr, &cg_idx, &cg_len) != 2) {
         return SK_PASS;
+    }
+
+    bpf_printk("Matched packet. Captured [%d, %d]", cg_idx, cg_len);
+    _modify(&ptr, 55, 25);
+
+    return SK_PASS;
+}
+
+// SEC("custom/stream_modifier")
+// int stream_modifier(struct __sk_buff *skb) {
+
+//     return SK_PASS;
+// }
+
+SEC("sockops")
+int sock_ops(struct bpf_sock_ops *ops) {
+    int op = (int)ops->op;
+
+    bpf_printk("sockops | local: %d, remote: %d", ops->local_port, bpf_ntohl(ops->remote_port));
+    __u32 key = ops->local_port;
+
+    bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
+    if (bpf_sock_hash_update(ops, &sock_map, &key, BPF_NOEXIST) < 0) {
+        bpf_printk("ERROR: Adding socket failed.");
     }
 
     return 0;

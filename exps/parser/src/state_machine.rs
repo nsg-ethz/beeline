@@ -46,6 +46,14 @@ impl StateMachine<'_, '_> {
         self.skel.rodata().a_done
     }
 
+    fn a_capture_start(&self) -> u16 {
+        self.skel.rodata().a_capture_start
+    }
+
+    fn a_capture_end(&self) -> u16 {
+        self.skel.rodata().a_capture_end
+    }
+
     pub fn inject_match_dfa(&mut self) -> Result<()> {
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
@@ -119,6 +127,22 @@ impl StateMachine<'_, '_> {
 
         let s = self.dfa.add_transitions_to_new_state(s, val, 0);
         self.dfa.add_transitions_to_new_state(s, CRLF, self.a_match());
+    }
+
+    pub fn remove_http_hdr(&mut self, key: &str) {
+        let s = self.dfa.add_transitions_to_new_state(self.s_any(), CRLF, self.a_capture_start());
+        let s = self.dfa.add_transitions_to_new_state(s, key, 0);
+
+        self.dfa.add_transition(s, s, '\t', 0);
+        self.dfa.add_transition(s, s, ' ', 0);
+
+        let s = self.dfa.add_transition_to_new_state(s, ':', 0);
+
+        self.dfa.add_transition(s, s, '\t', 0);
+        self.dfa.add_transition(s, s, ' ', 0);
+        self.dfa.add_transition(s, s, '*', 0);
+
+        self.dfa.add_transitions_to_new_state(s, CRLF, self.a_capture_end());
     }
 
 }

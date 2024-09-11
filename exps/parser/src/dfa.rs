@@ -26,24 +26,44 @@ impl DFA {
         self.sid
     }
 
-    pub fn add_transition(&mut self, from: u16, to: u16, input: char, action: u16) {
+    fn add_transition_force(&mut self, from: u16, to: u16, input: char, action: u16, force: bool) {
         let lc_input = input.to_ascii_lowercase();
         let uc_input = input.to_ascii_uppercase();
 
         if let Some((cstate, _)) = self.transitions.insert((from, lc_input), (to, action)) {
-            panic!("Transition from {} to {} on {} already exists", from, cstate, input);
+            if !force {
+                panic!("Transition from {} to {} on {} already exists", from, cstate, input.escape_debug());
+            }
         }
 
         if lc_input != uc_input {
             if let Some((cstate, _)) = self.transitions.insert((from, uc_input), (to, action)) {
-                panic!("Transition from {} to {} on {} already exists", from, cstate, input);
+                if !force {
+                    panic!("Transition from {} to {} on {} already exists", from, cstate, input.escape_debug());
+                }
             }
         }
     }
 
+    pub fn add_transition(&mut self, from: u16, to: u16, input: char, action: u16) {
+        self.add_transition_force(from, to, input, action, false);
+    }
+
     pub fn add_transition_to_new_state(&mut self, from: u16, input: char, action: u16) -> u16 {
-        match self.transitions.get(&(from, input)) {
-            Some((cnext, caction)) => if *caction == action { *cnext } else { panic!("Transition from {} to {} on {} already exists", from, cnext, input) },
+        let t = self.transitions.get(&(from, input)).map(|(to, action)| (*to, *action));
+        match t {
+            Some((cto, caction)) => {
+                if caction == action { 
+                    cto 
+                } 
+                else if caction == 0 || action == 0 {
+                    self.add_transition_force(from, cto, input, caction | action, true);
+                    cto
+                }
+                else { 
+                    panic!("Transition from {} to {} on {} already exists ({}/{})", from, cto, input.escape_debug(), caction, action); 
+                }
+            }
             None => {
                 let next = self.insert_new_state();
                 self.add_transition(from, next, input, action);

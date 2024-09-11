@@ -616,10 +616,12 @@ name = "parser"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "env_logger",
  "libbpf-cargo",
  "libbpf-rs",
  "libbpf-sys",
  "libc",
+ "log",
 ]
 
 [[package]]
