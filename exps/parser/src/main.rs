@@ -7,13 +7,13 @@ use std::{collections::HashMap, net::TcpListener, os::fd::{AsFd, AsRawFd}};
 use state_machine::StateMachine;
 use parser::*;
 
+mod dfa;
 mod parser {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/bpf/parser.skel.rs"
     ));
 }
-
 mod state_machine;
 
 fn bump_memlock_rlimit() -> Result<()> {
@@ -71,10 +71,11 @@ fn main() -> Result<()> {
         .bpf_prog_verdict()
         .attach_sockmap(sock_map_fd)?;
 
-    let mut sm = StateMachine::new(&mut skel)?;
+    let mut sm = StateMachine::new(&mut skel);
     // sm.match_http_hdr("hello", "world")?;
-    sm.match_http_hdr("hallo", "welt")?;
-    sm.match_http_uri("/hello/world.html")?;
+    sm.match_http_hdr("hallo", "welt");
+    sm.match_http_uri("/hello/world.html");
+    sm.inject_match_dfa()?;
 
     listen(skel.maps_mut().sock_map())?;
     Ok(())
