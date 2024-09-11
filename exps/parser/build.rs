@@ -18,7 +18,7 @@ fn main() {
         .source(SRC)
         .clang_args([
             OsStr::new("-I"),
-            OsStr::new("../../lb/ebpf/vmlinux")
+            OsStr::new("src/bpf/vmlinux.h")
         ])
         .build_and_generate(&out)
         .unwrap();

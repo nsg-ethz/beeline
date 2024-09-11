@@ -30,3 +30,8 @@ sudo apt install llvm clang libc6-dev-i386 linux-tools-common linux-tools-`uname
 
 For some tests, it's necessary to raise the limit for open files of the root user (since that user is running the systemd tasks).
 This can be done by following [this question](https://unix.stackexchange.com/a/443467) or by modifying `/etc/security/limits.conf`.
+
+Then, generate a new vmlinux file as follows:
+```
+bpftool btf dump file /sys/kernel/btf/vmlinux format c > ./vmlinux.h
+```
