@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::parser;
-use crate::dfa::DFA;
+use crate::dfa::{Action, DFA};
 
 const CRLF: &str = "\r\n";
 
@@ -46,18 +46,38 @@ impl StateMachine<'_, '_> {
         self.skel.rodata().a_done
     }
 
-    fn a_capture_start(&self) -> u16 {
-        self.skel.rodata().a_capture_start
+    fn a_cap_mask(&self) -> u16 {
+        self.skel.rodata().a_cap_mask
     }
 
-    fn a_capture_end(&self) -> u16 {
-        self.skel.rodata().a_capture_end
+    fn state_action_to_raw(&self, state: u16, action: Action) -> u32 {
+        let action = match action {
+            Action::Capture(cid) => {
+                let raw_cid = (cid as u16) & self.a_cap_mask();
+                if raw_cid != cid as u16 {
+                    panic!("Capture group id {} is too large, truncating to {}", cid, raw_cid);
+                }
+                raw_cid
+            }
+            Action::Match(cid) => {
+                let raw_cid = (cid as u16) & self.a_cap_mask();
+                if raw_cid != cid as u16 {
+                    panic!("Capture group id {} is too large, truncating to {}", cid, raw_cid);
+                }
+
+                self.a_match() | (self.a_cap_mask() & raw_cid)
+            },
+            Action::Done => self.a_done(),
+            Action::None => 0,
+        };
+
+        ((action as u32) << 16) | (state as u32)
     }
 
-    pub fn inject_match_dfa(&mut self) -> Result<()> {
+    pub fn inject_dfa(&mut self) -> Result<()> {
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
-        self.done_at_http_hdr_end();
+        self.done_on_http_hdr_end()?;
 
         let mut states = self.dfa.iter_states()
             .map(|s| s.clone())
@@ -66,14 +86,14 @@ impl StateMachine<'_, '_> {
         states.sort();
 
         let mut tss = states.iter()
-            .map (|idx| self.create_match_state(*idx))
+            .map (|idx| self.create_state(*idx))
             .collect::<Result<Vec<_>>>()?;
 
         for (from, to, input, action) in self.dfa.iter_transitions() {
             let ts = tss.get_mut(*from as usize).unwrap();
             let key = (*input as u8).to_ne_bytes();
 
-            let val = (*action as u32) << 16 | (*to as u32);
+            let val = self.state_action_to_raw(*to, *action);
             let val = val.to_ne_bytes();
             ts.update(&key, &val, MapFlags::ANY)?;
         }
@@ -81,7 +101,7 @@ impl StateMachine<'_, '_> {
         Ok(())
     }
 
-    fn create_match_state(&mut self, state: u16) -> Result<MapHandle> {
+    fn create_state(&mut self, state: u16) -> Result<MapHandle> {
         let opts = libbpf_sys::bpf_map_create_opts {
             sz: size_of::<libbpf_sys::bpf_map_create_opts>() as libbpf_sys::size_t,
             ..Default::default()
@@ -102,47 +122,53 @@ impl StateMachine<'_, '_> {
         Ok(map)
     }
 
-    fn done_at_http_hdr_end(&mut self) {
-        let hdr_end = format!("{}{}", CRLF, CRLF);
-        self.dfa.add_transitions_to_new_state(self.s_any(), &hdr_end, self.a_done());
+    fn done_on_http_hdr_end(&mut self) -> Result<()> {
+        self.dfa.start_pattern(self.s_any())
+            .push(CRLF)?
+            .done_on(CRLF)?;
+
+        Ok(())
     }
 
-    pub fn match_http_uri(&mut self, uri: &str) {
-        // if we encounter a newline, abort this match
-        self.dfa.add_transition(self.s_init(), self.s_init(), '*', 0);
-        self.dfa.add_transitions_to_new_state(self.s_init(), &uri, self.a_match());
+    pub fn match_http_uri(&mut self, uri: &str) -> Result<()> {
+        self.dfa.start_pattern(self.s_init())
+            .push("POST ")?
+            .start_capturing()
+            .match_on(uri)?;
+
+        Ok(())
     }
     
-    pub fn match_http_hdr(&mut self, key: &str, val: &str) {
-        let s = self.dfa.add_transitions_to_new_state(self.s_any(), CRLF, 0);
-        let s = self.dfa.add_transitions_to_new_state(s, key, 0);
-
-        self.dfa.add_transition(s, s, '\t', 0);
-        self.dfa.add_transition(s, s, ' ', 0);
-
-        let s = self.dfa.add_transition_to_new_state(s, ':', 0);
-
-        self.dfa.add_transition(s, s, '\t', 0);
-        self.dfa.add_transition(s, s, ' ', 0);
-
-        let s = self.dfa.add_transitions_to_new_state(s, val, 0);
-        self.dfa.add_transitions_to_new_state(s, CRLF, self.a_match());
+    pub fn match_http_hdr(&mut self, key: &str, val: &str) -> Result<()> {
+        self.dfa.start_pattern(self.s_any())
+            .push(CRLF)?
+            .start_capturing()
+            .push(key)?
+            .push_optional('\t')?
+            .push_optional(' ')?
+            .push(":")?
+            .push_optional('\t')?
+            .push_optional(' ')?
+            .push(val)?
+            .match_on(CRLF)?;
+            
+        Ok(())
     }
 
-    pub fn remove_http_hdr(&mut self, key: &str) {
-        let s = self.dfa.add_transitions_to_new_state(self.s_any(), CRLF, self.a_capture_start());
-        let s = self.dfa.add_transitions_to_new_state(s, key, 0);
+    pub fn remove_http_hdr(&mut self, key: &str) -> Result<()> {
+        self.dfa.start_pattern(self.s_any())
+            .push(CRLF)?
+            .start_capturing()
+            .push(key)?
+            .push_optional('\t')?
+            .push_optional(' ')?
+            .push(":")?
+            .push_optional('\t')?
+            .push_optional(' ')?
+            .push_optional('*')?
+            .match_on(CRLF)?;
 
-        self.dfa.add_transition(s, s, '\t', 0);
-        self.dfa.add_transition(s, s, ' ', 0);
-
-        let s = self.dfa.add_transition_to_new_state(s, ':', 0);
-
-        self.dfa.add_transition(s, s, '\t', 0);
-        self.dfa.add_transition(s, s, ' ', 0);
-        self.dfa.add_transition(s, s, '*', 0);
-
-        self.dfa.add_transitions_to_new_state(s, CRLF, self.a_capture_end());
+        Ok(())
     }
 
 }

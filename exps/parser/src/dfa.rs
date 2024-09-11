@@ -1,10 +1,151 @@
-use core::panic;
+use anyhow::{bail, Result};
+use log::debug;
 use std::collections::{HashMap, HashSet};
 
-pub struct DFA {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Action {
+    Capture(u8),
+    Match(u8),
+    Done,
+    None
+}
+
+impl Action {
+
+    pub fn is_some(&self) -> bool {
+        !self.is_none()
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, Action::None)
+    }
+
+}
+
+pub struct PatternBuilder<'a> {
+    dfa: &'a mut DFA,
     sid: u16,
+    cid: Option<u8>,
+    capturing: bool,
+}
+
+impl PatternBuilder<'_> {
+
+    pub fn push(&mut self, input: &str) -> Result<&mut Self> {
+        assert!(self.dfa.states.contains(&self.sid));
+
+        for c in input.chars() {
+            let start_capture = self.capturing && self.cid.is_none();
+
+            if let Some((to, act)) = self.dfa.transitions.get(&(self.sid, c)).map(|(to, action)| (*to, *action)) {    
+                match (act, start_capture) {
+                    (Action::Capture(cid), true) => {
+                        self.cid = Some(cid);
+                        self.sid = to;
+                    },
+                    (Action::None, false) => self.sid = to,
+                    _ => bail!("Conflicting action {:?} for input {}", act, c.escape_debug())
+                }
+            }
+            else {
+                let action = if start_capture {
+                    self.cid = Some(self.dfa.new_capture_group());
+                    Action::Capture(self.cid.unwrap())
+                }
+                else {
+                    Action::None
+                };
+
+                let next = self.dfa.insert_state();
+                self.dfa.insert_transition(self.sid, next, c, action);
+                self.sid = next;
+            }
+        }
+
+        Ok(self)
+    }
+
+    pub fn start_capturing(&mut self) -> &mut Self {
+        self.capturing = true;
+        self
+    }
+
+    pub fn push_optional(&mut self, input: char) -> Result<&mut Self> {
+        assert!(self.dfa.states.contains(&self.sid));
+        
+        if let Some((to, action)) = self.dfa.insert_transition(self.sid, self.sid, input, Action::None) {
+            if to != self.sid || action.is_some() {
+                bail!("Conflicting transition for optional input.");
+            }
+        }
+
+        Ok(self)
+    }
+
+    pub fn match_on(&mut self, input: &str) -> Result<&mut Self> {
+        if input.len() <= 1 {
+            bail!("Cannot end pattern with character.");
+        }
+
+        let all_but_last: String = input.chars()
+            .take(input.len() - 1)
+            .collect();
+
+        if all_but_last.len() > 0 {
+            self.push(&all_but_last)?;
+        }  
+
+        if !self.capturing || self.cid.is_none() {
+            bail!("No capture ID set.");
+        }
+
+        let cid = self.cid.unwrap();
+        self.end_pattern(input.chars().last().unwrap(), Action::Match(cid))
+    }
+
+    pub fn done_on(&mut self, input: &str) -> Result<&mut Self> {
+        if input.len() <= 1 {
+            bail!("Cannot end pattern with character.");
+        }
+
+        let all_but_last: String = input.chars()
+            .take(input.len() - 1)
+            .collect();
+
+        if all_but_last.len() > 0 {
+            self.push(&all_but_last)?;
+        }
+
+        if self.capturing || self.cid.is_some() {
+            bail!("Capture group will always get aborted.");
+        }
+
+        self.end_pattern(input.chars().last().unwrap(), Action::Done)
+    }
+    
+    fn end_pattern(&mut self, input: char, action: Action) -> Result<&mut Self> {
+        let to = self.dfa.insert_state();
+        if let Some((state, action)) = self.dfa.insert_transition(self.sid, to, input, action) {
+            if state != self.sid || action.is_some() {
+                bail!("Conflicting transition for capture and match.");
+            }
+        }
+
+        Ok(self)
+    }
+
+}
+
+pub struct DFA {
+    // next free state id
+    sid: u16,
+
+    // next free capture id
+    // cid 0 is reserved -> init from 1
+    cid: u8,
+
     states: HashSet<u16>,
-    transitions: HashMap<(u16, char), (u16, u16)>,
+    transitions: HashMap<(u16, char), (u16, Action)>,
 }
 
 impl DFA {
@@ -12,12 +153,13 @@ impl DFA {
     pub fn new(reserved_states: impl Iterator<Item = u16>) -> DFA {
         DFA {
             sid: 0,
-            states: HashSet::from_iter(reserved_states),
+            cid: 1,
+            states: reserved_states.collect(),
             transitions: HashMap::new(),
         }
     }
 
-    fn insert_new_state(&mut self) -> u16 {
+    fn insert_state(&mut self) -> u16 {
         while self.states.contains(&self.sid) {
             self.sid += 1;
         }
@@ -26,70 +168,46 @@ impl DFA {
         self.sid
     }
 
-    fn add_transition_force(&mut self, from: u16, to: u16, input: char, action: u16, force: bool) {
+    fn new_capture_group(&mut self) -> u8 {
+        let cid = self.cid;
+        self.cid += 1;
+        cid
+    }
+
+    pub fn insert_transition(&mut self, from: u16, to: u16, input: char, action: Action) -> Option<(u16, Action)> {
         let lc_input = input.to_ascii_lowercase();
         let uc_input = input.to_ascii_uppercase();
 
-        if let Some((cstate, _)) = self.transitions.insert((from, lc_input), (to, action)) {
-            if !force {
-                panic!("Transition from {} to {} on {} already exists", from, cstate, input.escape_debug());
-            }
+        if let Some(transition) = self.transitions.insert((from, lc_input), (to, action)) {
+            return Some(transition);
         }
+
+        debug!(target: "DFA", "{} --({})--> {} {:?}", from, input.escape_debug(), to, action);
 
         if lc_input != uc_input {
-            if let Some((cstate, _)) = self.transitions.insert((from, uc_input), (to, action)) {
-                if !force {
-                    panic!("Transition from {} to {} on {} already exists", from, cstate, input.escape_debug());
-                }
+            if let Some(transition) = self.transitions.insert((from, uc_input), (to, action)) {
+                return Some(transition);
             }
         }
+
+        None
     }
 
-    pub fn add_transition(&mut self, from: u16, to: u16, input: char, action: u16) {
-        self.add_transition_force(from, to, input, action, false);
-    }
-
-    pub fn add_transition_to_new_state(&mut self, from: u16, input: char, action: u16) -> u16 {
-        let t = self.transitions.get(&(from, input)).map(|(to, action)| (*to, *action));
-        match t {
-            Some((cto, caction)) => {
-                if caction == action { 
-                    cto 
-                } 
-                else if caction == 0 || action == 0 {
-                    self.add_transition_force(from, cto, input, caction | action, true);
-                    cto
-                }
-                else { 
-                    panic!("Transition from {} to {} on {} already exists ({}/{})", from, cto, input.escape_debug(), caction, action); 
-                }
-            }
-            None => {
-                let next = self.insert_new_state();
-                self.add_transition(from, next, input, action);
-                next
-            }
+    pub fn start_pattern<'a>(&'a mut self, from: u16) -> PatternBuilder<'a> {
+        debug!(target: "DFA", "new pattern starting from: {}", from);
+        PatternBuilder {
+            dfa: self,
+            sid: from,
+            cid: None,
+            capturing: false,
         }
-    }
-
-    pub fn add_transitions_to_new_state(&mut self, from: u16, input: &str, final_action: u16) -> u16 {
-        assert!(input.len() >= 1);
-        assert!(self.states.contains(&from));
-
-        let mut state = from;
-        for (idx, c) in input.chars().enumerate() {
-            let action = if idx == input.len() - 1 { final_action } else { 0 };
-            state = self.add_transition_to_new_state(state, c, action);
-        }
-
-        state
     }
 
     pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16>  {
         self.states.iter()
     }
 
-    pub fn iter_transitions<'a>(&'a self) -> impl Iterator<Item = (&'a u16, &'a u16, &'a char, &'a u16)>  {
+    pub fn iter_transitions<'a>(&'a self) -> impl Iterator<Item = (&'a u16, &'a u16, &'a char, &'a Action)>  {
         self.transitions
             .iter()
             .map(|((from, input), (to, action))| (from, to, input, action))

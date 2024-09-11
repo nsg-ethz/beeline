@@ -13,11 +13,11 @@ char LICENSE[] SEC("license") = "GPL";
 // these restrictions are needed to make the verifier happy
 const __u32 MAX_BYTES = 0xFFFF;
 const __u32 MAX_MATCHES = 20;
-const __u32 MAX_CAPTURE_GROUPS = 10;
 
 // volatile const __u32 TEST = 10;
 
 const __u32 a_mask = 0xFFFF0000;
+const __u16 a_cap_mask = 0x000F;
 const __u32 s_mask = 0x0000FFFF;
 
 const __u16 s_init = 0;
@@ -25,8 +25,6 @@ const __u16 s_any = 1;
 
 const __u16 a_match = 1 << 15;
 const __u16 a_done = 1 << 14;
-const __u16 a_capture_start = 1 << 13;
-const __u16 a_capture_end = 1 << 12;
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
@@ -78,11 +76,9 @@ static __always_inline void next(__u16 state, char input, __u16 *next_state, __u
 
 static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, __u32 *cg_len) {
     __u32 len = bpf_dynptr_size(ptr) & MAX_BYTES;
-    // __u32 len = MAX_BYTES;
     __u16 s = s_init;
     __u32 num_matches = 0;
-    __u32 num_captures = 0;
-    __u32 cap_idx = 0;
+    __u32 cap_idx[16] = { 0 };
 
     __u32 i;
     bpf_for(i, 0, len) {
@@ -90,33 +86,27 @@ static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, _
         bpf_dynptr_slice(ptr, i, &c, 1);
 
         __u16 a = 0;
+        __u16 s_old = s;
         next(s, c, &s, &a);
+        __u16 cid = a & a_cap_mask;
 
-        switch (a) {
-        case a_match:
-            // bpf_printk("Match at %d", i);
+        if ((a & a_match) != 0) {
+            bpf_printk("Match %d in [%d, %d]", cid, cap_idx[cid], i - cap_idx[cid] + 1);
+            if (num_matches < MAX_MATCHES) {
+                cg_idx[num_matches] = cap_idx[cid];
+                cg_len[num_matches] = i - cap_idx[cid] + 1;
+            }
+
             num_matches++;
             if (num_matches >= MAX_MATCHES) return num_matches;
             s = s_any;
-            break;
-        case a_done:
-            // bpf_printk("Done at %d", i);
-            return num_matches;
-        case a_capture_start:
-            cap_idx = i + 1;
-            break;
-        case a_capture_end:
-            // if (num_captures < MAX_CAPTURE_GROUPS) {
-            //     cg_idx[num_captures] = cap_idx;
-            //     cg_len[num_captures] = i - cap_idx - 1;
-            // }
-            *cg_idx = cap_idx;
-            *cg_len = i - cap_idx;
-
-            cap_idx = 0;
-            num_captures++;
-            break;
         }
+        else if ((a & a_done) != 0) {
+            bpf_printk("Done matching");
+            return num_matches;
+        }
+
+        cap_idx[cid] = i;
 
         // this means that we failed to match the current pattern
         // but maybe a new one starts now?
@@ -146,19 +136,18 @@ int stream_parser(struct __sk_buff *skb) {
 
 SEC("sk_skb/stream_verdict")
 int stream_verdict(struct __sk_buff *skb) {
-    // __u32 cg_idx[MAX_CAPTURE_GROUPS] = { 0 };
-    // __u32 cg_len[MAX_CAPTURE_GROUPS] = { 0 };
+    __u32 cg_idx[MAX_MATCHES] = { 0 };
+    __u32 cg_len[MAX_MATCHES] = { 0 };
 
     struct bpf_dynptr ptr;
     bpf_dynptr_from_skb(skb, 0, &ptr);
-    __u32 cg_idx, cg_len;
 
-    if (_match(&ptr, &cg_idx, &cg_len) != 2) {
+    if (_match(&ptr, cg_idx, cg_len) != 3) {
         return SK_PASS;
     }
 
-    bpf_printk("Matched packet. Captured [%d, %d]", cg_idx, cg_len);
-    _modify(&ptr, 55, 25);
+    bpf_printk("Matched packet. Captured [%d, %d]", cg_idx[2], cg_len[2]);
+    _modify(&ptr, cg_idx[2], cg_len[2]);
 
     return SK_PASS;
 }
