@@ -201,7 +201,7 @@ int sock_ops(struct bpf_sock_ops *ops) {
 
     __u32 lport = ops->local_port;
     if (lport != PORT) {
-        return 0;
+        return 1;
     }
 
     bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
