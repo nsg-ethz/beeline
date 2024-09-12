@@ -4,6 +4,19 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
+#define LOG_LEVEL 1
+
+#if LOG_LEVEL == 0
+#define bpf_log(...) (0)
+#define bpf_err(...) (0)
+#elif LOG_LEVEL == 1
+#define bpf_log(...) (0)
+#define bpf_err(...) bpf_printk(__VA_ARGS__)
+#elif LOG_LEVEL == 2
+#define bpf_log(...) bpf_printk(__VA_ARGS__)
+#define bpf_err(...) bpf_printk(__VA_ARGS__)
+#endif
+
 extern int bpf_dynptr_from_skb(struct __sk_buff *skb, u64 flags, struct bpf_dynptr *ptr__uninit) __ksym;
 extern void *bpf_dynptr_slice(const struct bpf_dynptr *ptr, u32 offset, void *buffer__opt, u32 buffer__szk) __ksym;
 extern __u32 bpf_dynptr_size(const struct bpf_dynptr *ptr) __ksym;
@@ -121,7 +134,7 @@ static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, _
         __u16 cid = a & a_cap_mask;
 
         if ((a & a_match) != 0) {
-            bpf_printk("Match %d in [%d, %d]", cid, cap_idx[cid], i - cap_idx[cid] + 1);
+            bpf_log("Match %d in [%d, %d]", cid, cap_idx[cid], i - cap_idx[cid] + 1);
             if (num_matches < MAX_MATCHES) {
                 cg_idx[num_matches] = cap_idx[cid];
                 cg_len[num_matches] = i - cap_idx[cid] + 1;
@@ -132,7 +145,7 @@ static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, _
             s = s_any;
         }
         else if ((a & a_done) != 0) {
-            bpf_printk("Done matching");
+            bpf_log("Done matching");
             return num_matches;
         }
 
@@ -160,7 +173,7 @@ static __always_inline int _modify(const struct bpf_dynptr *ptr, __u16 idx, __u1
 
 SEC("sk_skb/stream_parser")
 int stream_parser(struct __sk_buff *skb) {
-    bpf_printk("Parsing %d bytes", skb->len);
+    bpf_log("Parsing %d bytes", skb->len);
     return skb->len;
 }
 
@@ -176,7 +189,7 @@ int stream_verdict(struct __sk_buff *skb) {
         return SK_PASS;
     }
 
-    bpf_printk("Matched packet. Captured [%d, %d]", cg_idx[2], cg_len[2]);
+    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[2], cg_len[2]);
     _modify(&ptr, cg_idx[2], cg_len[2]);
 
     return SK_PASS;
@@ -194,17 +207,17 @@ int sock_ops(struct bpf_sock_ops *ops) {
     bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
     if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
         if (bpf_sock_hash_update(ops, &sock_map, &lport, BPF_NOEXIST) < 0) {
-            bpf_printk("ERROR: Adding socket failed.");
+            bpf_err("ERROR: Adding socket failed.");
         }
 
-        bpf_printk("Added socket %d", lport);
+        bpf_log("Added socket %d", lport);
     }
     else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE) {
         if (bpf_map_delete_elem(&sock_map, &lport) < 0) {
-            bpf_printk("ERROR: Deleting socket failed.");
+            bpf_err("ERROR: Deleting socket failed.");
         }
 
-        bpf_printk("Deleted socket %d", lport);
+        bpf_log("Deleted socket %d", lport);
     }
 
     return 1;
