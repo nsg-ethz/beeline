@@ -207,5 +207,5 @@ int sock_ops(struct bpf_sock_ops *ops) {
         bpf_printk("Deleted socket %d", lport);
     }
 
-    return 0;
+    return 1;
 }
