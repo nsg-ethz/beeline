@@ -1,6 +1,7 @@
 import { randomRequest } from "./common.js";
 
 const rate = __ENV.RATE || 10000;
+const vus = __ENV.VUS || 3000;
 
 export const options = {
   scenarios: {
@@ -10,7 +11,7 @@ export const options = {
         { duration: "5s", target: rate },
         { duration: "55s", target: rate },
       ],
-      preAllocatedVUs: 3000,
+      preAllocatedVUs: vus,
     }
   }
 };
