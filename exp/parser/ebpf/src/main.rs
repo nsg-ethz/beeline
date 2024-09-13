@@ -1,21 +1,16 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use libbpf_rs::{
-    set_print, skel::{OpenSkel, SkelBuilder}, MapFlags, MapHandle, MapType, PrintLevel
+    set_print, skel::{OpenSkel, SkelBuilder}, Map, MapFlags, MapHandle, MapType, PrintLevel
 };
 use log::{
     debug,
     warn,
-    info
+    info,
+    error
 };
 use std::{
-    mem::size_of,
-    os::{
-        fd::{AsFd, AsRawFd, IntoRawFd}, 
-        unix::fs::OpenOptionsExt
-    },
-    time::Duration,
-    thread
+    io::{Read, Write}, mem::size_of, net::{TcpListener, TcpStream}, os::fd::{AsFd, AsRawFd, IntoRawFd},
 };
 
 use matcher::{
@@ -34,8 +29,14 @@ mod parser {
 
 #[derive(Parser)]
 struct Args {
+    #[arg(short, long, default_value="127.0.0.1:3000")]
+    address: String,
+
     #[arg(short, long)]
-    port: u32,
+    destination: String,
+
+    #[arg(long="remove")]
+    removals: Option<Vec<String>>,
 }
 
 fn print(level: PrintLevel, msg: String) {
@@ -134,6 +135,16 @@ fn inject_matcher_raw(mut matcher: HttpMatcher, skel: &mut parser::OpenParserSke
     Ok(())
 }
 
+fn add_fd_to_sockmap<F: AsRawFd>(fd: &F, key: u16, sock_map: &mut Map) -> Result<()> {
+    debug!("Adding fd {} to sockmap with key {}", fd.as_raw_fd(), key);
+    let key = (key as u32).to_ne_bytes();
+    let val = fd.as_raw_fd()
+        .to_ne_bytes();
+    sock_map.update(&key, &val, MapFlags::ANY)?;
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::init();
     set_print(Some((PrintLevel::Debug, print)));
@@ -143,31 +154,30 @@ fn main() -> Result<()> {
     let mut open_skel = skel_builder.open()?;
 
     let mut matcher = HttpMatcher::new(open_skel.rodata().s_init, open_skel.rodata().s_any);
-    matcher.match_http_hdr("hallo", "welt")?;
-    matcher.match_http_uri("/hello/world.html")?;
+    // matcher.match_http_hdr("hallo", "welt")?;
+    // matcher.match_http_uri("/hello/world.html")?;
     matcher.remove_http_hdr("user-agent")?;
     inject_matcher_raw(matcher, &mut open_skel)?;
 
-    open_skel.rodata_mut().PORT = args.port;
+    // open_skel.rodata_mut().PORT = args.port;
 
     let mut skel = open_skel.load()?;
 
-    let sock_map_fd = skel
-        .maps_mut()
+    let sock_map_fd = skel.maps()
         .sock_map()
         .as_fd()
         .as_raw_fd();
 
-    let cgroup_fd = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY)
-        .open("/sys/fs/cgroup/")?
-        .into_raw_fd();
+    // this doesn't seem to work :(
+    // let cgroup_fd = std::fs::OpenOptions::new()
+    //     .read(true)
+    //     .custom_flags(libc::O_DIRECTORY)
+    //     .open("/sys/fs/cgroup/")?
+    //     .into_raw_fd();
 
-    // not sure why we need to retain this link?
-    let _sockops = skel.progs_mut()
-        .sock_ops()
-        .attach_cgroup(cgroup_fd)?;
+    // let _sockops = skel.progs_mut()
+    //     .sock_ops()
+    //     .attach_cgroup(cgroup_fd)?;
 
     skel.progs_mut()
         .stream_parser()
@@ -177,7 +187,51 @@ fn main() -> Result<()> {
         .stream_verdict()
         .attach_sockmap(sock_map_fd)?;
 
+    let mut maps = skel.maps_mut();
+    let sock_map = maps.sock_map();
+
+    let mut backend = TcpStream::connect(args.destination)?;
+    backend.set_nodelay(true)?;
+    let key = backend.peer_addr().unwrap().port();
+    add_fd_to_sockmap(&backend, key, sock_map)?;
+
+    info!("Listening on {}", args.address);
+
+    let listener = TcpListener::bind(args.address.clone())?;
     loop {
-        thread::sleep(Duration::from_millis(200));
+        let (mut client, _) = listener.accept()?;
+        debug!("Accepted connection {:?}", client.peer_addr().unwrap());
+        
+        client.set_nodelay(true)?;
+        let key = client.local_addr().unwrap().port();
+        add_fd_to_sockmap(&client, key, sock_map)?;
+
+        let mut buf = [0; 8192];
+        loop {        
+            match client.read(&mut buf) {
+                Ok(len) => {
+                    if len == 0 {
+                        debug!("Client closed connection");
+                        break;
+                    }
+
+                    debug!("Read {} bytes from client", len);
+                    backend.write_all(&buf[0..len])?
+                },
+                Err(e) => {
+                    error!("Error reading from client: {}", e);
+                    continue;
+                }
+            }
+
+            buf.fill(0);
+            match backend.read(&mut buf) {
+                Ok(len) => {
+                    debug!("Read {} bytes from backend", len);
+                    client.write_all(&buf[0..len])?
+                },
+                Err(e) => error!("Error reading from backend: {}", e),
+            }
+        }
     }
 }

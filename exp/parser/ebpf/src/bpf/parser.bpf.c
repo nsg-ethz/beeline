@@ -171,6 +171,14 @@ static __always_inline int _modify(const struct bpf_dynptr *ptr, __u16 idx, __u1
     return 0;
 }
 
+static __always_inline int _try_redirect(struct __sk_buff *skb, __u32 port) {
+    int r = bpf_sk_redirect_hash(skb, &sock_map, &port, 0);
+    if (r == SK_DROP) {
+        bpf_err("ERROR: Redirect failed\n");
+    }
+    return r;
+}
+
 SEC("sk_skb/stream_parser")
 int stream_parser(struct __sk_buff *skb) {
     bpf_log("Parsing %d bytes", skb->len);
@@ -179,46 +187,50 @@ int stream_parser(struct __sk_buff *skb) {
 
 SEC("sk_skb/stream_verdict")
 int stream_verdict(struct __sk_buff *skb) {
-    __u32 cg_idx[MAX_MATCHES] = { 0 };
-    __u32 cg_len[MAX_MATCHES] = { 0 };
+    bpf_log("Verdict %d", skb->len);
+    bpf_log("local: %d, remote: %d", skb->local_port, skb->remote_port);
 
-    struct bpf_dynptr ptr;
-    bpf_dynptr_from_skb(skb, 0, &ptr);
+    // __u32 cg_idx[MAX_MATCHES] = { 0 };
+    // __u32 cg_len[MAX_MATCHES] = { 0 };
 
-    if (_match(&ptr, cg_idx, cg_len) != 3) {
-        return SK_PASS;
-    }
+    // struct bpf_dynptr ptr;
+    // bpf_dynptr_from_skb(skb, 0, &ptr);
 
-    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[2], cg_len[2]);
-    _modify(&ptr, cg_idx[2], cg_len[2]);
+    // if (_match(&ptr, cg_idx, cg_len) != 3) {
+    //     return SK_PASS;
+    // }
 
-    return SK_PASS;
+    // bpf_log("Matched packet. Captured [%d, %d]", cg_idx[2], cg_len[2]);
+    // _modify(&ptr, cg_idx[2], cg_len[2]);
+
+    __u32 dst_port = (skb->local_port == 3000) ? 8000 : 3000;
+    return _try_redirect(skb, dst_port);
 }
 
-SEC("sockops")
-int sock_ops(struct bpf_sock_ops *ops) {
-    int op = (int)ops->op;
+// SEC("sockops")
+// int sock_ops(struct bpf_sock_ops *ops) {
+//     int op = (int)ops->op;
 
-    __u32 lport = ops->local_port;
-    if (lport != PORT) {
-        return 1;
-    }
+//     __u32 lport = ops->local_port;
+//     if (lport != PORT) {
+//         return 1;
+//     }
 
-    bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
-    if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
-        if (bpf_sock_hash_update(ops, &sock_map, &lport, BPF_NOEXIST) < 0) {
-            bpf_err("ERROR: Adding socket failed.");
-        }
+//     bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
+//     if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
+//         if (bpf_sock_hash_update(ops, &sock_map, &lport, BPF_NOEXIST) < 0) {
+//             bpf_err("ERROR: Adding socket failed.");
+//         }
 
-        bpf_log("Added socket %d", lport);
-    }
-    else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE) {
-        if (bpf_map_delete_elem(&sock_map, &lport) < 0) {
-            bpf_err("ERROR: Deleting socket failed.");
-        }
+//         bpf_log("Added socket %d", lport);
+//     }
+//     else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE) {
+//         if (bpf_map_delete_elem(&sock_map, &lport) < 0) {
+//             bpf_err("ERROR: Deleting socket failed.");
+//         }
 
-        bpf_log("Deleted socket %d", lport);
-    }
+//         bpf_log("Deleted socket %d", lport);
+//     }
 
-    return 1;
-}
+//     return 1;
+// }
