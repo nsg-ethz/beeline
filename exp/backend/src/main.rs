@@ -8,6 +8,7 @@ use hyper::{
     Request,
     Response
 };
+use log::{debug, info, error};
 use tokio::net::TcpSocket;
 
 #[derive(Parser)]
@@ -22,6 +23,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    env_logger::init();
+
     let Args {
         address,
         port,
@@ -30,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("{}:{}", address, port)
         .parse()?;
 
-    println!("Listening on {addr}");
+    info!("Listening on {addr}");
 
     let socket = TcpSocket::new_v4()?;
     socket.set_reuseaddr(true)?;
@@ -41,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // We start a loop to continuously accept incoming connections
     loop {
         let (stream, _) = listener.accept().await?;
+        debug!("Accepted connection {:?}", stream.peer_addr().unwrap());
 
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
         // `hyper::rt` IO traits.
@@ -53,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             if let Err(err) = http1::Builder::new()
                 // `service_fn` converts our function in a `Service`
                 .serve_connection(io, service_fn(|req: Request<Incoming>| async {
+                    debug!("Received request: {:?}", req);
                     let len = req.headers().get("Content-Length")
                         .map(|v| v.clone())
                         .or(HeaderValue::from_str("0").ok())
@@ -75,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }))
                 .await
             {
-                println!("Error serving connection: {:?}", err);
+                error!("Error serving connection: {:?}", err);
             }
         });
     }

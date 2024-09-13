@@ -92,9 +92,11 @@ name = "backend"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "env_logger",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "log",
  "tokio",
 ]
 
