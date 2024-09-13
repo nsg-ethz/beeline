@@ -188,20 +188,19 @@ int stream_parser(struct __sk_buff *skb) {
 SEC("sk_skb/stream_verdict")
 int stream_verdict(struct __sk_buff *skb) {
     bpf_log("Verdict %d", skb->len);
-    bpf_log("local: %d, remote: %d", skb->local_port, skb->remote_port);
 
-    // __u32 cg_idx[MAX_MATCHES] = { 0 };
-    // __u32 cg_len[MAX_MATCHES] = { 0 };
+    __u32 cg_idx[MAX_MATCHES] = { 0 };
+    __u32 cg_len[MAX_MATCHES] = { 0 };
 
-    // struct bpf_dynptr ptr;
-    // bpf_dynptr_from_skb(skb, 0, &ptr);
+    struct bpf_dynptr ptr;
+    bpf_dynptr_from_skb(skb, 0, &ptr);
 
-    // if (_match(&ptr, cg_idx, cg_len) != 3) {
-    //     return SK_PASS;
-    // }
+    if (_match(&ptr, cg_idx, cg_len) != 3) {
+        return SK_PASS;
+    }
 
-    // bpf_log("Matched packet. Captured [%d, %d]", cg_idx[2], cg_len[2]);
-    // _modify(&ptr, cg_idx[2], cg_len[2]);
+    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[2], cg_len[2]);
+    _modify(&ptr, cg_idx[2], cg_len[2]);
 
     __u32 dst_port = (skb->local_port == 3000) ? 8000 : 3000;
     return _try_redirect(skb, dst_port);
