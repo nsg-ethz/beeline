@@ -1,5 +1,5 @@
 [package]
-name = "io_uring"
+name = "lb-io_uring"
 version = "0.1.0"
 edition = "2021"
 

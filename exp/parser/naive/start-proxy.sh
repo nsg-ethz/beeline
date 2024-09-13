@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 ROOT=$(dirname "$(readlink -f "$0")")
 TARGET=${ROOT}/../../../target/release/parser-naive
 NS=ns5

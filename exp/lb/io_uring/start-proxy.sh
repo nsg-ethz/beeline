@@ -1,9 +1,11 @@
 #!/bin/bash
 
+set -e
+
 ROOT=$(dirname "$(readlink -f "$0")")
 NS=ns5
 
-BIN=${ROOT}/../../target/release/io_uring
+BIN=${ROOT}/../../target/release/lb-io_uring
 
 cargo b -r
 
