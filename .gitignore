@@ -5,3 +5,4 @@ venv
 servers.pid
 logs
 res
+*.skel.rs
