@@ -23,12 +23,13 @@ fn listen<F>(addr: &str, backend: &mut TcpStream, modify: F) -> Result<()> where
     let listener = TcpListener::bind(addr)?;
 
     let (mut client, _) = listener.accept()?;
+    client.set_read_timeout(Some(std::time::Duration::from_micros(100)))?;
     client.set_nodelay(true)?;
 
     let fd = client.as_raw_fd();
     debug!("Accepted connection {:?}", fd);
 
-    let mut buf = [0; 8192];
+    let mut buf = [0; 2 * 8192];
     loop {        
         match client.read(&mut buf) {
             Ok(len) => {
@@ -37,9 +38,10 @@ fn listen<F>(addr: &str, backend: &mut TcpStream, modify: F) -> Result<()> where
                     return Ok(());
                 }
 
-                let new_len = modify(&mut buf[0..len]);
+                // let new_len = modify(&mut buf[0..len]);
+                let new_len = len;
 
-                debug!("Read {} bytes from client", len);
+                debug!("Read {} ({}) bytes from client", len, new_len);
                 backend.write_all(&buf[0..new_len])?
             },
             Err(e) => error!("Error reading from client: {}", e),
@@ -64,6 +66,7 @@ fn main() -> Result<()> {
 
     let mut dest = TcpStream::connect(args.destination)?;
     dest.set_nodelay(true)?;
+    dest.set_read_timeout(Some(std::time::Duration::from_micros(100)))?;
 
     info!("Listening on {}", args.address);
 
@@ -100,8 +103,6 @@ fn main() -> Result<()> {
         buf.len()
     };
 
-
-    
     loop {
         listen(&args.address, &mut dest, &modify)?;
     }
