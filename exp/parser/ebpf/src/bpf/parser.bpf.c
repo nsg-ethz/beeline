@@ -198,12 +198,12 @@ int stream_verdict(struct __sk_buff *skb) {
     struct bpf_dynptr ptr;
     bpf_dynptr_from_skb(skb, 0, &ptr);
 
-    if (_match(&ptr, cg_idx, cg_len) != 3) {
+    if (_match(&ptr, cg_idx, cg_len) != 1) {
         return verdict;
     }
 
-    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[2], cg_len[2]);
-    _modify(&ptr, cg_idx[2], cg_len[2]);
+    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
+    _modify(&ptr, cg_idx[0]+11, cg_len[0]-12);
 
     return verdict;
 }
