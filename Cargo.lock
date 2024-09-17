@@ -646,6 +646,7 @@ dependencies = [
  "log",
  "matcher",
  "regex",
+ "socket2",
 ]
 
 [[package]]

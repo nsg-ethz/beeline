@@ -1,9 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
 use core::str;
-use log::{debug, error, info};
+use log::{debug, info, warn};
 use matcher::{dfa::Action, http::HttpMatcher};
-use std::{io::{Read, Write}, net::{TcpListener, TcpStream}, os::fd::AsRawFd};
+use std::{io::{Read, Write}, marker::Send, net::{TcpStream, SocketAddr}, os::fd::AsRawFd, thread};
+use socket2::{Domain, Socket, Type};
 
 #[derive(Parser)]
 struct Args {
@@ -17,53 +18,71 @@ struct Args {
     removals: Option<Vec<String>>,
 }
 
-fn listen<F>(addr: &str, backend: &mut TcpStream, modify: F) -> Result<()> where F: Fn(&mut [u8]) -> usize {
-    let listener = TcpListener::bind(addr)?;
+fn listen<F>(addr: &str, dest: &str, modify: F) -> Result<()> where F: Send + Clone + Fn(&mut [u8]) -> usize {
+    let addr: SocketAddr = addr.parse()?;
+        
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&addr.into())?;
 
-    let (mut client, _) = listener.accept()?;
-    client.set_read_timeout(Some(std::time::Duration::from_micros(100)))?;
-    client.set_nodelay(true)?;
+    socket.listen(4096)?;
 
-    let fd = client.as_raw_fd();
-    debug!("Accepted connection {:?}", fd);
+    thread::scope(|s| {
+        loop {
+            let mut backend = TcpStream::connect(dest).unwrap();
+            backend.set_nodelay(true).unwrap();
+            backend.set_read_timeout(Some(std::time::Duration::from_micros(100))).unwrap();
 
-    let mut buf = [0; 2 * 8192];
-    loop {        
-        match client.read(&mut buf) {
-            Ok(len) => {
-                if len == 0 {
-                    debug!("Client closed connection");
-                    return Ok(());
+            let (mut client, _) = socket.accept().unwrap();
+            client.set_read_timeout(Some(std::time::Duration::from_micros(100))).unwrap();
+            client.set_nodelay(true).unwrap();
+
+            let mod_fn = modify.clone();
+
+            s.spawn(move || {
+                let fd = client.as_raw_fd();
+                debug!("Accepted connection {:?}", fd);
+
+                let mut buf = [0; 2 * 8192];
+                loop {        
+                    match client.read(&mut buf) {
+                        Ok(len) => {
+                            if len == 0 {
+                                debug!("Client closed connection");
+                                return;
+                            }
+
+                            let new_len = mod_fn(&mut buf[0..len]);
+
+                            debug!("Read {} ({}) bytes from client", len, new_len);
+                            backend.write_all(&buf[0..new_len])
+                                .unwrap();
+                        },
+                        Err(e) => warn!("Error reading from client: {}", e),
+                    }
+
+                    buf.fill(0);
+                    match backend.read(&mut buf) {
+                        Ok(len) => {
+                            debug!("Read {} bytes from backend", len);
+                            client.write_all(&buf[0..len])
+                                .unwrap();
+                        },
+                        Err(e) => warn!("Error reading from backend: {}", e),
+                    }
+
                 }
-
-                let new_len = modify(&mut buf[0..len]);
-
-                debug!("Read {} ({}) bytes from client", len, new_len);
-                backend.write_all(&buf[0..new_len])?
-            },
-            Err(e) => error!("Error reading from client: {}", e),
+            });
         }
+    });
 
-        buf.fill(0);
-        match backend.read(&mut buf) {
-            Ok(len) => {
-                debug!("Read {} bytes from backend", len);
-                client.write_all(&buf[0..len])?
-            },
-            Err(e) => error!("Error reading from backend: {}", e),
-        }
-
-    }
+    Ok(())
 }
 
 fn main() -> Result<()> {
     env_logger::init();
 
     let args = Args::parse();
-
-    let mut dest = TcpStream::connect(args.destination)?;
-    dest.set_nodelay(true)?;
-    dest.set_read_timeout(Some(std::time::Duration::from_micros(100)))?;
 
     info!("Listening on {}", args.address);
 
@@ -129,7 +148,7 @@ fn main() -> Result<()> {
         buf.len()
     };
 
-    loop {
-        listen(&args.address, &mut dest, &modify)?;
-    }
+    listen(&args.address, &args.destination, &modify)?;
+
+    Ok(())
 }
