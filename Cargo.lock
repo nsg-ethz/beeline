@@ -634,6 +634,7 @@ dependencies = [
  "libc",
  "log",
  "matcher",
+ "socket2",
 ]
 
 [[package]]

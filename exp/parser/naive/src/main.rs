@@ -20,11 +20,9 @@ struct Args {
 
 fn listen<F>(addr: &str, dest: &str, modify: F) -> Result<()> where F: Send + Clone + Fn(&mut [u8]) -> usize {
     let addr: SocketAddr = addr.parse()?;
-        
     let socket = Socket::new(Domain::IPV4, Type::STREAM, None)?;
     socket.set_reuse_address(true)?;
     socket.bind(&addr.into())?;
-
     socket.listen(4096)?;
 
     thread::scope(|s| {

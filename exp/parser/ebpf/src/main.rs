@@ -10,8 +10,9 @@ use log::{
     error
 };
 use std::{
-    io::{Read, Write}, mem::size_of, net::{TcpListener, TcpStream}, os::fd::{AsFd, AsRawFd, IntoRawFd},
+    io::{Read, Write}, mem::size_of, net::{SocketAddr, TcpStream}, os::fd::{AsFd, AsRawFd, IntoRawFd}, thread,
 };
+use socket2::{Domain, Socket, Type};
 
 use matcher::{
     dfa::Action,
@@ -190,48 +191,57 @@ fn main() -> Result<()> {
     let mut maps = skel.maps_mut();
     let sock_map = maps.sock_map();
 
-    let mut backend = TcpStream::connect(args.destination)?;
-    backend.set_nodelay(true)?;
-    let key = backend.peer_addr().unwrap().port();
-    add_fd_to_sockmap(&backend, key, sock_map)?;
-
     info!("Listening on {}", args.address);
 
-    let listener = TcpListener::bind(args.address.clone())?;
+    let addr: SocketAddr = args.address.parse()?;
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(4096)?;
+
+    // let mut streams = Vec::new();
     loop {
-        let (mut client, _) = listener.accept()?;
-        debug!("Accepted connection {:?}", client.peer_addr().unwrap());
-        
-        client.set_nodelay(true)?;
-        let key = client.local_addr().unwrap().port();
-        add_fd_to_sockmap(&client, key, sock_map)?;
+        let mut backend = TcpStream::connect(&args.destination)?;
+        backend.set_nodelay(true)?;
+        let backend_port = backend.local_addr().unwrap().port();
 
-        let mut buf = [0; 8192];
-        loop {        
-            match client.read(&mut buf) {
-                Ok(len) => {
-                    if len == 0 {
-                        debug!("Client closed connection");
-                        break;
+        let (mut client, client_addr) = socket.accept()?;        
+        let client_port = client_addr.as_socket().unwrap().port();
+
+        debug!("Accepted connection {:?}", client_port);
+
+        add_fd_to_sockmap(&backend, client_port, sock_map)?;
+        add_fd_to_sockmap(&client, backend_port, sock_map)?;
+        // streams.push(client);
+
+        thread::spawn(move || {
+            let mut buf = [0; 8192];
+            loop {        
+                match client.read(&mut buf) {
+                    Ok(len) => {
+                        if len == 0 {
+                            debug!("Client closed connection");
+                            break;
+                        }
+
+                        debug!("Read {} bytes from client", len);
+                        backend.write_all(&buf[0..len]).unwrap();
+                    },
+                    Err(e) => {
+                        error!("Error reading from client: {}", e);
+                        continue;
                     }
+                }
 
-                    debug!("Read {} bytes from client", len);
-                    backend.write_all(&buf[0..len])?
-                },
-                Err(e) => {
-                    error!("Error reading from client: {}", e);
-                    continue;
+                buf.fill(0);
+                match backend.read(&mut buf) {
+                    Ok(len) => {
+                        debug!("Read {} bytes from backend", len);
+                        client.write_all(&buf[0..len]).unwrap();
+                    },
+                    Err(e) => error!("Error reading from backend: {}", e),
                 }
             }
-
-            buf.fill(0);
-            match backend.read(&mut buf) {
-                Ok(len) => {
-                    debug!("Read {} bytes from backend", len);
-                    client.write_all(&buf[0..len])?
-                },
-                Err(e) => error!("Error reading from backend: {}", e),
-            }
-        }
-    }
+        });
+    }    
 }

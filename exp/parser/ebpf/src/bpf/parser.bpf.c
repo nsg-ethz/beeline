@@ -44,7 +44,7 @@ volatile const __u32 s2ts_raw[128][256] = { s_init };
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 1000);
+    __uint(max_entries, 4096);
     __uint(key_size, sizeof(int));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
@@ -171,10 +171,11 @@ static __always_inline int _modify(const struct bpf_dynptr *ptr, __u16 idx, __u1
     return 0;
 }
 
-static __always_inline int _try_redirect(struct __sk_buff *skb, __u32 port) {
+static __always_inline int _try_redirect(struct __sk_buff *skb) {
+    __u32 port = (skb->local_port == 3000) ? bpf_ntohl(skb->remote_port) : skb->local_port;
     int r = bpf_sk_redirect_hash(skb, &sock_map, &port, 0);
     if (r == SK_DROP) {
-        bpf_err("ERROR: Redirect failed\n");
+        bpf_err("ERROR: Redirect failed");
     }
     return r;
 }
@@ -187,23 +188,22 @@ int stream_parser(struct __sk_buff *skb) {
 
 SEC("sk_skb/stream_verdict")
 int stream_verdict(struct __sk_buff *skb) {
-    __u32 dst_port = (skb->local_port == 3000) ? 8000 : 3000;
-    int verdict = _try_redirect(skb, dst_port);
+    int verdict = _try_redirect(skb);
 
     bpf_log("Verdict: %d (%d, %d -> %d)", verdict, skb->len, skb->local_port, bpf_ntohl(skb->remote_port));
 
-    // __u32 cg_idx[MAX_MATCHES] = { 0 };
-    // __u32 cg_len[MAX_MATCHES] = { 0 };
+    __u32 cg_idx[MAX_MATCHES] = { 0 };
+    __u32 cg_len[MAX_MATCHES] = { 0 };
 
-    // struct bpf_dynptr ptr;
-    // bpf_dynptr_from_skb(skb, 0, &ptr);
+    struct bpf_dynptr ptr;
+    bpf_dynptr_from_skb(skb, 0, &ptr);
 
-    // if (_match(&ptr, cg_idx, cg_len) != 1) {
-    //     return verdict;
-    // }
+    if (_match(&ptr, cg_idx, cg_len) != 1) {
+        return verdict;
+    }
 
-    // bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
-    // _modify(&ptr, cg_idx[0]+11, cg_len[0]-12);
+    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
+    _modify(&ptr, cg_idx[0]+11, cg_len[0]-12);
 
     return verdict;
 }
