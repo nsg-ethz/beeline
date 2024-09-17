@@ -77,9 +77,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.87"
+version = "1.0.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10f00e1f6e58a40e807377c75c6a7f97bf9044fab57816f2414e6f5f4499d7b8"
+checksum = "86fdf8605db99b54d3cd748a44c6d04df638eb5dafb219b135d0149bd0db01f6"
 
 [[package]]
 name = "autocfg"
@@ -528,6 +528,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
+name = "matcher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+]
+
+[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -625,6 +633,7 @@ dependencies = [
  "libbpf-sys",
  "libc",
  "log",
+ "matcher",
 ]
 
 [[package]]
@@ -635,6 +644,7 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "matcher",
  "regex",
 ]
 

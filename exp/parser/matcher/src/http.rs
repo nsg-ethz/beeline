@@ -1,5 +1,5 @@
 use anyhow::{Ok, Result};
-use crate::matcher::dfa::DFA;
+use crate::dfa::DFA;
 
 const CRLF: &str = "\r\n";
 

@@ -5,5 +5,5 @@ members = [
     "exp/backend", 
     "exp/parser/ebpf",
     "exp/parser/naive",
-    "exp/lb/io_uring", 
+    "exp/lb/io_uring", "exp/parser/matcher", 
 ]

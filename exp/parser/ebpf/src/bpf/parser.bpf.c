@@ -192,18 +192,18 @@ int stream_verdict(struct __sk_buff *skb) {
 
     bpf_log("Verdict: %d (%d, %d -> %d)", verdict, skb->len, skb->local_port, bpf_ntohl(skb->remote_port));
 
-    __u32 cg_idx[MAX_MATCHES] = { 0 };
-    __u32 cg_len[MAX_MATCHES] = { 0 };
+    // __u32 cg_idx[MAX_MATCHES] = { 0 };
+    // __u32 cg_len[MAX_MATCHES] = { 0 };
 
-    struct bpf_dynptr ptr;
-    bpf_dynptr_from_skb(skb, 0, &ptr);
+    // struct bpf_dynptr ptr;
+    // bpf_dynptr_from_skb(skb, 0, &ptr);
 
-    if (_match(&ptr, cg_idx, cg_len) != 1) {
-        return verdict;
-    }
+    // if (_match(&ptr, cg_idx, cg_len) != 1) {
+    //     return verdict;
+    // }
 
-    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
-    _modify(&ptr, cg_idx[0]+11, cg_len[0]-12);
+    // bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
+    // _modify(&ptr, cg_idx[0]+11, cg_len[0]-12);
 
     return verdict;
 }
@@ -214,7 +214,7 @@ int stream_verdict(struct __sk_buff *skb) {
 
 //     __u32 lport = ops->local_port;
 //     if (lport != PORT) {
-//         return 1;
+//         return BPF_OK;
 //     }
 
 //     bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
@@ -233,5 +233,5 @@ int stream_verdict(struct __sk_buff *skb) {
 //         bpf_log("Deleted socket %d", lport);
 //     }
 
-//     return 1;
+//     return BPF_OK;
 // }

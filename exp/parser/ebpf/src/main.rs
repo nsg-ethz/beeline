@@ -19,7 +19,6 @@ use matcher::{
 };
 use parser::*;
 
-mod matcher;
 mod parser {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -157,11 +156,12 @@ fn main() -> Result<()> {
     // matcher.match_http_hdr("hallo", "welt")?;
     // matcher.match_http_uri("/hello/world.html")?;
     matcher.remove_http_hdr("user-agent")?;
-    inject_matcher_raw(matcher, &mut open_skel)?;
+    // inject_matcher_raw(matcher, &mut open_skel)?;
 
     // open_skel.rodata_mut().PORT = args.port;
 
     let mut skel = open_skel.load()?;
+    inject_matcher_bpf_map(matcher, &mut skel)?;
 
     let sock_map_fd = skel.maps()
         .sock_map()
