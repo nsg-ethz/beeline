@@ -7,7 +7,6 @@ use log::{
     debug,
     warn,
     info,
-    error
 };
 use std::{
     io::{Read, Write}, mem::size_of, net::{SocketAddr, TcpStream}, os::fd::{AsFd, AsRawFd, IntoRawFd}, thread,
@@ -154,15 +153,15 @@ fn main() -> Result<()> {
     let mut open_skel = skel_builder.open()?;
 
     let mut matcher = HttpMatcher::new(open_skel.rodata().s_init, open_skel.rodata().s_any);
-    // matcher.match_http_hdr("hallo", "welt")?;
+    // matcher.capture_http_hdr_val("content-length")?;
     // matcher.match_http_uri("/hello/world.html")?;
     matcher.remove_http_hdr("user-agent")?;
-    // inject_matcher_raw(matcher, &mut open_skel)?;
+    inject_matcher_raw(matcher, &mut open_skel)?;
 
     // open_skel.rodata_mut().PORT = args.port;
 
     let mut skel = open_skel.load()?;
-    inject_matcher_bpf_map(matcher, &mut skel)?;
+    // inject_matcher_bpf_map(matcher, &mut skel)?;
 
     let sock_map_fd = skel.maps()
         .sock_map()
@@ -199,7 +198,6 @@ fn main() -> Result<()> {
     socket.bind(&addr.into())?;
     socket.listen(4096)?;
 
-    // let mut streams = Vec::new();
     loop {
         let mut backend = TcpStream::connect(&args.destination)?;
         backend.set_nodelay(true)?;
@@ -212,7 +210,6 @@ fn main() -> Result<()> {
 
         add_fd_to_sockmap(&backend, client_port, sock_map)?;
         add_fd_to_sockmap(&client, backend_port, sock_map)?;
-        // streams.push(client);
 
         thread::spawn(move || {
             let mut buf = [0; 8192];
@@ -228,7 +225,7 @@ fn main() -> Result<()> {
                         backend.write_all(&buf[0..len]).unwrap();
                     },
                     Err(e) => {
-                        error!("Error reading from client: {}", e);
+                        warn!("Error reading from client: {}", e);
                         continue;
                     }
                 }
@@ -239,7 +236,7 @@ fn main() -> Result<()> {
                         debug!("Read {} bytes from backend", len);
                         client.write_all(&buf[0..len]).unwrap();
                     },
-                    Err(e) => error!("Error reading from backend: {}", e),
+                    Err(e) => warn!("Error reading from backend: {}", e),
                 }
             }
         });
