@@ -149,7 +149,7 @@ fn main() -> Result<()> {
     let mut open_skel = skel_builder.open()?;
 
     let mut matcher = HttpMatcher::new(open_skel.rodata().s_init, open_skel.rodata().s_any);
-    // matcher.match_http_hdr("hallo", "welt")?;
+    // matcher.capture_http_hdr_val("content-length")?;
     // matcher.match_http_uri("/hello/world.html")?;
     matcher.remove_http_hdr("user-agent")?;
     inject_matcher_raw(matcher, &mut open_skel)?;
