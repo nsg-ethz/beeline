@@ -6,10 +6,10 @@ RATE=20000
 DIRECT=0
 
 # Parse arguments
-while getopts "dl:n:p:r:s:u:" opt; do
+while getopts "dln:p:r:s:u:" opt; do
     case $opt in
         d ) DIRECT=1 ;;
-        l ) WRITE_LOG=${OPTARG} ;;
+        l ) WRITE_LOG=1 ;;
         n ) NAME=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         r ) RATE=${OPTARG} ;;
