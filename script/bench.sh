@@ -56,7 +56,7 @@ for SIZE in ${SIZE_LIST}; do
         SUM_OPT="--summary-export=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B.json"
     fi
 
-    BENCH_CMD="k6 run -e VUS=${VUS} -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
+    BENCH_CMD="k6 run --summary-trend-stats \"min,avg,med,max,p(70),p(75),p(80),p(85),p(90),p(95),p(99)\" -e VUS=${VUS} -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
     echo ${BENCH_CMD}
     eval ${BENCH_CMD}
 done

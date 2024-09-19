@@ -8,10 +8,10 @@ const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
 const data = randomString(payloadSize);
 
 const backends = [
-  new Counter('backend1'),
-  new Counter('backend2'),
-  new Counter('backend3'),
-  new Counter('backend4')
+  new Counter("backend1"),
+  new Counter("backend2"),
+  new Counter("backend3"),
+  new Counter("backend4")
 ];
 
 export function randomRequest() {
