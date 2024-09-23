@@ -91,12 +91,14 @@ checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
 name = "backend"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "env_logger",
  "http-body-util",
  "hyper",
  "hyper-util",
  "log",
+ "socket2",
  "tokio",
 ]
 
