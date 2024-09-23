@@ -1,14 +1,18 @@
+use anyhow::Result;
+use core::str;
 use clap::Parser;
-use hyper::header::HeaderValue;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
+use http_body_util::BodyExt;
 use hyper::{
     body::Incoming,
     Request,
-    Response
+    Response,
+    server::conn::http1,
+    service::service_fn,
 };
+use hyper_util::rt::TokioIo;
 use log::{debug, info, error};
+use std::{collections::VecDeque, os::fd::AsFd, time::Duration};
+use socket2::{SockRef, TcpKeepalive};
 use tokio::net::TcpSocket;
 
 #[derive(Parser)]
@@ -17,8 +21,21 @@ struct Args {
     address: String,
     #[arg(short, long, default_value="8000")]
     port: u16,
+    #[arg(short='f', long, default_value="1.0")]
+    content_length_factor: f32,
     #[arg(short='H', long="header")]
     headers: Option<Vec<String>>,
+}
+
+fn prepare_socket<S: AsFd>(socket: &S) -> Result<()> {
+    let socket = SockRef::from(&socket);
+    let ka = TcpKeepalive::new()
+        .with_time(Duration::from_secs(10));
+
+    socket.set_nodelay(true)?;
+    socket.set_tcp_keepalive(&ka)?;
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -28,8 +45,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let Args {
         address,
         port,
+        content_length_factor,
         headers
     } = Args::parse();
+
     let addr = format!("{}:{}", address, port)
         .parse()?;
 
@@ -37,6 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let socket = TcpSocket::new_v4()?;
     socket.set_reuseaddr(true)?;
+    prepare_socket(&socket)?;
     socket.bind(addr)?;
 
     let listener = socket.listen(4096)?;
@@ -44,6 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // We start a loop to continuously accept incoming connections
     loop {
         let (stream, _) = listener.accept().await?;
+        prepare_socket(&stream)?;
+        
         debug!("Accepted connection {:?}", stream.peer_addr().unwrap());
 
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
@@ -58,10 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // `service_fn` converts our function in a `Service`
                 .serve_connection(io, service_fn(|req: Request<Incoming>| async {
                     debug!("Received request: {:?}", req);
-                    let len = req.headers().get("Content-Length")
-                        .map(|v| v.clone())
-                        .or(HeaderValue::from_str("0").ok())
-                        .unwrap();
+
+                    let len = req.headers()
+                        .get("Content-Length")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .unwrap_or(0.0);
+                    let len = (len * content_length_factor).floor() as usize;
 
                     let mut res = Response::builder()
                         .header("Content-Length", len);
@@ -76,7 +101,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         }   
                     }
 
-                    res.body(req.into_body())
+                    let body: Incoming = req.into_body();
+                    let body = body.map_frame(move |f| {
+                        f.map_data(|buf| {
+                            buf.iter()
+                                .cycle()
+                                .take(len)
+                                .copied()
+                                .collect::<VecDeque<_>>()
+                        })
+                    });
+                    res.body(body)
                 }))
                 .await
             {
