@@ -280,7 +280,7 @@ def scatter_graph(name, proxy, metric, drop_rate, dst):
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
     g.set_ylabel(f"{metric} [ms]")
 
-    _save_to_path(f"scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", dst)
+    _save_to_path(f"{name}-scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", dst)
 
 
 def surface_graph(name, proxy, metric, agg, dst):
