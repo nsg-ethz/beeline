@@ -178,11 +178,7 @@ fn main() -> Result<()> {
         .attach_cgroup(cgroup_fd)?;
 
     skel.progs_mut()
-        .stream_parser()
-        .attach_sockmap(sock_map_fd)?;
-
-    skel.progs_mut()
-        .stream_verdict()
+        .msg_verdict()
         .attach_sockmap(sock_map_fd)?;
 
     loop {
