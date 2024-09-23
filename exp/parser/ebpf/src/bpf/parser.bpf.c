@@ -4,7 +4,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 #if LOG_LEVEL == 0
 #define bpf_log(...) (0)
@@ -42,10 +42,17 @@ const __u16 a_done = 1 << 14;
 volatile const __u8 use_raw_stm = 1;
 volatile const __u32 s2ts_raw[128][256] = { s_init };
 
+struct sock_key {
+    __u32 local_ip4;
+    __u32 local_port;
+    __u32 remote_ip4;
+    __u32 remote_port;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 4096);
-    __uint(key_size, sizeof(int));
+    __uint(max_entries, 1000);
+    __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
 
@@ -62,6 +69,20 @@ struct {
     __uint(key_size, sizeof(__u32));
     __array(values, struct trans);
 } s2ts_bpf SEC(".maps");
+
+static __always_inline void _skb_extract_key(struct __sk_buff *skb, struct sock_key *key) {
+    key->remote_ip4 = bpf_ntohl(skb->remote_ip4);
+    key->local_ip4 = bpf_ntohl(skb->local_ip4);
+    key->remote_port = bpf_ntohl(skb->remote_port);
+    key->local_port = skb->local_port;
+}
+
+static __always_inline void _ops_extract_key(struct bpf_sock_ops *ops, struct sock_key *key) {
+    key->remote_ip4 = bpf_ntohl(ops->remote_ip4);
+    key->local_ip4 = bpf_ntohl(ops->local_ip4);
+    key->remote_port = bpf_ntohl(ops->remote_port);
+    key->local_port = ops->local_port;
+}
 
 static __always_inline void next_bpf(__u16 state, char input, __u16 *next_state, __u16 *action) {
     __u32 idx = state;
@@ -172,11 +193,16 @@ static __always_inline int _modify(const struct bpf_dynptr *ptr, __u16 idx, __u1
 }
 
 static __always_inline int _try_redirect(struct __sk_buff *skb) {
-    __u32 port = (skb->local_port == 3000) ? bpf_ntohl(skb->remote_port) : skb->local_port;
-    int r = bpf_sk_redirect_hash(skb, &sock_map, &port, 0);
+    struct sock_key key = { 0 };
+    _skb_extract_key(skb, &key);
+
+    int r = bpf_sk_redirect_hash(skb, &sock_map, &key, BPF_F_INGRESS);
     if (r == SK_DROP) {
         bpf_err("ERROR: Redirect failed");
     }
+
+    bpf_log("Verdict %d [%pI4:%u->%pI4:%u]", r, key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
+
     return r;
 }
 
@@ -185,53 +211,48 @@ int stream_parser(struct __sk_buff *skb) {
     bpf_log("Parsing %d bytes", skb->len);
     return skb->len;
 }
-
 SEC("sk_skb/stream_verdict")
 int stream_verdict(struct __sk_buff *skb) {
     int verdict = _try_redirect(skb);
 
-    bpf_log("Verdict: %d (%d, %d -> %d)", verdict, skb->len, skb->local_port, bpf_ntohl(skb->remote_port));
+    // __u32 cg_idx[MAX_MATCHES] = { 0 };
+    // __u32 cg_len[MAX_MATCHES] = { 0 };
 
-    __u32 cg_idx[MAX_MATCHES] = { 0 };
-    __u32 cg_len[MAX_MATCHES] = { 0 };
+    // struct bpf_dynptr ptr;
+    // bpf_dynptr_from_skb(skb, 0, &ptr);
 
-    struct bpf_dynptr ptr;
-    bpf_dynptr_from_skb(skb, 0, &ptr);
+    // if (_match(&ptr, cg_idx, cg_len) != 1) {
+    //     return verdict;
+    // }
 
-    if (_match(&ptr, cg_idx, cg_len) != 1) {
-        return verdict;
-    }
-
-    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
-    _modify(&ptr, cg_idx[0]+11, cg_len[0]-12);
+    // bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
+    // _modify(&ptr, cg_idx[0]+11, cg_len[0]-12);
 
     return verdict;
 }
 
-// SEC("sockops")
-// int sock_ops(struct bpf_sock_ops *ops) {
-//     int op = (int)ops->op;
+SEC("sockops")
+int monitor_sockets(struct bpf_sock_ops *ops) {
+    int op = (int)ops->op;
 
-//     __u32 lport = ops->local_port;
-//     if (lport != PORT) {
-//         return BPF_OK;
-//     }
+    struct sock_key key = { 0 };
+    _ops_extract_key(ops, &key);
 
-//     bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
-//     if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
-//         if (bpf_sock_hash_update(ops, &sock_map, &lport, BPF_NOEXIST) < 0) {
-//             bpf_err("ERROR: Adding socket failed.");
-//         }
+    bpf_log("Sockop %d [%pI4:%u->%pI4:%u]", ops->op, key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
 
-//         bpf_log("Added socket %d", lport);
-//     }
-//     else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE) {
-//         if (bpf_map_delete_elem(&sock_map, &lport) < 0) {
-//             bpf_err("ERROR: Deleting socket failed.");
-//         }
+    if (key.remote_port != PORT) {
+        return 1;
+    }
 
-//         bpf_log("Deleted socket %d", lport);
-//     }
+    if (op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
+        if (bpf_sock_hash_update(ops, &sock_map, &key, BPF_NOEXIST) < 0) {
+            bpf_err("ERROR: Adding socket failed.");
+        }
 
-//     return BPF_OK;
-// }
+        bpf_log("Added socket [%pI4:%u->%pI4:%u]", key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
+    }
+
+    bpf_log("reply %d", ops->reply);
+
+    return 1;
+}
