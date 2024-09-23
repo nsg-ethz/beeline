@@ -93,8 +93,11 @@ def _save_to_path(name, dst):
 
     plt.tight_layout()
     path = os.path.join(dst, name) if os.path.isdir(dst) else dst
+    if os.path.splitext(path)[1] == "":
+        path += ".png"
+
     print("Writing to", path)
-    plt.savefig(path)
+    plt.savefig(path, dpi=600)
 
 
 def _aggregate_fn(name):
@@ -131,16 +134,21 @@ def line_graph(name, metric, agg, dst):
     sizes = set(df.index.get_level_values("payload_size"))
     sizes = sorted(sizes)
     
-    # g.set_title(f"{metric} {agg}")
     g.set_xscale("log")
     g.set_xlabel("payload size [B]")
     g.set_xticks(sizes)
     g.set_xticklabels([str(s) for s in sizes])
     g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-    g.set_ylabel("time [ms]")
     g.set_xbound(lower=sizes[0], upper=sizes[-1])
-    plt.yscale("log")
-    _save_to_path(f"{name}-line-{metric}-{agg}.pdf", dst)           
+
+    g.set_ylabel("time [ms]")
+    min_y = df[agg].min()
+    max_y = df[agg].max()
+
+    g.set_yticks(np.linspace(min_y, max_y, 5))
+    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+
+    _save_to_path(f"{name}-line-{metric}-{agg}", dst)           
     
 
 def speedup_graph(name, base, metric, aggs, dst):
@@ -172,7 +180,7 @@ def speedup_graph(name, base, metric, aggs, dst):
     g.set_axis_labels("payload size [B]", "speedup")
     g.legend.set_title(None)
     sns.move_legend(g, "upper right")
-    _save_to_path(f"{name}-speedup-{metric}.pdf", dst)
+    _save_to_path(f"{name}-speedup-{metric}", dst)
 
 
 def duration_graph(name, proxy, agg, dst):
@@ -190,7 +198,7 @@ def duration_graph(name, proxy, agg, dst):
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]")
     
-    _save_to_path(f"{name}-duration-{proxy}-{agg}.pdf", dst)
+    _save_to_path(f"{name}-duration-{proxy}-{agg}", dst)
 
 
 def overhead_graph(name, base, metric, agg, absolute, dst):
@@ -225,7 +233,7 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]" if absolute else "overhead [%]")
     
-    _save_to_path(f"{name}-overhead-{metric}-{agg}.pdf", dst)
+    _save_to_path(f"{name}-overhead-{metric}-{agg}", dst)
 
 
 def cdf_graph(name, metric, crop, dst):
@@ -246,30 +254,33 @@ def cdf_graph(name, metric, crop, dst):
     g.set_xlabel(metric)
     # g.set_ybound(lower=0.9, upper=1.0)
     plt.xscale("log")
-    _save_to_path(f"{name}-cdf-{metric}-@{crop}s.pdf", dst)
+    _save_to_path(f"{name}-cdf-{metric}-@{crop}s", dst)
 
 
-def scatter_graph(name, metric, drop_rate, dst):
+def scatter_graph(name, proxy, metric, drop_rate, dst):
     paths = _get_file_paths(name, "*.gz")
     df = _load_log_data(paths)
     df = df[df["metric_name"] == metric]
+
+    df = df[df["proxy"] == proxy]
+    df["timestamp"] -= df["timestamp"].min()
 
     drop_num = int(drop_rate * len(df))
     if drop_num > 0:
         print(f"Dropping {drop_num} samples ({drop_rate*100}%)")
         df = df.sample(n=len(df)-drop_num).sort_index()
 
-    proxies = df["proxy"].unique()
-    for p in proxies:
-        df.loc[df["proxy"] == p, "timestamp"] -= df.loc[df["proxy"] == p, "timestamp"].min()
-
     g = sns.scatterplot(data=df, x="timestamp", y="metric_value", hue="proxy")
 
     g.set_xlabel("time [s]")
-    g.set_ylabel(f"{metric} [ms]")
-    plt.yscale("log")
 
-    _save_to_path(f"cdf-{metric}-@{str(round(100*(1-drop_rate)))}%.pdf", dst)
+    min_y = df["metric_value"].min()
+    max_y = df["metric_value"].max()
+    g.set_yticks(np.linspace(min_y, max_y, 5))
+    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+    g.set_ylabel(f"{metric} [ms]")
+
+    _save_to_path(f"scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", dst)
 
 
 def surface_graph(name, proxy, metric, agg, dst):
@@ -310,7 +321,7 @@ def surface_graph(name, proxy, metric, agg, dst):
     ax.set_xlim([16384, 128])
     ax.set_zlabel("latency [ms]")
 
-    _save_to_path(f"{name}-surface-{proxy}-{metric}-{agg}.pdf", dst)
+    _save_to_path(f"{name}-surface-{proxy}-{metric}-{agg}", dst)
 
 
 if __name__ == "__main__":
@@ -344,6 +355,7 @@ if __name__ == "__main__":
     cdf.add_argument("-c", "--crop", default=0, help="Crop the given number of seconds from the beginning of the trace")
 
     scatter = subparsers.add_parser("scatter")
+    scatter.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
     scatter.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
     scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
 
@@ -365,6 +377,6 @@ if __name__ == "__main__":
     elif args.command == "cdf":
         cdf_graph(args.name, args.metric, float(args.crop), args.output)
     elif args.command == "scatter":
-        scatter_graph(args.name, args.metric, float(args.drop), args.output)
+        scatter_graph(args.name, args.proxy, args.metric, float(args.drop), args.output)
     elif args.command == "surface":
         surface_graph(args.name, args.proxy, args.metric, args.agg, args.output)
