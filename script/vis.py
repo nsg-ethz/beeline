@@ -97,7 +97,7 @@ def _save_to_path(name, dst):
         path += ".png"
 
     print("Writing to", path)
-    plt.savefig(path, dpi=600)
+    plt.savefig(path, dpi=400)
 
 
 def _aggregate_fn(name):
