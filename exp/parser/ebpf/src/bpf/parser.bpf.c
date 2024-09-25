@@ -39,8 +39,7 @@ const __u16 s_any = 1;
 const __u16 a_match = 1 << 15;
 const __u16 a_done = 1 << 14;
 
-volatile const __u8 use_raw_stm = 1;
-volatile const __u32 s2ts_raw[128][256] = { s_init };
+volatile const __u32 s2ts[128][256] = { s_init };
 
 struct sock_key {
     __u32 local_ip4;
@@ -55,20 +54,6 @@ struct {
     __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
-
-struct trans {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 256);
-    __uint(key_size, sizeof(char));
-    __uint(value_size, sizeof(__u32));
-};
-
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
-    __uint(max_entries, 1024);
-    __uint(key_size, sizeof(__u32));
-    __array(values, struct trans);
-} s2ts_bpf SEC(".maps");
 
 static __always_inline void _skb_extract_key(struct __sk_buff *skb, struct sock_key *key) {
     key->remote_ip4 = bpf_ntohl(skb->remote_ip4);
@@ -91,40 +76,13 @@ static __always_inline void _ops_extract_key(struct bpf_sock_ops *ops, struct so
     key->local_port = ops->local_port;
 }
 
-static __always_inline void next_bpf(__u16 state, char input, __u16 *next_state, __u16 *action) {
-    __u32 idx = state;
-    __u32* ts = bpf_map_lookup_elem(&s2ts_bpf, &idx);
-    if (ts == NULL) {
-        bpf_printk("Failed to find state %d", idx);
-        *next_state = s_any;
-        *action = 0;
-        return;
-    }
-
-    __u32* sa = bpf_map_lookup_elem(ts, &input);
-    if (sa == NULL) {
-        // check if there's a wildcard transition
-        char wildcard = '*';
-        sa = bpf_map_lookup_elem(ts, &wildcard);
-
-        if (sa == NULL) {
-            *next_state = s_any;
-            *action = 0;   
-            return;
-        }
-    }
-
-    *next_state = *sa & s_mask;
-    *action = (*sa & a_mask) >> 16;
-}
-
-static __always_inline void next_raw(__u16 state, __u32 input, __u16 *next_state, __u16 *action) {
+static __always_inline void next(__u16 state, __u32 input, __u16 *next_state, __u16 *action) {
     state &= 0x7F;
     input &= 0xFF;
 
-    __u32 sa = s2ts_raw[state][input];
+    __u32 sa = s2ts[state][input];
     if (sa == 0) {
-        sa = s2ts_raw[state]['*'];
+        sa = s2ts[state]['*'];
         if (sa == 0) {
             *next_state = s_any;
             *action = 0;   
@@ -134,15 +92,6 @@ static __always_inline void next_raw(__u16 state, __u32 input, __u16 *next_state
 
     *next_state = sa & s_mask;
     *action = (sa & a_mask) >> 16;
-}
-
-static __always_inline void next(__u16 state, char input, __u16 *next_state, __u16 *action) {
-    if (use_raw_stm) {
-        next_raw(state, input, next_state, action);
-    }
-    else {
-        next_bpf(state, input, next_state, action);
-    }
 }
 
 static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __u32 *cg_len) {

@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use libbpf_rs::{
-    set_print, skel::{OpenSkel, SkelBuilder}, Map, MapFlags, MapHandle, MapType, PrintLevel
+    set_print, skel::{OpenSkel, SkelBuilder}, PrintLevel
 };
 use log::{
     debug,
     warn,
     info
 };
-use std::{mem::size_of, net::ToSocketAddrs, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, thread, time::Duration};
+use std::{net::ToSocketAddrs, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, thread, time::Duration};
 
 use matcher::{
     dfa::Action,
@@ -67,54 +67,7 @@ fn state_action_to_raw(state: u16, action: Action, rodata: &parser::parser_types
     ((action as u32) << 16) | (state as u32)
 }
 
-fn create_state_bpf_map(state: u16, skel: &mut parser::ParserSkel) -> Result<MapHandle> {
-    let opts = libbpf_sys::bpf_map_create_opts {
-        sz: size_of::<libbpf_sys::bpf_map_create_opts>() as libbpf_sys::size_t,
-        ..Default::default()
-    };
-    
-    let idx = state as u32;
-    let name = format!("t{}", idx);
-    let map = MapHandle::create(MapType::Hash, Some(name), 1, 4, 256, &opts)
-        .context("Failed to create map")?;
-    let fd = map.as_fd().as_raw_fd();
-
-    skel.maps()
-        .s2ts_bpf()
-        .update(&idx.to_ne_bytes(), &fd.to_ne_bytes(), MapFlags::ANY)
-        .context("Failed to insert state into s2ts")?;
-
-    Ok(map)
-}
-
-fn inject_matcher_bpf_map(mut matcher: HttpMatcher, skel: &mut parser::ParserSkel) -> Result<()> {
-    // this is necessary so that the DFA won't
-    // parse beyond the HTTP header
-    matcher.done_on_http_hdr_end()?;
-
-    let mut states = matcher.dfa.iter_states()
-        .map(|s| s.clone())
-        .collect::<Vec<_>>();
-
-    states.sort();
-
-    let mut tss = states.iter()
-        .map (|idx| create_state_bpf_map(*idx, skel))
-        .collect::<Result<Vec<_>>>()?;
-
-    for (from, to, input, action) in matcher.dfa.iter_transitions() {
-        let ts = tss.get_mut(*from as usize).unwrap();
-        let key = (*input as u8).to_ne_bytes();
-
-        let val = state_action_to_raw(*to, *action, &skel.rodata());
-        let val = val.to_ne_bytes();
-        ts.update(&key, &val, MapFlags::ANY)?;
-    }
-
-    Ok(())
-}
-
-fn inject_matcher_raw(mut matcher: HttpMatcher, skel: &mut parser::OpenParserSkel) -> Result<()> {
+fn inject_matcher(mut matcher: HttpMatcher, skel: &mut parser::OpenParserSkel) -> Result<()> {
     // this is necessary so that the DFA won't
     // parse beyond the HTTP header
     matcher.done_on_http_hdr_end()?;
@@ -122,18 +75,8 @@ fn inject_matcher_raw(mut matcher: HttpMatcher, skel: &mut parser::OpenParserSke
     for (from, to, input, action) in matcher.dfa.iter_transitions() {
         let val = state_action_to_raw(*to, *action, skel.rodata());
         debug!("[{}, {}] = {}", from, input.escape_debug(), val);
-        skel.rodata_mut().s2ts_raw[*from as usize][*input as usize] = val;
+        skel.rodata_mut().s2ts[*from as usize][*input as usize] = val;
     }
-
-    Ok(())
-}
-
-fn add_fd_to_sockmap<F: AsRawFd>(fd: &F, key: u16, sock_map: &mut Map) -> Result<()> {
-    debug!("Adding fd {} to sockmap with key {}", fd.as_raw_fd(), key);
-    let key = (key as u32).to_ne_bytes();
-    let val = fd.as_raw_fd()
-        .to_ne_bytes();
-    sock_map.update(&key, &val, MapFlags::ANY)?;
 
     Ok(())
 }
@@ -152,7 +95,7 @@ fn main() -> Result<()> {
     for hdr in args.removals.unwrap_or_default() {
         matcher.remove_http_hdr(&hdr)?;
     }
-    inject_matcher_raw(matcher, &mut open_skel)?;
+    inject_matcher(matcher, &mut open_skel)?;
 
     let addr = args.destination.to_socket_addrs()?
         .next()
@@ -160,7 +103,6 @@ fn main() -> Result<()> {
     open_skel.rodata_mut().PORT = addr.port() as u32;
 
     let mut skel = open_skel.load()?;
-    // inject_matcher_bpf_map(matcher, &mut skel)?;
 
     let sock_map_fd = skel.maps()
         .sock_map()
