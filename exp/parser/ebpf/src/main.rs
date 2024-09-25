@@ -149,7 +149,9 @@ fn main() -> Result<()> {
     let mut matcher = HttpMatcher::new(open_skel.rodata().s_init, open_skel.rodata().s_any);
     // matcher.capture_http_hdr_val("content-length")?;
     // matcher.match_http_uri("/hello/world.html")?;
-    matcher.remove_http_hdr("user-agent")?;
+    for hdr in args.removals.unwrap_or_default() {
+        matcher.remove_http_hdr(&hdr)?;
+    }
     inject_matcher_raw(matcher, &mut open_skel)?;
 
     let addr = args.destination.to_socket_addrs()?
@@ -168,7 +170,7 @@ fn main() -> Result<()> {
     let cgroup_fd = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY)
-        .open("/sys/fs/cgroup/proxy.slice")?
+        .open("/sys/fs/cgroup")?
         .into_raw_fd();
 
     let _sockops = skel.progs_mut()

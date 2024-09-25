@@ -242,7 +242,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
 
     bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
-    _modify(msg, cg_idx[0]+11, cg_len[0]-12);
+    _modify(msg, cg_idx[0]+5, cg_len[0]-6);
 
     return SK_PASS;
 }
@@ -252,7 +252,7 @@ int monitor_sockets(struct bpf_sock_ops *ctx) {
     struct sock_key key = { 0 };
     _ops_extract_key(ctx, &key);
 
-    if (key.remote_port != PORT) {
+    if (key.local_port != PORT) {
         return SK_PASS;
     }
 

@@ -44,23 +44,22 @@ impl<F> Modifier<F> {
 
 }
 
-impl<F> AsyncRead for Modifier<F> where F: Send + Clone + Fn(&mut [u8]) -> usize {
+impl<F> AsyncRead for Modifier<F> {
 
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
-        let this = self.project();
-        let res = this.inner.poll_read(cx, buf);
-
-        let buf = buf.filled_mut();
-        (this.modify)(buf);
-        res
+        self.project().inner.poll_read(cx, buf)
     }
 
 }
 
-impl<F> AsyncWrite for Modifier<F> {
+impl<F> AsyncWrite for Modifier<F> where F: Send + Clone + Fn(&mut [u8]) -> usize {
     
         fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
-            self.project().inner.poll_write(cx, buf)
+            let mut buf = buf.to_vec();
+            let this = self.project();
+            (this.modify)(&mut buf);
+
+            this.inner.poll_write(cx, &buf)
         }
     
         fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
@@ -84,7 +83,9 @@ async fn main() -> Result<()> {
     let mut matcher = HttpMatcher::new(s_init as u16, s_any as u16);
     // matcher.match_http_hdr("hallo", "welt")?;
     // matcher.match_http_uri("/hello/world.html")?;
-    matcher.remove_http_hdr("user-agent")?;
+    for hdr in args.removals.unwrap_or_default() {
+        matcher.remove_http_hdr(&hdr)?;
+    }
     matcher.done_on_http_hdr_end()?;
 
     let mut sm = [[0u32; 256]; 100];
@@ -136,7 +137,7 @@ async fn main() -> Result<()> {
         }
 
         let hdr_range = caps[0].clone();
-        buf[hdr_range.start+11..hdr_range.end-1].fill(b'X');
+        buf[hdr_range.start+5..hdr_range.end-1].fill(b'X');
         
         buf.len()
     };
@@ -144,13 +145,13 @@ async fn main() -> Result<()> {
     info!("Listening on {}", args.address);
     let listener = TcpListener::bind(args.address).await?;
 
-    while let Ok((inbound, _)) = listener.accept().await {
-        let mut mod_inbound = Modifier::new(inbound, modify.clone());
-        let mut outbound = TcpStream::connect(args.destination.clone()).await?;
-        debug!("Connection established {}", outbound.local_addr()?.port());
+    while let Ok((ingress, _)) = listener.accept().await {
+        let mut egress = TcpStream::connect(args.destination.clone()).await?;
+        debug!("Connection established {}", egress.local_addr()?.port());
 
         tokio::spawn(async move {
-            if let Err(e) = copy_bidirectional(&mut mod_inbound, &mut outbound).await {
+            let mut mod_ingress = Modifier::new(ingress, modify.clone());
+            if let Err(e) = copy_bidirectional(&mut mod_ingress, &mut egress).await {
                 error!("Error copying data: {:?}", e);
             }
         });
