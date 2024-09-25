@@ -6,12 +6,9 @@ use libbpf_rs::{
 use log::{
     debug,
     warn,
-    info,
+    info
 };
-use std::{
-    io::{Read, Write}, mem::size_of, net::{SocketAddr, TcpStream}, os::fd::{AsFd, AsRawFd, IntoRawFd}, thread,
-};
-use socket2::{Domain, Socket, Type};
+use std::{mem::size_of, net::ToSocketAddrs, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, thread, time::Duration};
 
 use matcher::{
     dfa::Action,
@@ -28,9 +25,6 @@ mod parser {
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value="127.0.0.1:3000")]
-    address: String,
-
     #[arg(short, long)]
     destination: String,
 
@@ -158,7 +152,10 @@ fn main() -> Result<()> {
     matcher.remove_http_hdr("user-agent")?;
     inject_matcher_raw(matcher, &mut open_skel)?;
 
-    // open_skel.rodata_mut().PORT = args.port;
+    let addr = args.destination.to_socket_addrs()?
+        .next()
+        .context("Failed to resolve destination address")?;
+    open_skel.rodata_mut().PORT = addr.port() as u32;
 
     let mut skel = open_skel.load()?;
     // inject_matcher_bpf_map(matcher, &mut skel)?;
@@ -168,77 +165,21 @@ fn main() -> Result<()> {
         .as_fd()
         .as_raw_fd();
 
-    // this doesn't seem to work :(
-    // let cgroup_fd = std::fs::OpenOptions::new()
-    //     .read(true)
-    //     .custom_flags(libc::O_DIRECTORY)
-    //     .open("/sys/fs/cgroup/")?
-    //     .into_raw_fd();
+    let cgroup_fd = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY)
+        .open("/sys/fs/cgroup/proxy.slice")?
+        .into_raw_fd();
 
-    // let _sockops = skel.progs_mut()
-    //     .sock_ops()
-    //     .attach_cgroup(cgroup_fd)?;
-
-    skel.progs_mut()
-        .stream_parser()
-        .attach_sockmap(sock_map_fd)?;
+    let _sockops = skel.progs_mut()
+        .monitor_sockets()
+        .attach_cgroup(cgroup_fd)?;
 
     skel.progs_mut()
-        .stream_verdict()
+        .msg_verdict()
         .attach_sockmap(sock_map_fd)?;
-
-    let mut maps = skel.maps_mut();
-    let sock_map = maps.sock_map();
-
-    info!("Listening on {}", args.address);
-
-    let addr: SocketAddr = args.address.parse()?;
-    let socket = Socket::new(Domain::IPV4, Type::STREAM, None)?;
-    socket.set_reuse_address(true)?;
-    socket.bind(&addr.into())?;
-    socket.listen(4096)?;
 
     loop {
-        let mut backend = TcpStream::connect(&args.destination)?;
-        backend.set_nodelay(true)?;
-        let backend_port = backend.local_addr().unwrap().port();
-
-        let (mut client, client_addr) = socket.accept()?;        
-        let client_port = client_addr.as_socket().unwrap().port();
-
-        debug!("Accepted connection {:?}", client_port);
-
-        add_fd_to_sockmap(&backend, client_port, sock_map)?;
-        add_fd_to_sockmap(&client, backend_port, sock_map)?;
-
-        thread::spawn(move || {
-            let mut buf = [0; 8192];
-            loop {        
-                match client.read(&mut buf) {
-                    Ok(len) => {
-                        if len == 0 {
-                            debug!("Client closed connection");
-                            break;
-                        }
-
-                        debug!("Read {} bytes from client", len);
-                        backend.write_all(&buf[0..len]).unwrap();
-                    },
-                    Err(e) => {
-                        warn!("Error reading from client: {}", e);
-                        continue;
-                    }
-                }
-
-                buf.fill(0);
-                match backend.read(&mut buf) {
-                    Ok(len) => {
-                        debug!("Read {} bytes from backend", len);
-                        client.write_all(&buf[0..len]).unwrap();
-                    },
-                    Err(e) => warn!("Error reading from backend: {}", e),
-                }
-            }
-        });
-    }    
+        thread::sleep(Duration::from_millis(200));   
+    }
 }

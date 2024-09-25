@@ -1,10 +1,14 @@
 use anyhow::Result;
 use clap::Parser;
 use core::str;
-use log::{debug, info, warn};
+use std::{pin::Pin, task::{Context, Poll}};
+use log::{debug, error, info};
 use matcher::{dfa::Action, http::HttpMatcher};
-use std::{io::{Read, Write}, marker::Send, net::{TcpStream, SocketAddr}, os::fd::AsRawFd, thread};
-use socket2::{Domain, Socket, Type};
+use tokio::{
+    io::{copy_bidirectional, AsyncRead, AsyncWrite, ReadBuf},
+    net::{TcpListener, TcpStream}
+};
+use pin_project_lite::pin_project;
 
 #[derive(Parser)]
 struct Args {
@@ -18,71 +22,62 @@ struct Args {
     removals: Option<Vec<String>>,
 }
 
-fn listen<F>(addr: &str, dest: &str, modify: F) -> Result<()> where F: Send + Clone + Fn(&mut [u8]) -> usize {
-    let addr: SocketAddr = addr.parse()?;
-    let socket = Socket::new(Domain::IPV4, Type::STREAM, None)?;
-    socket.set_reuse_address(true)?;
-    socket.bind(&addr.into())?;
-    socket.listen(4096)?;
+pin_project! {
+    
+    struct Modifier<F> {
+        #[pin]
+        inner: TcpStream,
 
-    thread::scope(|s| {
-        loop {
-            let mut backend = TcpStream::connect(dest).unwrap();
-            backend.set_nodelay(true).unwrap();
-            backend.set_read_timeout(Some(std::time::Duration::from_micros(100))).unwrap();
-
-            let (mut client, _) = socket.accept().unwrap();
-            client.set_read_timeout(Some(std::time::Duration::from_micros(100))).unwrap();
-            client.set_nodelay(true).unwrap();
-
-            let mod_fn = modify.clone();
-
-            s.spawn(move || {
-                let fd = client.as_raw_fd();
-                debug!("Accepted connection {:?}", fd);
-
-                let mut buf = [0; 2 * 8192];
-                loop {        
-                    match client.read(&mut buf) {
-                        Ok(len) => {
-                            if len == 0 {
-                                debug!("Client closed connection");
-                                return;
-                            }
-
-                            let new_len = mod_fn(&mut buf[0..len]);
-
-                            debug!("Read {} ({}) bytes from client", len, new_len);
-                            backend.write_all(&buf[0..new_len])
-                                .unwrap();
-                        },
-                        Err(e) => warn!("Error reading from client: {}", e),
-                    }
-
-                    buf.fill(0);
-                    match backend.read(&mut buf) {
-                        Ok(len) => {
-                            debug!("Read {} bytes from backend", len);
-                            client.write_all(&buf[0..len])
-                                .unwrap();
-                        },
-                        Err(e) => warn!("Error reading from backend: {}", e),
-                    }
-
-                }
-            });
-        }
-    });
-
-    Ok(())
+        #[pin]
+        modify: F
+    }
 }
 
-fn main() -> Result<()> {
+impl<F> Modifier<F> {
+
+    fn new(stream: TcpStream, modify: F) -> Self {
+        Self { 
+            inner: stream,
+            modify
+        }
+    }
+
+}
+
+impl<F> AsyncRead for Modifier<F> where F: Send + Clone + Fn(&mut [u8]) -> usize {
+
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        let this = self.project();
+        let res = this.inner.poll_read(cx, buf);
+
+        let buf = buf.filled_mut();
+        (this.modify)(buf);
+        res
+    }
+
+}
+
+impl<F> AsyncWrite for Modifier<F> {
+    
+        fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+            self.project().inner.poll_write(cx, buf)
+        }
+    
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            self.project().inner.poll_flush(cx)
+        }
+    
+        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            self.project().inner.poll_shutdown(cx)
+        }
+
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
     env_logger::init();
 
     let args = Args::parse();
-
-    info!("Listening on {}", args.address);
 
     let s_init: u32 = 0;
     let s_any: u32 = 1;
@@ -146,7 +141,20 @@ fn main() -> Result<()> {
         buf.len()
     };
 
-    listen(&args.address, &args.destination, &modify)?;
+    info!("Listening on {}", args.address);
+    let listener = TcpListener::bind(args.address).await?;
+
+    while let Ok((inbound, _)) = listener.accept().await {
+        let mut mod_inbound = Modifier::new(inbound, modify.clone());
+        let mut outbound = TcpStream::connect(args.destination.clone()).await?;
+        debug!("Connection established {}", outbound.local_addr()?.port());
+
+        tokio::spawn(async move {
+            if let Err(e) = copy_bidirectional(&mut mod_inbound, &mut outbound).await {
+                error!("Error copying data: {:?}", e);
+            }
+        });
+    }
 
     Ok(())
 }

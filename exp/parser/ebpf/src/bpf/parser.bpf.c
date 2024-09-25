@@ -24,7 +24,7 @@ extern __u32 bpf_dynptr_size(const struct bpf_dynptr *ptr) __ksym;
 char LICENSE[] SEC("license") = "GPL";
 
 // these restrictions are needed to make the verifier happy
-const __u32 MAX_BYTES = 0xFFFF;
+const __u32 MAX_BYTES = 0xFFFE;
 const __u32 MAX_MATCHES = 20;
 
 volatile const __u32 PORT;
@@ -42,10 +42,17 @@ const __u16 a_done = 1 << 14;
 volatile const __u8 use_raw_stm = 1;
 volatile const __u32 s2ts_raw[128][256] = { s_init };
 
+struct sock_key {
+    __u32 local_ip4;
+    __u32 local_port;
+    __u32 remote_ip4;
+    __u32 remote_port;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 4096);
-    __uint(key_size, sizeof(int));
+    __uint(max_entries, 1000);
+    __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
 
@@ -62,6 +69,27 @@ struct {
     __uint(key_size, sizeof(__u32));
     __array(values, struct trans);
 } s2ts_bpf SEC(".maps");
+
+static __always_inline void _skb_extract_key(struct __sk_buff *skb, struct sock_key *key) {
+    key->remote_ip4 = bpf_ntohl(skb->remote_ip4);
+    key->local_ip4 = bpf_ntohl(skb->local_ip4);
+    key->remote_port = bpf_ntohl(skb->remote_port);
+    key->local_port = skb->local_port;
+}
+
+static __always_inline void _msg_extract_key(struct sk_msg_md *msg, struct sock_key *key) {
+    key->remote_ip4 = bpf_ntohl(msg->remote_ip4);
+    key->local_ip4 = bpf_ntohl(msg->local_ip4);
+    key->remote_port = bpf_ntohl(msg->remote_port);
+    key->local_port = msg->local_port;
+}
+
+static __always_inline void _ops_extract_key(struct bpf_sock_ops *ops, struct sock_key *key) {
+    key->remote_ip4 = bpf_ntohl(ops->remote_ip4);
+    key->local_ip4 = bpf_ntohl(ops->local_ip4);
+    key->remote_port = bpf_ntohl(ops->remote_port);
+    key->local_port = ops->local_port;
+}
 
 static __always_inline void next_bpf(__u16 state, char input, __u16 *next_state, __u16 *action) {
     __u32 idx = state;
@@ -117,16 +145,23 @@ static __always_inline void next(__u16 state, char input, __u16 *next_state, __u
     }
 }
 
-static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, __u32 *cg_len) {
-    __u32 len = bpf_dynptr_size(ptr) & MAX_BYTES;
+static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __u32 *cg_len) {
+    char *data = (char *)(long)msg->data;
+    char *data_end = (char *)(long)msg->data_end;
+    __u32 len = (data_end - data) & MAX_BYTES;
+
+    if (len == 0) {
+        return 0;
+    }
+    
     __u16 s = s_init;
     __u32 num_matches = 0;
     __u32 cap_idx[16] = { 0 };
 
     __u32 i;
     bpf_for(i, 0, len) {
-        char c;
-        bpf_dynptr_slice(ptr, i, &c, 1);
+        if (data + i + 1 > data_end) break;
+        char c = data[i];
 
         __u16 a = 0;
         __u16 s_old = s;
@@ -145,7 +180,7 @@ static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, _
             s = s_any;
         }
         else if ((a & a_done) != 0) {
-            bpf_log("Done matching");
+            bpf_log("Done matching at %d", i);
             return num_matches;
         }
 
@@ -161,77 +196,73 @@ static __always_inline int _match(const struct bpf_dynptr *ptr, __u32 *cg_idx, _
     return num_matches;
 }
 
-static __always_inline int _modify(const struct bpf_dynptr *ptr, __u16 idx, __u16 len) {
+static __always_inline int _modify(const struct sk_msg_md *msg, __u16 idx, __u16 len) {
+    char *data = (char *)(long)msg->data;
+    char *data_end = (char *)(long)msg->data_end;
+
+    if (len > MAX_BYTES) return -1;
+    len &= 0xFFF;
+
+    if (idx > MAX_BYTES) return -1;
+    idx &= 0xFFF;
+    
     __u16 i;
     bpf_for(i, idx, idx+len) {
-        char x = 'X';
-        bpf_dynptr_write(ptr, i, &x, 1, BPF_F_RECOMPUTE_CSUM);
+        if (data + i + 1 > data_end) break;
+
+        data[i] = 'X';
     }
 
     return 0;
 }
 
-static __always_inline int _try_redirect(struct __sk_buff *skb) {
-    __u32 port = (skb->local_port == 3000) ? bpf_ntohl(skb->remote_port) : skb->local_port;
-    int r = bpf_sk_redirect_hash(skb, &sock_map, &port, 0);
+static __always_inline int _try_redirect(struct sk_msg_md *msg) {
+    struct sock_key key = { 0 };
+    _msg_extract_key(msg, &key);
+
+    int r = bpf_msg_redirect_hash(msg, &sock_map, &key, BPF_F_INGRESS);
     if (r == SK_DROP) {
         bpf_err("ERROR: Redirect failed");
     }
+
+    bpf_log("Verdict %d [%pI4:%u->%pI4:%u]", r, key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
+
     return r;
 }
 
-SEC("sk_skb/stream_parser")
-int stream_parser(struct __sk_buff *skb) {
-    bpf_log("Parsing %d bytes", skb->len);
-    return skb->len;
-}
-
-SEC("sk_skb/stream_verdict")
-int stream_verdict(struct __sk_buff *skb) {
-    int verdict = _try_redirect(skb);
-
-    bpf_log("Verdict: %d (%d, %d -> %d)", verdict, skb->len, skb->local_port, bpf_ntohl(skb->remote_port));
-
+SEC("sk_msg")
+int msg_verdict(struct sk_msg_md *msg) {
     __u32 cg_idx[MAX_MATCHES] = { 0 };
     __u32 cg_len[MAX_MATCHES] = { 0 };
 
-    struct bpf_dynptr ptr;
-    bpf_dynptr_from_skb(skb, 0, &ptr);
+    bpf_log("Processing %dB msg", msg->size);
 
-    if (_match(&ptr, cg_idx, cg_len) != 1) {
-        return verdict;
+    if (_match(msg, cg_idx, cg_len) != 1) {
+        return SK_PASS;
     }
 
     bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
-    _modify(&ptr, cg_idx[0]+11, cg_len[0]-12);
+    _modify(msg, cg_idx[0]+11, cg_len[0]-12);
 
-    return verdict;
+    return SK_PASS;
 }
 
-// SEC("sockops")
-// int sock_ops(struct bpf_sock_ops *ops) {
-//     int op = (int)ops->op;
+SEC("sockops")
+int monitor_sockets(struct bpf_sock_ops *ctx) {
+    struct sock_key key = { 0 };
+    _ops_extract_key(ctx, &key);
 
-//     __u32 lport = ops->local_port;
-//     if (lport != PORT) {
-//         return BPF_OK;
-//     }
+    if (key.remote_port != PORT) {
+        return SK_PASS;
+    }
 
-//     bpf_sock_ops_cb_flags_set(ops, ops->bpf_sock_ops_cb_flags | BPF_SOCK_OPS_STATE_CB_FLAG);
-//     if (op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB || op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
-//         if (bpf_sock_hash_update(ops, &sock_map, &lport, BPF_NOEXIST) < 0) {
-//             bpf_err("ERROR: Adding socket failed.");
-//         }
+    if (ctx->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ctx->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
+        if (bpf_sock_hash_update(ctx, &sock_map, &key, BPF_NOEXIST) < 0) {
+            bpf_err("ERROR: Adding socket failed.");
+        }
 
-//         bpf_log("Added socket %d", lport);
-//     }
-//     else if (op == BPF_SOCK_OPS_STATE_CB && ops->args[1] == BPF_TCP_CLOSE) {
-//         if (bpf_map_delete_elem(&sock_map, &lport) < 0) {
-//             bpf_err("ERROR: Deleting socket failed.");
-//         }
+        bpf_log("Added socket [%pI4:%u->%pI4:%u]", key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
+    }
 
-//         bpf_log("Deleted socket %d", lport);
-//     }
-
-//     return BPF_OK;
-// }
+    return SK_PASS;
+}
