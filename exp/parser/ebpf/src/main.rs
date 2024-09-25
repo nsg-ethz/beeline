@@ -170,7 +170,7 @@ fn main() -> Result<()> {
     let cgroup_fd = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY)
-        .open("/sys/fs/cgroup/")?
+        .open("/sys/fs/cgroup/proxy.slice")?
         .into_raw_fd();
 
     let _sockops = skel.progs_mut()

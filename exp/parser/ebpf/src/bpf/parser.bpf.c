@@ -4,7 +4,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
-#define LOG_LEVEL 2
+#define LOG_LEVEL 1
 
 #if LOG_LEVEL == 0
 #define bpf_log(...) (0)
@@ -24,7 +24,7 @@ extern __u32 bpf_dynptr_size(const struct bpf_dynptr *ptr) __ksym;
 char LICENSE[] SEC("license") = "GPL";
 
 // these restrictions are needed to make the verifier happy
-const __u32 MAX_BYTES = 0xFFFF;
+const __u32 MAX_BYTES = 0xFFFE;
 const __u32 MAX_MATCHES = 20;
 
 volatile const __u32 PORT;
@@ -180,7 +180,7 @@ static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __
             s = s_any;
         }
         else if ((a & a_done) != 0) {
-            bpf_log("Done matching");
+            bpf_log("Done matching at %d", i);
             return num_matches;
         }
 
@@ -200,11 +200,11 @@ static __always_inline int _modify(const struct sk_msg_md *msg, __u16 idx, __u16
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
 
-    if (len > 0xFFFE) return -1;
-    len &= 0xFF;
+    if (len > MAX_BYTES) return -1;
+    len &= 0xFFF;
 
-    if (idx > 0xFFFE) return -1;
-    idx &= 0xFF;
+    if (idx > MAX_BYTES) return -1;
+    idx &= 0xFFF;
     
     __u16 i;
     bpf_for(i, idx, idx+len) {
@@ -234,6 +234,8 @@ SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     __u32 cg_idx[MAX_MATCHES] = { 0 };
     __u32 cg_len[MAX_MATCHES] = { 0 };
+
+    bpf_log("Processing %dB msg", msg->size);
 
     if (_match(msg, cg_idx, cg_len) != 1) {
         return SK_PASS;

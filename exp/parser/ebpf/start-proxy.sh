@@ -8,4 +8,4 @@ NS=ns5
 
 cargo b -r
 
-RUST_LOG=debug sudo -E ${TARGET} -d "10.0.1.1:8000" --remove user-agent
+sudo -E ${TARGET} -d "10.0.1.1:8000" --remove user-agent
