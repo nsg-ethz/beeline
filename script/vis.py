@@ -152,8 +152,46 @@ def line_graph(name, metric, agg, dst):
     g.set_yticks(np.linspace(min_y, max_y, 5))
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
-    _save_to_path(f"{name}-line-{metric}-{agg}", dst)           
+    _save_to_path(f"{name}-line-{metric}-{agg}", dst)  
+
+
+def bar_graph(name, metric, agg, dst):
+    paths = _get_file_paths(name)
+    df = _load_summary_data(paths)
+    df = df.xs(metric, level="metric_name")
+
+    df[agg] = df[agg] / 1e6
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+
+    num_samples = df.groupby("proxy").agg({agg: "count"})
+    if len(np.unique(num_samples)) > 1:
+        raise ValueError(f"Incomplete measurements: {num_samples}")
+
+    g = sns.catplot(data=df, kind="bar", x="payload_size", y=agg, hue="proxy", errorbar="sd", hue_order=order)
     
+    sizes = set(df.index.get_level_values("payload_size"))
+    sizes = sorted(sizes)
+
+    g.set(xlabel="payload size [B]", ylabel="throughput [MB/s]")
+    
+    # g.set_xscale("log")
+    # g.set_xlabel("payload size [B]")
+    # g.set_xticks(sizes)
+    # g.set_xticklabels([str(s) for s in sizes])
+    # g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
+    # g.set_xbound(lower=sizes[0], upper=sizes[-1])
+
+    min_y = df[agg].min()
+    max_y = df[agg].max()
+    g.set(yticks=np.linspace(min_y, max_y, 5))
+    for ax in g.axes.flat:
+        ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+
+    sns.move_legend(g, "upper center")
+    _save_to_path(f"{name}-bar-{metric}-{agg}", dst)           
+
 
 def speedup_graph(name, base, metric, aggs, dst):
     paths = _get_file_paths(name)
@@ -339,6 +377,10 @@ if __name__ == "__main__":
     line.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
     line.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
+    bar = subparsers.add_parser("bar")
+    bar.add_argument("-m", "--metric", default="data_received", help="The recorded metric to visualize")
+    bar.add_argument("-a", "--agg", default="rate", help="The aggregation func")
+
     speedup = subparsers.add_parser("speedup")
     speedup.add_argument("-b", "--base", required=False, help="The data that serves as the critical path")
     speedup.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
@@ -372,6 +414,8 @@ if __name__ == "__main__":
 
     if args.command == "line":
         line_graph(args.name, args.metric, args.agg, args.output)
+    elif args.command == "bar":
+        bar_graph(args.name, args.metric, args.agg, args.output)
     elif args.command == "speedup":
         speedup_graph(args.name, args.base, args.metric, args.agg, args.output)
     elif args.command == "duration":
