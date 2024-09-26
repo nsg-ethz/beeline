@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
         }
 
         let hdr_range = caps[0].clone();
-        buf[hdr_range.start+5..hdr_range.end-1].fill(b'X');
+        buf[hdr_range.start+11..hdr_range.end-1].fill(b'X');
         
         buf.len()
     };

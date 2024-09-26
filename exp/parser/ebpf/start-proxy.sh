@@ -8,4 +8,4 @@ NS=ns5
 
 cargo b -r
 
-sudo -E ${TARGET} -d "10.0.1.1:8000" --remove date
+sudo -E ${TARGET} -d "10.0.1.1:8000" --remove signature

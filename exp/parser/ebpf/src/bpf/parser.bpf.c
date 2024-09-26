@@ -50,7 +50,7 @@ struct sock_key {
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 1000);
+    __uint(max_entries, 2048);
     __uint(key_size, sizeof(struct sock_key));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
@@ -102,6 +102,8 @@ static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __
     if (len == 0) {
         return 0;
     }
+
+    bpf_log("payload: %s", data);
     
     __u16 s = s_init;
     __u32 num_matches = 0;
@@ -142,6 +144,8 @@ static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __
         }
     }
 
+    bpf_log("WARN: Parsed entire payload (%dB)", len);
+
     return num_matches;
 }
 
@@ -181,19 +185,20 @@ static __always_inline int _try_redirect(struct sk_msg_md *msg) {
 
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
-    __u32 cg_idx[MAX_MATCHES] = { 0 };
-    __u32 cg_len[MAX_MATCHES] = { 0 };
+    // we're only processing the respoonse for now
+    if (msg->local_port == PORT) {
+        __u32 cg_idx[MAX_MATCHES] = { 0 };
+        __u32 cg_len[MAX_MATCHES] = { 0 };
 
-    bpf_log("Processing %dB msg", msg->size);
+        bpf_log("Processing %dB msg", msg->size);
 
-    if (_match(msg, cg_idx, cg_len) != 1) {
-        return SK_PASS;
+        if (_match(msg, cg_idx, cg_len) == 1) {
+            bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
+            _modify(msg, cg_idx[0]+11, cg_len[0]-13);
+        }
     }
 
-    bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
-    _modify(msg, cg_idx[0]+5, cg_len[0]-6);
-
-    return SK_PASS;
+    return _try_redirect(msg);
 }
 
 SEC("sockops")
@@ -201,16 +206,22 @@ int monitor_sockets(struct bpf_sock_ops *ctx) {
     struct sock_key key = { 0 };
     _ops_extract_key(ctx, &key);
 
-    if (key.local_port != PORT) {
-        return SK_PASS;
-    }
+    if (key.local_port == PORT || key.remote_port == PORT) {
+        if (ctx->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ctx->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
+            __u32 tmp = key.local_port;
+            key.local_port = key.remote_port;
+            key.remote_port = tmp;     
 
-    if (ctx->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ctx->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
-        if (bpf_sock_hash_update(ctx, &sock_map, &key, BPF_NOEXIST) < 0) {
-            bpf_err("ERROR: Adding socket failed.");
+            tmp = key.local_ip4;
+            key.local_ip4 = key.remote_ip4;
+            key.remote_ip4 = tmp;   
+
+            if (bpf_sock_hash_update(ctx, &sock_map, &key, BPF_NOEXIST) < 0) {
+                bpf_err("ERROR: Adding socket failed.");
+            }
+
+            bpf_log("Added socket [%pI4:%u->%pI4:%u]", key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
         }
-
-        bpf_log("Added socket [%pI4:%u->%pI4:%u]", key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
     }
 
     return SK_PASS;
