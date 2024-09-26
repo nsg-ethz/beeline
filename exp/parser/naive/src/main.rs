@@ -54,21 +54,21 @@ impl<F> AsyncRead for Modifier<F> {
 
 impl<F> AsyncWrite for Modifier<F> where F: Send + Clone + Fn(&mut [u8]) -> usize {
     
-        fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
-            let mut buf = buf.to_vec();
-            let this = self.project();
-            (this.modify)(&mut buf);
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+        let mut buf = buf.to_vec();
+        let this = self.project();
+        (this.modify)(&mut buf);
 
-            this.inner.poll_write(cx, &buf)
-        }
-    
-        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            self.project().inner.poll_flush(cx)
-        }
-    
-        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            self.project().inner.poll_shutdown(cx)
-        }
+        this.inner.poll_write(cx, &buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        self.project().inner.poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        self.project().inner.poll_shutdown(cx)
+    }
 
 }
 
