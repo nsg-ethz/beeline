@@ -165,10 +165,6 @@ def bar_graph(name, metric, agg, dst):
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
 
-    num_samples = df.groupby("proxy").agg({agg: "count"})
-    if len(np.unique(num_samples)) > 1:
-        raise ValueError(f"Incomplete measurements: {num_samples}")
-
     g = sns.catplot(data=df, kind="bar", x="payload_size", y=agg, hue="proxy", errorbar="sd", hue_order=order)
     
     sizes = set(df.index.get_level_values("payload_size"))
