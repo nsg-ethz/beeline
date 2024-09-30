@@ -1,8 +1,8 @@
-import { check } from 'k6';
-import http from 'k6/http';
-import exec from 'k6/execution';
-import { randomString, randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.3.0/index.js';
-import { Counter } from 'k6/metrics';
+import { check } from "k6";
+import http from "k6/http";
+import exec from "k6/execution";
+import { randomString, randomIntBetween } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
+import { Counter } from "k6/metrics";
 
 const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
 const data = randomString(payloadSize);
@@ -39,8 +39,9 @@ export function requestTo(server) {
   const res = http.post(url, payload);
   let passed = check(res, {
     "status is 200": (r) => r.status === 200,
-    "processed by correct backend": (r) => r.headers["Signature"] == signature,
-    "body is the same": (r) => r.body === payload
+    // "processed by correct backend": (r) => r.headers["Signature"] == signature,
+    "signature is redacted": (r) => r.headers["Signature"] === "X".repeat(signature.length),
+    "body is the same": (r) => r.body === payload,
   });
 
   let abortOnFail = __ENV.ABORT_ON_FAIL || "0";
