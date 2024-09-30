@@ -56,22 +56,22 @@ struct {
 } sock_map SEC(".maps");
 
 static __always_inline void _skb_extract_key(struct __sk_buff *skb, struct sock_key *key) {
-    key->remote_ip4 = bpf_ntohl(skb->remote_ip4);
-    key->local_ip4 = bpf_ntohl(skb->local_ip4);
+    key->remote_ip4 = skb->remote_ip4;
+    key->local_ip4 = skb->local_ip4;
     key->remote_port = bpf_ntohl(skb->remote_port);
     key->local_port = skb->local_port;
 }
 
 static __always_inline void _msg_extract_key(struct sk_msg_md *msg, struct sock_key *key) {
-    key->remote_ip4 = bpf_ntohl(msg->remote_ip4);
-    key->local_ip4 = bpf_ntohl(msg->local_ip4);
+    key->remote_ip4 = msg->remote_ip4;
+    key->local_ip4 = msg->local_ip4;
     key->remote_port = bpf_ntohl(msg->remote_port);
     key->local_port = msg->local_port;
 }
 
 static __always_inline void _ops_extract_key(struct bpf_sock_ops *ops, struct sock_key *key) {
-    key->remote_ip4 = bpf_ntohl(ops->remote_ip4);
-    key->local_ip4 = bpf_ntohl(ops->local_ip4);
+    key->remote_ip4 = ops->remote_ip4;
+    key->local_ip4 = ops->local_ip4;
     key->remote_port = bpf_ntohl(ops->remote_port);
     key->local_port = ops->local_port;
 }
@@ -178,7 +178,7 @@ static __always_inline int _try_redirect(struct sk_msg_md *msg) {
         bpf_err("ERROR: Redirect failed");
     }
 
-    bpf_log("Verdict %d [%pI4:%u->%pI4:%u]", r, key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
+    bpf_log("Verdict %d [%pI4:%u->%pI4:%u]", r, &key.local_ip4, key.local_port, &key.remote_ip4, key.remote_port);
 
     return r;
 }
@@ -206,7 +206,10 @@ int monitor_sockets(struct bpf_sock_ops *ctx) {
     struct sock_key key = { 0 };
     _ops_extract_key(ctx, &key);
 
+    // if (key.local_ip4 != key.remote_ip4) return SK_PASS;
+
     if (key.local_port == PORT || key.remote_port == PORT) {
+    // if (key.local_port == 3000 || key.remote_port == 3000 || key.local_port == 8000 || key.remote_port == 8000) {
         if (ctx->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ctx->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
             __u32 tmp = key.local_port;
             key.local_port = key.remote_port;
@@ -220,7 +223,7 @@ int monitor_sockets(struct bpf_sock_ops *ctx) {
                 bpf_err("ERROR: Adding socket failed.");
             }
 
-            bpf_log("Added socket [%pI4:%u->%pI4:%u]", key.local_ip4, key.local_port, key.remote_ip4, key.remote_port);
+            bpf_log("Added socket [%pI4:%u->%pI4:%u]", &key.local_ip4, key.local_port, &key.remote_ip4, key.remote_port);
         }
     }
 
