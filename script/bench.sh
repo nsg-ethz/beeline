@@ -16,7 +16,7 @@ PARSER_NAIVE_BIN=${ROOT}/../target/release/parser-naive
 PARSER_EBPF_BIN=${ROOT}/../target/release/parser-ebpf
 
 function stop_experiment {
-    sudo systemctl list-unit-files | grep exp-pod | awk '{print $1}' | xargs -L 1 systemctl stop > /dev/null 2>&1
+    systemctl list-unit-files | grep exp-pod | awk '{print $1}' | xargs -L 1 sudo systemctl stop > /dev/null 2>&1
 }
 
 function pod {
@@ -55,13 +55,13 @@ if [[ "${PROXY}" == "naive" ]]; then
     pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --remove signature
     pod 5 ${PARSER_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000
 elif [[ "${PROXY}" == "ebpf" ]]; then
-    pod 2 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1"
+    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1"
     sudo -b -E systemd-run --scope -u exp-pod5-parser-ebpf -p Slice=pod5.slice ${PARSER_EBPF_BIN} -d 10.0.1.1:8000 --remove signature 
 elif [[ "${PROXY}" == "cilium" ]]; then
-    pod 2 ${BACKEND_BIN} -a 10.0.2.1:8000 -H "signature: server2" 
-    pod 2 ${PARSER_NAIVE_BIN} -a 10.0.2.1:3000 -d 10.0.2.1:8000 --remove signature 
-    pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.2.1:3000 
-    sudo -b -E systemd-run --scope -u exp-pod5-parser-ebpf -p Slice=pod5.slice ${PARSER_EBPF_BIN} -d 10.0.1.1:3000
+    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server2" 
+    pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --remove signature 
+    pod 5 ${PARSER_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000 
+    sudo -b -E systemd-run --scope -u exp-pod5-parser-ebpf -p Slice=pod5.slice ${PARSER_EBPF_BIN} -d 10.0.5.1:3000
 fi
 
 shift $(($OPTIND-1))
@@ -99,15 +99,15 @@ for SIZE in ${SIZE_LIST}; do
         SUM_OPT="--summary-export=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B.json"
     fi
 
-    BENCH_CMD="k6 run -e VUS=${VUS} -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
+    BENCH_CMD="k6 run -e VUS=${VUS} -e BACKEND=1 -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
     echo ${BENCH_CMD}
-    sudo -E ip netns exec ns5  ${BENCH_CMD}
+    sudo -E ip netns exec ns5 ${BENCH_CMD}
+
+    sudo chown -R ${USER}:"domain users" ${SUMMARY_DIR}
 
     if [ $? -ne 0 ]; then
         exit $?
     fi
 done
-
-sudo chown -R ${USER}:"domain users" ${SUMMARY_DIR}
 
 stop_experiment
