@@ -5,11 +5,8 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-function stop_http_server {
-  sudo kill -9 $(cat servers.pid)
-  rm servers.pid
+function stop_experiment {
+    sudo systemctl list-unit-files | grep exp-pod | awk '{print $1}' | xargs -L 1 systemctl stop > /dev/null 2>&1
 }
 
 function delete_veth {
@@ -20,6 +17,9 @@ function delete_veth {
   done
 }
 
+stop_experiment
+delete_veth 5
+
 echo -e "${COLOR_YELLOW}Enable HyperThreading${COLOR_OFF}"
 echo on | sudo tee /sys/devices/system/cpu/smt/control
 
@@ -27,7 +27,7 @@ echo -e "${COLOR_YELLOW}Disable CPU performance governor${COLOR_OFF}"
 sudo cpupower frequency-set --governor ondemand
 
 echo -e "${COLOR_YELLOW}Reset CPU shielding${COLOR_OFF}"
-CPU_ALLOWED="0-17,24-47"
+CPU_ALLOWED="0-47"
 sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
 sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
 sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
@@ -36,9 +36,4 @@ if [ $(nproc) -ne  48 ]; then
   echo -e "${COLOR_RED}Failed to reset all CPUs${COLOR_OFF}"
 fi
 
-stop_http_server
-delete_veth 5
-
 echo -e "${COLOR_GREEN}Environment cleaned${COLOR_OFF}"
-
-exit 0
