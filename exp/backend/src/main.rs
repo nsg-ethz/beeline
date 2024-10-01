@@ -17,10 +17,8 @@ use tokio::net::TcpSocket;
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value="127.0.0.1")]
+    #[arg(short, long, default_value="127.0.0.1:8000")]
     address: String,
-    #[arg(short, long, default_value="8000")]
-    port: u16,
     #[arg(short='f', long, default_value="1.0")]
     content_length_factor: f32,
     #[arg(short='H', long="header")]
@@ -44,13 +42,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let Args {
         address,
-        port,
         content_length_factor,
         headers
     } = Args::parse();
 
-    let addr = format!("{}:{}", address, port)
-        .parse()?;
+    let addr = address.parse()?;
 
     info!("Listening on {addr}");
 
