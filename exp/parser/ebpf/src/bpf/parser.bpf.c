@@ -4,7 +4,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 #if LOG_LEVEL == 0
 #define bpf_log(...) (0)
@@ -17,17 +17,37 @@
 #define bpf_err(...) bpf_printk(__VA_ARGS__)
 #endif
 
-extern int bpf_dynptr_from_skb(struct __sk_buff *skb, u64 flags, struct bpf_dynptr *ptr__uninit) __ksym;
-extern void *bpf_dynptr_slice(const struct bpf_dynptr *ptr, u32 offset, void *buffer__opt, u32 buffer__szk) __ksym;
-extern __u32 bpf_dynptr_size(const struct bpf_dynptr *ptr) __ksym;
-
 char LICENSE[] SEC("license") = "GPL";
 
 // these restrictions are needed to make the verifier happy
-const __u32 MAX_BYTES = 0xFFFE;
-const __u32 MAX_MATCHES = 20;
+const __u16 MAX_BYTES = 0xFFFE;
+const __u8 MAX_MATCHES = 0xF;
+const __u8 MAX_MOD_LEN = 0xFF;
 
-volatile const __u32 PORT;
+struct sock_key {
+    __u32 local_ip4;
+    __u32 local_port;
+    __u32 remote_ip4;
+    __u32 remote_port;
+};
+
+struct capture_group {
+    __u16 id;
+    __u16 idx;
+    __u16 len;
+};
+
+struct modification {
+    __u8 len;
+    char str[MAX_MOD_LEN];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_SOCKHASH);
+    __uint(max_entries, 2048);
+    __uint(key_size, sizeof(struct sock_key));
+    __uint(value_size, sizeof(int));
+} sock_map SEC(".maps");
 
 const __u32 a_mask = 0xFFFF0000;
 const __u16 a_cap_mask = 0x000F;
@@ -39,21 +59,10 @@ const __u16 s_any = 1;
 const __u16 a_match = 1 << 15;
 const __u16 a_done = 1 << 14;
 
+volatile const __u32 ip4;
+volatile const __u32 port;
 volatile const __u32 s2ts[128][256] = { s_init };
-
-struct sock_key {
-    __u32 local_ip4;
-    __u32 local_port;
-    __u32 remote_ip4;
-    __u32 remote_port;
-};
-
-struct {
-    __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 2048);
-    __uint(key_size, sizeof(struct sock_key));
-    __uint(value_size, sizeof(int));
-} sock_map SEC(".maps");
+volatile const struct modification mods[MAX_MATCHES + 1] = { 0 };
 
 static __always_inline void _skb_extract_key(struct __sk_buff *skb, struct sock_key *key) {
     key->remote_ip4 = skb->remote_ip4;
@@ -94,7 +103,7 @@ static __always_inline void next(__u16 state, __u32 input, __u16 *next_state, __
     *action = (sa & a_mask) >> 16;
 }
 
-static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __u32 *cg_len) {
+static __always_inline int _match(const struct sk_msg_md *msg, struct capture_group *cgs) {
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
     __u32 len = (data_end - data) & MAX_BYTES;
@@ -102,12 +111,10 @@ static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __
     if (len == 0) {
         return 0;
     }
-
-    bpf_log("payload: %s", data);
     
     __u16 s = s_init;
     __u32 num_matches = 0;
-    __u32 cap_idx[16] = { 0 };
+    __u32 cap_idx[MAX_MATCHES] = { 0 };
 
     __u32 i;
     bpf_for(i, 0, len) {
@@ -122,8 +129,11 @@ static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __
         if ((a & a_match) != 0) {
             bpf_log("Match %d in [%d, %d]", cid, cap_idx[cid], i - cap_idx[cid] + 1);
             if (num_matches < MAX_MATCHES) {
-                cg_idx[num_matches] = cap_idx[cid];
-                cg_len[num_matches] = i - cap_idx[cid] + 1;
+                cgs[num_matches] = (struct capture_group) {
+                    .id = cid,
+                    .idx = cap_idx[cid],
+                    .len = i - cap_idx[cid] + 1
+                };
             }
 
             num_matches++;
@@ -149,21 +159,40 @@ static __always_inline int _match(const struct sk_msg_md *msg, __u32 *cg_idx, __
     return num_matches;
 }
 
-static __always_inline int _modify(const struct sk_msg_md *msg, __u16 idx, __u16 len) {
-    char *data = (char *)(long)msg->data;
-    char *data_end = (char *)(long)msg->data_end;
+static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_group *cg) {
+    __u16 len = cg->len;
+    __u16 idx = cg->idx;
 
     if (len > MAX_BYTES) return -1;
-    len &= 0xFFF;
+    len &= 0xFF;
 
     if (idx > MAX_BYTES) return -1;
     idx &= 0xFFF;
+
+    if (cg->id >= MAX_MATCHES) return -1;
+    volatile const struct modification *mod = &mods[cg->id & 7]; // TODO: why do we have to truncate cg->id here?
+
+    __s32 diff = mod->len - len;
+
+    bpf_log("Increasing msg size by %d (%d-%d)", diff, mod->len, len);
+    if (diff > 0) {
+        bpf_msg_push_data(msg, idx, diff, 0);
+    }
+    else if (diff < 0) {
+        bpf_msg_pop_data(msg, idx, -diff, 0);
+    }
+
+    bpf_log("Rewriting payload in range [%d, %d]", idx, len);
+
+    if (bpf_msg_pull_data(msg, idx, idx+mod->len, 0) < 0) return -1;
+
+    char *data = (char *)(long)msg->data;
+    char *data_end = (char *)(long)msg->data_end;
     
     __u16 i;
-    bpf_for(i, idx, idx+len) {
+    bpf_for(i, 0, mod->len) {
         if (data + i + 1 > data_end) break;
-
-        data[i] = 'X';
+        data[i] = mod->str[i];
     }
 
     return 0;
@@ -186,15 +215,14 @@ static __always_inline int _try_redirect(struct sk_msg_md *msg) {
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     // we're only processing the respoonse for now
-    if (msg->local_port == PORT) {
-        __u32 cg_idx[MAX_MATCHES] = { 0 };
-        __u32 cg_len[MAX_MATCHES] = { 0 };
-
+    if (msg->local_port == port) {
         bpf_log("Processing %dB msg", msg->size);
 
-        if (_match(msg, cg_idx, cg_len) == 1) {
-            bpf_log("Matched packet. Captured [%d, %d]", cg_idx[0], cg_len[0]);
-            _modify(msg, cg_idx[0]+11, cg_len[0]-13);
+        struct capture_group cgs[MAX_MATCHES] = { 0 };
+        if (_match(msg, cgs) == 1) {
+            if (_modify(msg, &cgs[0]) < 0) {
+                bpf_err("ERROR: Modifying message failed.");
+            }
         }
     }
 
@@ -208,7 +236,7 @@ int monitor_sockets(struct bpf_sock_ops *ctx) {
 
     // if (key.local_ip4 != key.remote_ip4) return SK_PASS;
 
-    if (key.local_port == PORT || key.remote_port == PORT) {
+    if ((key.local_ip4 == ip4 && key.local_port == port) || (key.remote_ip4 == ip4 && key.remote_port == port)) {
     // if (key.local_port == 3000 || key.remote_port == 3000 || key.local_port == 8000 || key.remote_port == 8000) {
         if (ctx->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ctx->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
             __u32 tmp = key.local_port;
@@ -222,8 +250,9 @@ int monitor_sockets(struct bpf_sock_ops *ctx) {
             if (bpf_sock_hash_update(ctx, &sock_map, &key, BPF_NOEXIST) < 0) {
                 bpf_err("ERROR: Adding socket failed.");
             }
-
-            bpf_log("Added socket [%pI4:%u->%pI4:%u]", &key.local_ip4, key.local_port, &key.remote_ip4, key.remote_port);
+            else {
+                bpf_log("Added socket [%pI4:%u->%pI4:%u]", &key.local_ip4, key.local_port, &key.remote_ip4, key.remote_port);
+            }
         }
     }
 

@@ -1,27 +1,33 @@
 use anyhow::{Ok, Result};
-use crate::dfa::DFA;
+use crate::{
+    Action,
+    dfa::Dfa
+};
+use std::collections::HashMap;
 
 const CRLF: &str = "\r\n";
 
-pub struct HttpMatcher {
+pub struct HttpParser {
     pub s_init: u16,
     pub s_any: u16,
-    pub dfa: DFA,
+    pub modifications: HashMap<u8, String>,
+    dfa: Dfa,
 }
 
 #[allow(dead_code)]
-impl HttpMatcher {
+impl HttpParser {
 
-    pub fn new(s_init: u16, s_any: u16) -> HttpMatcher {
+    pub fn new(s_init: u16, s_any: u16) -> HttpParser {
         let states = vec![
             s_init,
             s_any,
         ];
 
-        HttpMatcher {
+        HttpParser {
             s_init,
             s_any,
-            dfa: DFA::new(states.into_iter()),
+            modifications: HashMap::new(),
+            dfa: Dfa::new(states.into_iter()),
         }
     }
 
@@ -72,6 +78,33 @@ impl HttpMatcher {
             .match_on(CRLF)?;
 
         Ok(())
+    }
+
+    pub fn rewrite_http_hdr(&mut self, key: &str, val: &str) -> Result<()> {
+        let cid = self.dfa.start_pattern(self.s_any)
+            .push(CRLF)?
+            .push(key)?
+            .push_optional('\t')?
+            .push_optional(' ')?
+            .push(":")?
+            .push_optional('\t')?
+            .push_optional(' ')?
+            .start_capturing()
+            .push_optional('*')?
+            .match_on(CRLF)?;
+
+        let val = format!("{}\r\n", val);
+        self.modifications.insert(cid, val);
+
+        Ok(())
+    }
+
+    pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16>  {
+        self.dfa.iter_states()
+    }
+
+    pub fn iter_transitions<'a>(&'a self) -> impl Iterator<Item = (&'a u16, &'a u16, &'a char, &'a Action)>  {
+        self.dfa.iter_transitions()
     }
 
 }

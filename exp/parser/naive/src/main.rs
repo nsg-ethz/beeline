@@ -3,7 +3,7 @@ use clap::Parser;
 use core::str;
 use std::{pin::Pin, task::{Context, Poll}};
 use log::{debug, error, info};
-use matcher::{dfa::Action, http::HttpMatcher};
+use dfa::{Action, http::HttpParser};
 use tokio::{
     io::{copy_bidirectional_with_sizes, AsyncRead, AsyncWrite, ReadBuf},
     net::{TcpListener, TcpStream}
@@ -80,18 +80,18 @@ async fn main() -> Result<()> {
 
     let s_init: u32 = 0;
     let s_any: u32 = 1;
-    let mut matcher = HttpMatcher::new(s_init as u16, s_any as u16);
-    // matcher.match_http_hdr("hallo", "welt")?;
-    // matcher.match_http_uri("/hello/world.html")?;
+    let mut parser = HttpParser::new(s_init as u16, s_any as u16);
+    // parser.match_http_hdr("hallo", "welt")?;
+    // parser.match_http_uri("/hello/world.html")?;
     for hdr in args.removals.unwrap_or_default() {
-        matcher.remove_http_hdr(&hdr)?;
+        parser.remove_http_hdr(&hdr)?;
     }
-    matcher.done_on_http_hdr_end()?;
+    parser.done_on_http_hdr_end()?;
 
     let mut sm = [[0u32; 256]; 100];
     let mut acts = [[Action::None; 256]; 100];
 
-    for (from, to, c, act) in matcher.dfa.iter_transitions() {
+    for (from, to, c, act) in parser.iter_transitions() {
         acts[*from as usize][*c as usize] = *act;
         sm[*from as usize][*c as usize] = *to as u32;
     }

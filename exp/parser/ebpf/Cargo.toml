@@ -14,7 +14,7 @@ libbpf-rs = { version = "0.23.3", features = ["vendored"] }
 libbpf-sys = "1.4.5"
 libc = "0.2.155"
 log = "0.4.22"
-matcher = { version = "0.1.0", path = "../matcher" }
+dfa = { version = "0.1.0", path = "../dfa" }
 
 [build-dependencies]
 libbpf-cargo = "0.23.3"

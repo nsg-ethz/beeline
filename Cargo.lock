@@ -235,6 +235,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fd119d74b830634cea2a0f58bbd0d54540518a14397557951e79340abc28c0"
 
 [[package]]
+name = "dfa"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+]
+
+[[package]]
 name = "env_filter"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -530,14 +538,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
-name = "matcher"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -629,13 +629,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dfa",
  "env_logger",
  "libbpf-cargo",
  "libbpf-rs",
  "libbpf-sys",
  "libc",
  "log",
- "matcher",
 ]
 
 [[package]]
@@ -644,9 +644,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dfa",
  "env_logger",
  "log",
- "matcher",
  "pin-project-lite",
  "regex",
  "socket2",

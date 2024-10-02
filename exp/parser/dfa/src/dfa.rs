@@ -1,35 +1,16 @@
 use anyhow::{bail, Result};
+use crate::Action;
 use log::debug;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Action {
-    Capture(u8),
-    Match(u8),
-    Done,
-    None
-}
-
-impl Action {
-
-    pub fn is_some(&self) -> bool {
-        !self.is_none()
-    }
-
-    pub fn is_none(&self) -> bool {
-        matches!(self, Action::None)
-    }
-
-}
-
-pub struct PatternBuilder<'a> {
-    dfa: &'a mut DFA,
+pub struct DfaBuilder<'a> {
+    dfa: &'a mut Dfa,
     sid: u16,
     cid: Option<u8>,
     capturing: bool,
 }
 
-impl PatternBuilder<'_> {
+impl DfaBuilder<'_> {
 
     pub fn push(&mut self, input: &str) -> Result<&mut Self> {
         assert!(self.dfa.states.contains(&self.sid));
@@ -65,14 +46,16 @@ impl PatternBuilder<'_> {
         Ok(self)
     }
 
-    pub fn start_capturing(&mut self) -> &mut Self {
-        self.capturing = true;
-        self
-    }
-
     pub fn push_optional(&mut self, input: char) -> Result<&mut Self> {
         assert!(self.dfa.states.contains(&self.sid));
         
+        // if we start capturing, we have to create a new state
+        let start_capture = self.capturing && self.cid.is_none();
+        if start_capture {
+            self.push(&input.to_string())?;
+        }
+
+        // we can keep in the current state as long as we want
         if let Some((to, action)) = self.dfa.insert_transition(self.sid, self.sid, input, Action::None) {
             if to != self.sid || action.is_some() {
                 bail!("Conflicting transition for optional input.");
@@ -82,7 +65,12 @@ impl PatternBuilder<'_> {
         Ok(self)
     }
 
-    pub fn match_on(&mut self, input: &str) -> Result<&mut Self> {
+    pub fn start_capturing(&mut self) -> &mut Self {
+        self.capturing = true;
+        self
+    }
+
+    pub fn match_on(&mut self, input: &str) -> Result<u8> {
         if input.len() <= 1 {
             bail!("Cannot end pattern with character.");
         }
@@ -100,7 +88,10 @@ impl PatternBuilder<'_> {
         }
 
         let cid = self.cid.unwrap();
-        self.end_pattern(input.chars().last().unwrap(), Action::Match(cid))
+        self.end_pattern(input.chars().last().unwrap(), Action::Match(cid))?;
+
+
+        Ok(cid)
     }
 
     pub fn done_on(&mut self, input: &str) -> Result<&mut Self> {
@@ -136,7 +127,7 @@ impl PatternBuilder<'_> {
 
 }
 
-pub struct DFA {
+pub(crate) struct Dfa {
     // next free state id
     sid: u16,
 
@@ -148,10 +139,10 @@ pub struct DFA {
     transitions: HashMap<(u16, char), (u16, Action)>,
 }
 
-impl DFA {
+impl Dfa {
 
-    pub fn new(reserved_states: impl Iterator<Item = u16>) -> DFA {
-        DFA {
+    pub fn new(reserved_states: impl Iterator<Item = u16>) -> Dfa {
+        Dfa {
             sid: 0,
             cid: 1,
             states: reserved_states.collect(),
@@ -182,7 +173,7 @@ impl DFA {
             return Some(transition);
         }
 
-        debug!(target: "DFA", "{} --({})--> {} {:?}", from, input.escape_debug(), to, action);
+        debug!(target: "Dfa", "{} --({})--> {} {:?}", from, input.escape_debug(), to, action);
 
         if lc_input != uc_input {
             if let Some(transition) = self.transitions.insert((from, uc_input), (to, action)) {
@@ -193,9 +184,9 @@ impl DFA {
         None
     }
 
-    pub fn start_pattern<'a>(&'a mut self, from: u16) -> PatternBuilder<'a> {
-        debug!(target: "DFA", "new pattern starting from: {}", from);
-        PatternBuilder {
+    pub fn start_pattern<'a>(&'a mut self, from: u16) -> DfaBuilder<'a> {
+        debug!(target: "Dfa", "new pattern starting from: {}", from);
+        DfaBuilder {
             dfa: self,
             sid: from,
             cid: None,
