@@ -5,7 +5,7 @@ use std::{pin::Pin, task::{Context, Poll}};
 use log::{debug, error, info};
 use dfa::{Action, http::HttpParser};
 use tokio::{
-    io::{copy_bidirectional_with_sizes, AsyncRead, AsyncWrite, ReadBuf},
+    io::{copy_bidirectional, AsyncRead, AsyncWrite, ReadBuf},
     net::{TcpListener, TcpStream}
 };
 use pin_project_lite::pin_project;
@@ -115,7 +115,6 @@ async fn main() -> Result<()> {
 
     info!("Listening on {}", args.address);
     let listener = TcpListener::bind(args.address).await?;
-    let buf_size = 16384;
 
     while let Ok((ingress, _)) = listener.accept().await {
         let mut egress = TcpStream::connect(args.destination.clone()).await?;
@@ -184,7 +183,7 @@ async fn main() -> Result<()> {
                 }
             });
 
-            if let Err(e) = copy_bidirectional_with_sizes(&mut mod_ingress, &mut egress, buf_size, buf_size).await {
+            if let Err(e) = copy_bidirectional(&mut mod_ingress, &mut egress).await {
                 error!("Error copying data: {:?}", e);
             }
         });
