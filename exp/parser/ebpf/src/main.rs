@@ -8,6 +8,7 @@ use log::{
     warn,
     info
 };
+use core::panic;
 use std::{net::{IpAddr, SocketAddr}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, thread, time::Duration};
 
 use dfa::{
@@ -30,6 +31,9 @@ struct Args {
 
     #[arg(long="remove")]
     removals: Option<Vec<String>>,
+
+    #[arg(long="rewrite")]
+    rewrite: Option<Vec<String>>,
 }
 
 fn print(level: PrintLevel, msg: String) {
@@ -71,20 +75,27 @@ fn inject_parser(mut parser: HttpParser, skel: &mut parser::OpenParserSkel) -> R
     // this is necessary so that the DFA won't
     // parse beyond the HTTP header
     parser.done_on_http_hdr_end()?;
+    let mut num_matches = 0;
 
     for (from, to, input, action) in parser.iter_transitions() {
+        if let Action::Match(_) = action {
+            num_matches += 1;
+        }
+
         let val = state_action_to_raw(*to, *action, skel.rodata());
-        debug!("[{}, {}] = {}", from, input.escape_debug(), val);
         skel.rodata_mut().s2ts[*from as usize][*input as usize] = val;
     }
 
-    for (cid, val) in parser.modifications.iter() {
+    for (cid, mo) in parser.modifications.iter() {
         let idx = *cid as usize;
-        skel.rodata_mut().mods[idx].len = val.len() as u8;
-        for (i, c) in val.chars().enumerate() {
+        skel.rodata_mut().mods[idx].len = mo.replacement.len() as u8;
+        skel.rodata_mut().mods[idx].tail = mo.tail;
+        for (i, c) in mo.replacement.chars().enumerate() {
             skel.rodata_mut().mods[idx].str[i] = c as i8;
         }
     }
+
+    skel.rodata_mut().num_matches = num_matches;
 
     Ok(())
 }
@@ -98,13 +109,19 @@ fn main() -> Result<()> {
     let mut open_skel = skel_builder.open()?;
 
     let mut parser = HttpParser::new(open_skel.rodata().s_init, open_skel.rodata().s_any);
-    // parser.capture_http_hdr_val("content-length")?;
-    // parser.match_http_uri("/hello/world.html")?;
-    // for hdr in args.removals.unwrap_or_default() {
-    //     parser.remove_http_hdr(&hdr)?;
-    // }
-    parser.rewrite_http_hdr("signature", "leeeerrrbooooeee")?;
-    parser.remove_http_hdr("date")?;
+
+    for hdr in args.removals.unwrap_or_default() {
+        parser.remove_http_hdr(&hdr)?;
+    }
+    for hdr in args.rewrite.unwrap_or_default() {
+        if let Some((key, val)) = hdr.split_once(":") {
+            parser.rewrite_http_hdr(key.trim(), val.trim())?;
+        }
+        else {
+            panic!("Invalid header format: {}", hdr);
+        }
+    }
+
     inject_parser(parser, &mut open_skel)?;
 
     let addr: SocketAddr = args.address.parse()?;

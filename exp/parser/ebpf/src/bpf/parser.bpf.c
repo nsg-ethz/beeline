@@ -40,6 +40,7 @@ struct capture_group {
 struct modification {
     __u8 len;
     char str[MAX_MOD_LEN];
+    __u8 tail;
 };
 
 struct {
@@ -61,6 +62,7 @@ const __u16 a_done = 1 << 14;
 
 volatile const __u32 ip4;
 volatile const __u32 port;
+volatile const __u8 num_matches;
 volatile const __u32 s2ts[128][256] = { s_init };
 volatile const struct modification mods[MAX_MATCHES + 1] = { 0 };
 
@@ -138,7 +140,6 @@ static __always_inline int _match(const struct sk_msg_md *msg, struct capture_gr
 
             num_matches++;
             if (num_matches >= MAX_MATCHES) return num_matches;
-            s = s_any;
         }
         else if ((a & a_done) != 0) {
             bpf_log("Done matching at %d", i);
@@ -159,7 +160,24 @@ static __always_inline int _match(const struct sk_msg_md *msg, struct capture_gr
     return num_matches;
 }
 
-static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_group *cg) {
+static __always_inline int _log_msg_range(struct sk_msg_md *msg, __u16 idx, __u16 len) {
+    if (bpf_msg_pull_data(msg, idx, idx+len, 0) < 0) return -1;
+
+    char *data = (char *)(long)msg->data;
+    char *data_end = (char *)(long)msg->data_end;
+
+    __u16 j;
+    bpf_for(j, 0, len) {
+        if (data + j + 1 > data_end) return -1;
+        bpf_log("data[%d]=%c", idx+j, data[j]);
+    }
+}
+
+static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_group *cg, __s16 *diff) {
+    // in case something fails, we don't want to resport a wrong diff
+    if (diff == NULL) return -1;
+    *diff = 0;
+
     __u16 len = cg->len;
     __u16 idx = cg->idx;
 
@@ -172,18 +190,31 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_g
     if (cg->id >= MAX_MATCHES) return -1;
     volatile const struct modification *mod = &mods[cg->id & 7]; // TODO: why do we have to truncate cg->id here?
 
-    __s32 diff = mod->len - len;
+    len -= mod->tail;
+    __s16 delta = mod->len - len;
 
-    bpf_log("Increasing msg size by %d (%d-%d)", diff, mod->len, len);
-    if (diff > 0) {
-        bpf_msg_push_data(msg, idx, diff, 0);
+    bpf_log("Increasing msg size by %d (%d-%d) at %d (cid: %d)", delta, mod->len, len, idx, cg->id);
+
+    // we first have to linearize the data
+    // TODO: figure out if we have to pull the data for every single modification
+    if (bpf_msg_pull_data(msg, 0, idx+mod->len, 0) < 0) return -1;
+
+    if (delta > 0) {
+        if (bpf_msg_push_data(msg, idx, delta, 0) < 0) return -1;
     }
-    else if (diff < 0) {
-        bpf_msg_pop_data(msg, idx, -diff, 0);
+    else if (delta < 0) {
+        if (bpf_msg_pop_data(msg, idx, -delta, 0) < 0) return -1;
     }
 
-    bpf_log("Rewriting payload in range [%d, %d]", idx, len);
+    // we don't set diff until we actually resized the message
+    *diff = delta;
 
+    // we're done if we don't have to write anything
+    if (mod->len == 0) return 0;
+
+    bpf_log("Rewriting payload (%dB) in range [%d, %d]", msg->size, idx, len);
+
+    // at this point we have to pull the data again to get valid data pointers    
     if (bpf_msg_pull_data(msg, idx, idx+mod->len, 0) < 0) return -1;
 
     char *data = (char *)(long)msg->data;
@@ -191,7 +222,7 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_g
     
     __u16 i;
     bpf_for(i, 0, mod->len) {
-        if (data + i + 1 > data_end) break;
+        if (data + i + 1 > data_end) return -1;
         data[i] = mod->str[i];
     }
 
@@ -219,10 +250,24 @@ int msg_verdict(struct sk_msg_md *msg) {
         bpf_log("Processing %dB msg", msg->size);
 
         struct capture_group cgs[MAX_MATCHES] = { 0 };
-        if (_match(msg, cgs) == 1) {
-            if (_modify(msg, &cgs[0]) < 0) {
-                bpf_err("ERROR: Modifying message failed.");
+        if (_match(msg, cgs) == num_matches) {
+            __u8 i;
+            __s16 off = 0;
+            __s16 until = 0;
+            bpf_for(i, 0, num_matches) {
+                cgs[i].idx += off;
+                until = cgs[i].idx + cgs[i].len;
+
+                __s16 diff = 0;
+                if (_modify(msg, &cgs[i], &diff) < 0) {
+                    bpf_err("ERROR: Modifying message failed.");
+                    break;
+                }
+
+                off += diff;
             }
+
+            _log_msg_range(msg, 0, until);
         }
     }
 

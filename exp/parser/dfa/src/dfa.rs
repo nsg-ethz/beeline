@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 pub struct DfaBuilder<'a> {
     dfa: &'a mut Dfa,
+    start: u16,
     sid: u16,
     cid: Option<u8>,
     capturing: bool,
@@ -70,7 +71,7 @@ impl DfaBuilder<'_> {
         self
     }
 
-    pub fn match_on(&mut self, input: &str) -> Result<u8> {
+    fn match_and_continue_with(&mut self, input: &str, to: Option<u16>) -> Result<u8> {
         if input.len() <= 1 {
             bail!("Cannot end pattern with character.");
         }
@@ -88,10 +89,18 @@ impl DfaBuilder<'_> {
         }
 
         let cid = self.cid.unwrap();
-        self.end_pattern(input.chars().last().unwrap(), Action::Match(cid))?;
-
+        self.end_pattern(input.chars().last().unwrap(), Action::Match(cid), to)?;
 
         Ok(cid)
+    }
+
+    pub fn match_on(&mut self, input: &str) -> Result<u8> {
+        self.match_and_continue_with(input, None)
+    }
+
+    pub fn match_and_restart_with(&mut self, input: &str) -> Result<u8> {
+        let to = self.get_sid(input);
+        self.match_and_continue_with(input, to)
     }
 
     pub fn done_on(&mut self, input: &str) -> Result<&mut Self> {
@@ -111,11 +120,11 @@ impl DfaBuilder<'_> {
             bail!("Capture group will always get aborted.");
         }
 
-        self.end_pattern(input.chars().last().unwrap(), Action::Done)
+        self.end_pattern(input.chars().last().unwrap(), Action::Done, None)
     }
     
-    fn end_pattern(&mut self, input: char, action: Action) -> Result<&mut Self> {
-        let to = self.dfa.insert_state();
+    fn end_pattern(&mut self, input: char, action: Action, to: Option<u16>) -> Result<&mut Self> {
+        let to = to.unwrap_or_else(|| self.dfa.insert_state());
         if let Some((state, action)) = self.dfa.insert_transition(self.sid, to, input, action) {
             if state != self.sid || action.is_some() {
                 bail!("Conflicting transition for capture and match.");
@@ -123,6 +132,20 @@ impl DfaBuilder<'_> {
         }
 
         Ok(self)
+    }
+
+    fn get_sid(&self, input: &str) -> Option<u16> {
+        let mut sid = self.start;
+        for c in input.chars() {
+            if let Some((to, _)) = self.dfa.transitions.get(&(sid, c)) {
+                sid = *to;
+            }
+            else {
+                return None;
+            }
+        }
+
+        Some(sid)
     }
 
 }
@@ -188,6 +211,7 @@ impl Dfa {
         debug!(target: "Dfa", "new pattern starting from: {}", from);
         DfaBuilder {
             dfa: self,
+            start: from,
             sid: from,
             cid: None,
             capturing: false,

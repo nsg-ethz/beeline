@@ -9,6 +9,11 @@ pub enum Action {
     None
 }
 
+pub struct Modification {
+    pub replacement: String,
+    pub tail: u8,
+}
+
 impl Action {
 
     pub fn is_some(&self) -> bool {

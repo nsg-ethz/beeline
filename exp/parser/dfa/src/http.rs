@@ -1,7 +1,6 @@
 use anyhow::{Ok, Result};
 use crate::{
-    Action,
-    dfa::Dfa
+    dfa::Dfa, Action, Modification
 };
 use std::collections::HashMap;
 
@@ -10,7 +9,7 @@ const CRLF: &str = "\r\n";
 pub struct HttpParser {
     pub s_init: u16,
     pub s_any: u16,
-    pub modifications: HashMap<u8, String>,
+    pub modifications: HashMap<u8, Modification>,
     dfa: Dfa,
 }
 
@@ -59,7 +58,7 @@ impl HttpParser {
             .push_optional('\t')?
             .push_optional(' ')?
             .push(val)?
-            .match_on(CRLF)?;
+            .match_and_restart_with(CRLF)?;
             
         Ok(())
     }
@@ -75,7 +74,7 @@ impl HttpParser {
             .push_optional('\t')?
             .push_optional(' ')?
             .push_optional('*')?
-            .match_on(CRLF)?;
+            .match_and_restart_with(CRLF)?;
 
         Ok(())
     }
@@ -91,10 +90,13 @@ impl HttpParser {
             .push_optional(' ')?
             .start_capturing()
             .push_optional('*')?
-            .match_on(CRLF)?;
+            .match_and_restart_with(CRLF)?;
 
-        let val = format!("{}\r\n", val);
-        self.modifications.insert(cid, val);
+        let val = val.to_string();
+        self.modifications.insert(cid, Modification {
+            replacement: val,
+            tail: 2,
+        });
 
         Ok(())
     }
