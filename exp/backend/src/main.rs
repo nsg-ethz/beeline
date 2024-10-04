@@ -1,7 +1,6 @@
 use anyhow::Result;
 use core::str;
 use clap::Parser;
-use http_body_util::BodyExt;
 use hyper::{
     body::Incoming,
     Request,
@@ -11,7 +10,7 @@ use hyper::{
 };
 use hyper_util::rt::TokioIo;
 use log::{debug, info, error};
-use std::{collections::VecDeque, os::fd::AsFd, time::Duration};
+use std::{os::fd::AsFd, time::Duration};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::net::TcpSocket;
 
@@ -19,8 +18,7 @@ use tokio::net::TcpSocket;
 struct Args {
     #[arg(short, long, default_value="127.0.0.1:8000")]
     address: String,
-    #[arg(short='f', long, default_value="1.0")]
-    content_length_factor: f32,
+
     #[arg(short='H', long="header")]
     headers: Option<Vec<String>>,
 }
@@ -42,7 +40,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let Args {
         address,
-        content_length_factor,
         headers
     } = Args::parse();
 
@@ -77,15 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .serve_connection(io, service_fn(|req: Request<Incoming>| async {
                     debug!("Received request: {:?}", req);
 
-                    let len = req.headers()
-                        .get("Content-Length")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|v| v.parse::<f32>().ok())
-                        .unwrap_or(0.0);
-                    let len = (len * content_length_factor).floor() as usize;
-
-                    let mut res = Response::builder()
-                        .header("Content-Length", len);
+                    let mut res = Response::builder();
 
                     if let Some(headers) = &headers {
                         for header in headers {
@@ -98,15 +87,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
 
                     let body: Incoming = req.into_body();
-                    let body = body.map_frame(move |f| {
-                        f.map_data(|buf| {
-                            buf.iter()
-                                .cycle()
-                                .take(len)
-                                .copied()
-                                .collect::<VecDeque<_>>()
-                        })
-                    });
                     res.body(body)
                 }))
                 .await

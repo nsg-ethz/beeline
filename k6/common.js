@@ -39,8 +39,8 @@ export function requestTo(server) {
   const res = http.post(url, payload);
   let passed = check(res, {
     "status is 200": (r) => r.status === 200,
-    // "processed by correct backend": (r) => r.headers["Signature"] == signature,
-    "signature is redacted": (r) => r.headers["Signature"] === "X".repeat(signature.length),
+    "processed by correct backend": (r) => r.headers["Signature"] == signature,
+    "benchmark is performance": (r) => r.headers["Benchmark"] === "performance",
     "body is the same": (r) => r.body === payload,
   });
 
