@@ -4,17 +4,20 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
-#define LOG_LEVEL 2
-
-#if LOG_LEVEL == 0
-#define bpf_log(...) (0)
-#define bpf_err(...) (0)
-#elif LOG_LEVEL == 1
-#define bpf_log(...) (0)
-#define bpf_err(...) bpf_printk(__VA_ARGS__)
-#elif LOG_LEVEL == 2
-#define bpf_log(...) bpf_printk(__VA_ARGS__)
-#define bpf_err(...) bpf_printk(__VA_ARGS__)
+#ifdef LOG_LEVEL
+    #if LOG_LEVEL == 0
+        #define bpf_log(...) (0)
+        #define bpf_err(...) (0)
+    #elif LOG_LEVEL == 1
+        #define bpf_log(...) (0)
+        #define bpf_err(...) bpf_printk(__VA_ARGS__)
+    #elif LOG_LEVEL == 2
+        #define bpf_log(...) bpf_printk(__VA_ARGS__)
+        #define bpf_err(...) bpf_printk(__VA_ARGS__)
+    #endif
+#else
+    #define bpf_log(...) (0)
+    #define bpf_err(...) (0)
 #endif
 
 char LICENSE[] SEC("license") = "GPL";
