@@ -15,6 +15,8 @@ sns.color_palette("tab10")
 
 np.random.seed(1)
 
+REWRITE_LEGEND = False
+
 def thousand_label(x, pos): 
     return "%1.0fK" % (x * 1e-3) if x >= 1e3 else "%1.0f" % x
 
@@ -124,6 +126,15 @@ def _get_file_paths(name, filename_pattern="*.json"):
     return glob.glob(os.path.join(dir_path, "..", "res", "runs", name, filename_pattern))
 
 
+def _rename_legend_labels(g):
+    print("How do you want to call the proxies?")
+    for text in g._legend.texts:
+        proxy = text.get_text()
+        new_name = input(f"{proxy}: ").strip()
+        if len(new_name) > 0:
+            text.set_text(new_name)
+
+
 def line_graph(name, metric, agg, dst):
     paths = _get_file_paths(name)
     df = _load_summary_data(paths)
@@ -154,6 +165,9 @@ def line_graph(name, metric, agg, dst):
     g.set_yticks(np.linspace(min_y, max_y, 5))
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
+    if REWRITE_LEGEND:
+        _rename_legend_labels(g)
+    
     _save_to_path(f"line-{metric}-{agg}", os.path.join(dst, name))
 
 
@@ -188,6 +202,10 @@ def bar_graph(name, metric, agg, dst):
         ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
     sns.move_legend(g, "upper center")
+
+    if REWRITE_LEGEND:
+        _rename_legend_labels(g)
+    
     _save_to_path(f"bar-{metric}-{agg}", os.path.join(dst, name))           
 
 
@@ -219,6 +237,10 @@ def speedup_graph(name, base, metric, aggs, dst):
     # plt.title(metric)
     g.set_axis_labels("payload size [B]", "speedup")
     g.legend.set_title(None)
+    
+    if REWRITE_LEGEND:
+        _rename_legend_labels(g)
+
     sns.move_legend(g, "upper right")
     _save_to_path(f"speedup-{metric}", os.path.join(dst, name))
 
@@ -237,6 +259,9 @@ def duration_graph(name, proxy, agg, dst):
     g = df.plot(kind="bar", stacked=True)
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]")
+    
+    if REWRITE_LEGEND:
+        _rename_legend_labels(g)
     
     _save_to_path(f"duration-{proxy}-{agg}", os.path.join(dst, name))
 
@@ -273,6 +298,9 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]" if absolute else "overhead [%]")
     
+    if REWRITE_LEGEND:
+        _rename_legend_labels(g)
+    
     _save_to_path(f"overhead-{metric}-{agg}", os.path.join(dst, name))
 
 
@@ -293,6 +321,10 @@ def cdf_graph(name, metric, crop, dst):
 
     g.set_xlabel(metric)
     # g.set_ybound(lower=0.9, upper=1.0)
+    
+    if REWRITE_LEGEND:
+        _rename_legend_labels(g)
+
     plt.xscale("log")
     _save_to_path(f"cdf-{metric}-@{crop}s", os.path.join(dst, name))
 
@@ -320,6 +352,9 @@ def scatter_graph(name, proxy, metric, drop_rate, dst):
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
     g.set_ylabel(f"{metric} [ms]")
 
+    if REWRITE_LEGEND:
+        _rename_legend_labels(g)
+    
     _save_to_path(f"scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", os.path.join(dst, name))
 
 
@@ -360,13 +395,14 @@ def surface_graph(name, proxy, metric, agg, dst):
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
     ax.set_xlim([16384, 128])
     ax.set_zlabel("latency [ms]")
-
+    
     _save_to_path(f"surface-{proxy}-{metric}-{agg}", os.path.join(dst, name))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--name", help="Name of the experiment")
+    parser.add_argument("-l", "--legend", default=False, action=argparse.BooleanOptionalAction, help="Rename the legend labels")
     parser.add_argument("-o", "--output", default="res/vis", help="Can be an output directory or file")
 
     subparsers = parser.add_subparsers(dest="command")
@@ -409,6 +445,10 @@ if __name__ == "__main__":
     surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
     
     args = parser.parse_args()
+
+    if args.legend is not False:
+        # global REWRITE_LEGEND
+        REWRITE_LEGEND = args.legend
 
     if args.command == "line":
         line_graph(args.name, args.metric, args.agg, args.output)
