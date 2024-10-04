@@ -92,11 +92,13 @@ def _save_to_path(name, dst):
     name = name.replace(")", "")
 
     plt.tight_layout()
-    path = os.path.join(dst, name) if os.path.isdir(dst) else dst
+    path = os.path.join(dst, name)
     if os.path.splitext(path)[1] == "":
         path += ".png"
 
     print("Writing to", path)
+
+    os.makedirs(dst, exist_ok=True)
     plt.savefig(path, dpi=400)
 
 
@@ -152,7 +154,7 @@ def line_graph(name, metric, agg, dst):
     g.set_yticks(np.linspace(min_y, max_y, 5))
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
-    _save_to_path(f"{name}-line-{metric}-{agg}", dst)  
+    _save_to_path(f"line-{metric}-{agg}", os.path.join(dst, name))
 
 
 def bar_graph(name, metric, agg, dst):
@@ -186,7 +188,7 @@ def bar_graph(name, metric, agg, dst):
         ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
     sns.move_legend(g, "upper center")
-    _save_to_path(f"{name}-bar-{metric}-{agg}", dst)           
+    _save_to_path(f"bar-{metric}-{agg}", os.path.join(dst, name))           
 
 
 def speedup_graph(name, base, metric, aggs, dst):
@@ -218,7 +220,7 @@ def speedup_graph(name, base, metric, aggs, dst):
     g.set_axis_labels("payload size [B]", "speedup")
     g.legend.set_title(None)
     sns.move_legend(g, "upper right")
-    _save_to_path(f"{name}-speedup-{metric}", dst)
+    _save_to_path(f"speedup-{metric}", os.path.join(dst, name))
 
 
 def duration_graph(name, proxy, agg, dst):
@@ -236,7 +238,7 @@ def duration_graph(name, proxy, agg, dst):
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]")
     
-    _save_to_path(f"{name}-duration-{proxy}-{agg}", dst)
+    _save_to_path(f"duration-{proxy}-{agg}", os.path.join(dst, name))
 
 
 def overhead_graph(name, base, metric, agg, absolute, dst):
@@ -271,7 +273,7 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]" if absolute else "overhead [%]")
     
-    _save_to_path(f"{name}-overhead-{metric}-{agg}", dst)
+    _save_to_path(f"overhead-{metric}-{agg}", os.path.join(dst, name))
 
 
 def cdf_graph(name, metric, crop, dst):
@@ -292,7 +294,7 @@ def cdf_graph(name, metric, crop, dst):
     g.set_xlabel(metric)
     # g.set_ybound(lower=0.9, upper=1.0)
     plt.xscale("log")
-    _save_to_path(f"{name}-cdf-{metric}-@{crop}s", dst)
+    _save_to_path(f"cdf-{metric}-@{crop}s", os.path.join(dst, name))
 
 
 def scatter_graph(name, proxy, metric, drop_rate, dst):
@@ -318,7 +320,7 @@ def scatter_graph(name, proxy, metric, drop_rate, dst):
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
     g.set_ylabel(f"{metric} [ms]")
 
-    _save_to_path(f"{name}-scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", dst)
+    _save_to_path(f"scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", os.path.join(dst, name))
 
 
 def surface_graph(name, proxy, metric, agg, dst):
@@ -359,7 +361,7 @@ def surface_graph(name, proxy, metric, agg, dst):
     ax.set_xlim([16384, 128])
     ax.set_zlabel("latency [ms]")
 
-    _save_to_path(f"{name}-surface-{proxy}-{metric}-{agg}", dst)
+    _save_to_path(f"surface-{proxy}-{metric}-{agg}", os.path.join(dst, name))
 
 
 if __name__ == "__main__":

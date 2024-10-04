@@ -51,17 +51,17 @@ stop_experiment
 
 echo -e "${COLOR_GREEN}Preparing environment${COLOR_OFF}"
 if [[ "${PROXY}" == *"naive"* ]]; then
-    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1"
-    pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --remove signature
+    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1" -H "benchmark: test"
+    pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --rewrite "benchmark: performance"
     pod 5 ${PARSER_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000
 elif [[ "${PROXY}" == *"ebpf"* ]]; then
-    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1"
+    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1" -H "benchmark: test"
 
-    sudo -b -E systemd-run -q --scope -u exp-pod5-parser-ebpf --slice pod5.slice ${PARSER_EBPF_BIN} -d 10.0.1.1:8000 --remove signature
+    sudo -b -E systemd-run -q --scope -u exp-pod5-parser-ebpf --slice pod5.slice ${PARSER_EBPF_BIN} -a 10.0.1.1:8000 --rewrite "benchmark: performance"
     echo -e "${COLOR_GREEN}Launched exp-pod5-parser-ebpf in pod5.${COLOR_OFF}"
 elif [[ "${PROXY}" == *"cilium"* ]]; then
-    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server2" 
-    pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --remove signature 
+    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1" -H "benchmark: test"
+    pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --rewrite "benchmark: performance" 
     pod 5 ${PARSER_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000 
 
     sudo -b -E systemd-run -q --scope -u exp-pod5-parser-ebpf --slice pod5.slice ${PARSER_EBPF_BIN} -d 10.0.5.1:3000
