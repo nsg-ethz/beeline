@@ -51,7 +51,7 @@ stop_experiment
 
 echo -e "${COLOR_GREEN}Preparing environment${COLOR_OFF}"
 if [[ "${PROXY}" == *"naive"* ]]; then
-    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -M "signature: server1" -M "benchmark: test"
+    pod 1 ${BACKEND_BIN} --http 10.0.1.1:8000 -M "signature: server1" -M "benchmark: test"
     pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --rewrite "benchmark: performance"
     pod 5 ${PARSER_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000
 elif [[ "${PROXY}" == *"ebpf"* ]]; then
@@ -60,11 +60,11 @@ elif [[ "${PROXY}" == *"ebpf"* ]]; then
     sudo -b -E systemd-run -q --scope -u exp-pod5-parser-ebpf --slice pod5.slice ${PARSER_EBPF_BIN} -a 10.0.1.1:8000 --rewrite "benchmark: performance"
     echo -e "${COLOR_GREEN}Launched exp-pod5-parser-ebpf in pod5.${COLOR_OFF}"
 elif [[ "${PROXY}" == *"cilium"* ]]; then
-    pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -M "signature: server1" -M "benchmark: test"
+    pod 1 ${BACKEND_BIN} --http 10.0.1.1:8000 -M "signature: server1" -M "benchmark: test"
     pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --rewrite "benchmark: performance" 
     pod 5 ${PARSER_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000 
 
-    sudo -b -E systemd-run -q --scope -u exp-pod5-parser-ebpf --slice pod5.slice ${PARSER_EBPF_BIN} -d 10.0.5.1:3000
+    sudo -b -E systemd-run -q --scope -u exp-pod5-parser-ebpf --slice pod5.slice ${PARSER_EBPF_BIN} -a 10.0.5.1:3000
     echo -e "${COLOR_GREEN}Launched exp-pod5-parser-ebpf in pod5.${COLOR_OFF}"
 fi
 
@@ -106,7 +106,7 @@ for SIZE in ${SIZE_LIST}; do
         SUM_OPT="--summary-export=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B.json"
     fi
 
-    BENCH_CMD="k6 run -e VUS=${VUS} -e BACKEND=1 -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
+    BENCH_CMD="k6 run -e VUS=${VUS} -e BACKEND=1 -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} ${@:2} k6/${SCRIPT}"
     echo ${BENCH_CMD}
     sudo -E ip netns exec ns5 ${BENCH_CMD}
     RET=$?

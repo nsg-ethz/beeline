@@ -272,8 +272,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
     }
 
-    return SK_PASS;
-    // return _try_redirect(msg);
+    return _try_redirect(msg);
 }
 
 SEC("sockops")
