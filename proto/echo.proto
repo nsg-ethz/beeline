@@ -1,0 +1,17 @@
+syntax = "proto3";
+package echo;
+
+service Echo {
+    rpc Send (EchoRequest) returns (EchoReply);
+}
+
+message EchoRequest {
+    string agent = 1;
+    string benchmark = 2;
+    string payload = 3;
+}
+
+message EchoReply {
+    string signature = 1;
+    string payload = 2;
+}
