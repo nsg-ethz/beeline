@@ -3,8 +3,8 @@ resolver = "2"
 
 members = [
     "exp/backend", 
-    "exp/parser/ebpf",
-    "exp/parser/naive",
-    "exp/parser/dfa",
+    "exp/proxy/ebpf",
+    "exp/proxy/naive",
+    "exp/proxy/dfa",
     "exp/lb/io_uring",
 ]

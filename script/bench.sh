@@ -12,8 +12,8 @@ DIRECT=0
 
 ROOT=$(dirname "$(readlink -f "$0")")
 BACKEND_BIN=${ROOT}/../target/release/backend
-PARSER_NAIVE_BIN=${ROOT}/../target/release/parser-naive
-PARSER_EBPF_BIN=${ROOT}/../target/release/parser-ebpf
+PROXY_NAIVE_BIN=${ROOT}/../target/release/proxy-naive
+PROXY_EBPF_BIN=${ROOT}/../target/release/proxy-ebpf
 
 function stop_experiment {
     systemctl list-unit-files | grep exp-pod | awk '{print $1}' | xargs -L 1 sudo systemctl stop > /dev/null 2>&1
@@ -44,28 +44,28 @@ while getopts "dln:p:r:s:u:" opt; do
 done
 
 cargo b -r --bin backend
-cargo b -r --bin parser-naive
-cargo b -r --bin parser-ebpf
+cargo b -r --bin proxy-naive
+cargo b -r --bin proxy-ebpf
 
 stop_experiment
 
 echo -e "${COLOR_GREEN}Preparing environment${COLOR_OFF}"
 if [[ "${PROXY}" == *"naive"* ]]; then
     pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1" -H "benchmark: test"
-    pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --rewrite "benchmark: performance"
-    pod 5 ${PARSER_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000
+    pod 1 ${PROXY_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --rewrite "benchmark: performance"
+    pod 5 ${PROXY_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000
 elif [[ "${PROXY}" == *"ebpf"* ]]; then
     pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1" -H "benchmark: test"
 
-    sudo -b -E systemd-run -q --scope -u exp-pod5-parser-ebpf --slice pod5.slice ${PARSER_EBPF_BIN} -a 10.0.1.1:8000 --rewrite "benchmark: performance"
-    echo -e "${COLOR_GREEN}Launched exp-pod5-parser-ebpf in pod5.${COLOR_OFF}"
+    sudo -b -E systemd-run -q --scope -u exp-pod5-proxy-ebpf --slice pod5.slice ${PROXY_EBPF_BIN} -a 10.0.1.1:8000 --rewrite "benchmark: performance"
+    echo -e "${COLOR_GREEN}Launched exp-pod5-proxy-ebpf in pod5.${COLOR_OFF}"
 elif [[ "${PROXY}" == *"cilium"* ]]; then
     pod 1 ${BACKEND_BIN} -a 10.0.1.1:8000 -H "signature: server1" -H "benchmark: test"
-    pod 1 ${PARSER_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --rewrite "benchmark: performance" 
-    pod 5 ${PARSER_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000 
+    pod 1 ${PROXY_NAIVE_BIN} -a 10.0.1.1:3000 -d 10.0.1.1:8000 --rewrite "benchmark: performance" 
+    pod 5 ${PROXY_NAIVE_BIN} -a 10.0.5.1:3000 -d 10.0.1.1:3000 
 
-    sudo -b -E systemd-run -q --scope -u exp-pod5-parser-ebpf --slice pod5.slice ${PARSER_EBPF_BIN} -d 10.0.5.1:3000
-    echo -e "${COLOR_GREEN}Launched exp-pod5-parser-ebpf in pod5.${COLOR_OFF}"
+    sudo -b -E systemd-run -q --scope -u exp-pod5-proxy-ebpf --slice pod5.slice ${PROXY_EBPF_BIN} -d 10.0.5.1:3000
+    echo -e "${COLOR_GREEN}Launched exp-pod5-proxy-ebpf in pod5.${COLOR_OFF}"
 fi
 
 sleep 0.25
