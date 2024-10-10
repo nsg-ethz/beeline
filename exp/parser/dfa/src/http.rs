@@ -13,7 +13,6 @@ pub struct HttpParser {
     dfa: Dfa,
 }
 
-#[allow(dead_code)]
 impl HttpParser {
 
     pub fn new(s_init: u16, s_any: u16) -> HttpParser {

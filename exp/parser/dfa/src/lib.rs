@@ -1,5 +1,6 @@
-pub mod http;
 pub mod dfa;
+pub mod http;
+pub mod rpc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {

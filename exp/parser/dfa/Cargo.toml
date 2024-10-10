@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.89"
 log = "0.4.22"
+prost-build = "0.13.3"

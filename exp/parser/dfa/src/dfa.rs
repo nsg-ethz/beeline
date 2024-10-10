@@ -11,6 +11,15 @@ pub struct DfaBuilder<'a> {
     capturing: bool,
 }
 
+enum RpcWireType {
+    VARINT = 0,
+    I64,
+    LEN,
+    SGROUP,
+    EGROUP,
+    I32
+}
+
 impl DfaBuilder<'_> {
 
     pub fn push(&mut self, input: &str) -> Result<&mut Self> {

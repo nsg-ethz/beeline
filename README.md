@@ -18,6 +18,8 @@ script/bench -n new_benchmark -p ebpf -s "1024 2048 4096"
 ## Resources
 
 * [What are best practices for benchmarking Envoy?](https://www.envoyproxy.io/docs/envoy/latest/faq/performance/how_to_benchmark_envoy)
+* [gRPC Demystified – Protobuf Encoding](https://dfordebugging.wordpress.com/2023/02/17/grpc-demystified-protobuf-encoding/)
+* [Protocol Buffer Documentation](https://protobuf.dev/programming-guides/encoding/)
 
 
 ## Requirements

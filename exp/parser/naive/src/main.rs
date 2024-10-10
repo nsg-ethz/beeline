@@ -3,7 +3,7 @@ use clap::Parser;
 use core::str;
 use std::{pin::Pin, task::{Context, Poll}};
 use log::{debug, error, info};
-use dfa::{Action, http::HttpParser};
+use dfa::{Action, http::HttpParser, rpc::RpcParser};
 use tokio::{
     io::{copy_bidirectional, AsyncRead, AsyncWrite, ReadBuf},
     net::{TcpListener, TcpStream}
@@ -23,6 +23,9 @@ struct Args {
 
     #[arg(long="rewrite")]
     rewrite: Option<Vec<String>>,
+
+    #[arg(short, long="proto", default_value="../../../proto/echo.proto")]
+    proto: String,
 }
 
 pin_project! {
@@ -80,6 +83,8 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     let args = Args::parse();
+
+    let parser = RpcParser::new(0, 1, args.proto)?;
 
     let s_init: u32 = 0;
     let s_any: u32 = 1;
