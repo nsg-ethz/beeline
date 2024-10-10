@@ -5,5 +5,5 @@ members = [
     "backend", 
     "proxy/ebpf",
     "proxy/naive",
-    "proxy/dfa",
+    "proxy/common",
 ]

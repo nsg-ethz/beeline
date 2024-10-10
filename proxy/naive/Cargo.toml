@@ -11,7 +11,7 @@ anyhow = "1.0.87"
 clap = { version = "4.5.17", features = ["derive"] }
 env_logger = "0.11.5"
 log = "0.4.22"
-dfa = { version = "0.1.0", path = "../dfa" }
+common = { version = "0.1.0", path = "../common" }
 pin-project-lite = "0.2.14"
 regex = "1.10.6"
 socket2 = "0.5.7"

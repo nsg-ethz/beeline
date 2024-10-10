@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 use core::str;
+use common::parse::{Action, http::HttpParser};
 use std::{pin::Pin, task::{Context, Poll}};
 use log::{debug, error, info};
-use dfa::{Action, http::HttpParser};
 use tokio::{
     io::{copy_bidirectional, AsyncRead, AsyncWrite, ReadBuf},
     net::{TcpListener, TcpStream}

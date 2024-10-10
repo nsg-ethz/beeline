@@ -1,5 +1,5 @@
 use anyhow::{Ok, Result};
-use crate::{
+use crate::parse::{
     dfa::Dfa, Action, Modification
 };
 use std::collections::HashMap;
