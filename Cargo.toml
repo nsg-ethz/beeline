@@ -2,9 +2,8 @@
 resolver = "2"
 
 members = [
-    "exp/backend", 
-    "exp/proxy/ebpf",
-    "exp/proxy/naive",
-    "exp/proxy/dfa",
-    "exp/lb/io_uring",
+    "backend", 
+    "proxy/ebpf",
+    "proxy/naive",
+    "proxy/dfa",
 ]
