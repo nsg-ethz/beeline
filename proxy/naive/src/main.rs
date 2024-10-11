@@ -1,7 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
 use core::str;
-use common::parse::{Action, http::HttpParser};
+use common::{
+    config::{self, Config},
+    parse::{http::HttpParser, Action}
+};
 use std::{pin::Pin, task::{Context, Poll}};
 use log::{debug, error, info};
 use tokio::{
@@ -15,14 +18,8 @@ struct Args {
     #[arg(short, long, default_value="127.0.0.1:3000")]
     address: String,
 
-    #[arg(short, long, default_value="127.0.0.1:8000")]
-    destination: String,
-
-    #[arg(long="remove")]
-    removals: Option<Vec<String>>,
-
-    #[arg(long="rewrite")]
-    rewrite: Option<Vec<String>>,
+    #[arg(short, long, default_value="../../config/debug.yaml")]
+    config: String,
 }
 
 pin_project! {
@@ -79,14 +76,18 @@ impl<F> AsyncWrite for Modifier<F> where F: Send + Clone + Fn(&mut Vec<u8>) {
 async fn main() -> Result<()> {
     env_logger::init();
 
-    let args = Args::parse();
+    let args = Args::parse();  
+    let config = std::fs::File::open(args.config)?;
+    let config: Config = serde_yaml::from_reader(config)?;
 
     let s_init: u32 = 0;
     let s_any: u32 = 1;
     let mut parser = HttpParser::new(s_init as u16, s_any as u16);
-    
-    for hdr in args.removals.unwrap_or_default() {
-        parser.remove_http_hdr(&hdr)?;
+
+    for r in config.route {
+        for (key, val) in r.r#match {
+            parser.match_http_hdr(&key, &val)?;
+        }
     }
     
     for hdr in args.rewrite.unwrap_or_default() {

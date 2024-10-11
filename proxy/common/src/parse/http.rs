@@ -9,8 +9,14 @@ const CRLF: &str = "\r\n";
 pub struct HttpParser {
     pub s_init: u16,
     pub s_any: u16,
+
+    // the modifications that should be made for a given modification id
     pub modifications: HashMap<u8, Modification>,
+
     dfa: Dfa,
+
+    // the current filter id
+    fid: u8,
 }
 
 #[allow(dead_code)]
@@ -27,11 +33,18 @@ impl HttpParser {
             s_any,
             modifications: HashMap::new(),
             dfa: Dfa::new(states.into_iter()),
+            fid: 0
         }
     }
 
+    pub fn start_new_filter(&mut self) -> u8 {
+        let fid = self.fid;
+        self.fid += 1;
+        fid
+    }
+
     pub fn done_on_http_hdr_end(&mut self) -> Result<()> {
-        self.dfa.start_pattern(self.s_any)
+        self.dfa.start_pattern(self.s_any, self.fid)
             .push(CRLF)?
             .done_on(CRLF)?;
 
@@ -39,7 +52,7 @@ impl HttpParser {
     }
 
     pub fn match_http_uri(&mut self, uri: &str) -> Result<()> {
-        self.dfa.start_pattern(self.s_init)
+        self.dfa.start_pattern(self.s_init, self.fid)
             .push("POST ")?
             .start_capturing()
             .match_on(uri)?;
@@ -48,7 +61,7 @@ impl HttpParser {
     }
     
     pub fn match_http_hdr(&mut self, key: &str, val: &str) -> Result<()> {
-        self.dfa.start_pattern(self.s_any)
+        self.dfa.start_pattern(self.s_any, self.fid)
             .push(CRLF)?
             .start_capturing()
             .push(key)?
@@ -63,8 +76,8 @@ impl HttpParser {
         Ok(())
     }
 
-    pub fn remove_http_hdr(&mut self, key: &str) -> Result<()> {
-        self.dfa.start_pattern(self.s_any)
+    pub fn remove_http_hdr(&mut self, key: &str) -> Result<u8> {
+        let mid = self.dfa.start_pattern(self.s_any, self.fid)
             .push(CRLF)?
             .start_capturing()
             .push(key)?
@@ -74,13 +87,18 @@ impl HttpParser {
             .push_optional('\t')?
             .push_optional(' ')?
             .push_optional('*')?
-            .match_and_restart_with(CRLF)?;
+            .end_caputuring_and_restart_with(CRLF)?;
 
-        Ok(())
+        self.modifications.insert(mid, Modification {
+            replacement: "".to_string(),
+            tail: 0,
+        });
+
+        Ok(mid)
     }
 
-    pub fn rewrite_http_hdr(&mut self, key: &str, val: &str) -> Result<()> {
-        let cid = self.dfa.start_pattern(self.s_any)
+    pub fn rewrite_http_hdr(&mut self, key: &str, val: &str) -> Result<u8> {
+        let mid = self.dfa.start_pattern(self.s_any, self.fid)
             .push(CRLF)?
             .push(key)?
             .push_optional('\t')?
@@ -90,15 +108,15 @@ impl HttpParser {
             .push_optional(' ')?
             .start_capturing()
             .push_optional('*')?
-            .match_and_restart_with(CRLF)?;
+            .end_caputuring_and_restart_with(CRLF)?;
 
         let val = val.to_string();
-        self.modifications.insert(cid, Modification {
+        self.modifications.insert(mid, Modification {
             replacement: val,
             tail: 2,
         });
 
-        Ok(())
+        Ok(mid)
     }
 
     pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16>  {

@@ -1,9 +1,10 @@
 pub mod http;
 pub mod dfa;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    Capture(u8),
+    StartCapture(u8),
+    EndCapture(u8),
     Match(u8),
     Done,
     None

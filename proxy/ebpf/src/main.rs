@@ -1,20 +1,21 @@
 use anyhow::Result;
 use clap::Parser;
+use common::{
+    config::Config,
+    parse::{Action, http::HttpParser}
+};
 use libbpf_rs::{
     set_print, skel::{OpenSkel, SkelBuilder}, PrintLevel
 };
 use log::{
     debug,
     warn,
-    info
+    info,
+    log_enabled
 };
 use core::panic;
-use std::{net::{IpAddr, SocketAddr}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, thread, time::Duration};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, thread, time::Duration};
 
-use common::parse::{
-    Action,
-    http::HttpParser
-};
 use proxy::*;
 
 mod proxy {
@@ -29,11 +30,8 @@ struct Args {
     #[arg(short, long, default_value="127.0.0.1:8000")]
     address: String,
 
-    #[arg(long="remove")]
-    removals: Option<Vec<String>>,
-
-    #[arg(long="rewrite")]
-    rewrite: Option<Vec<String>>,
+    #[arg(short, long, default_value="config/debug.yaml")]
+    config: String,
 }
 
 fn print(level: PrintLevel, msg: String) {
@@ -49,20 +47,14 @@ fn print(level: PrintLevel, msg: String) {
 
 fn state_action_to_raw(state: u16, action: Action, rodata: &proxy::proxy_types::rodata) -> u32 {
     let action = match action {
-        Action::Capture(cid) => {
-            let raw_cid = (cid as u16) & rodata.a_cap_mask;
-            if raw_cid != cid as u16 {
-                panic!("Capture group id {} is too large, truncating to {}", cid, raw_cid);
-            }
-            raw_cid
+        Action::StartCapture(mid) => {
+            rodata.a_start_capture | (mid as u16) & rodata.a_id_mask
+        },
+        Action::EndCapture(mid) => {
+            rodata.a_end_capture | (mid as u16) & rodata.a_id_mask
         }
-        Action::Match(cid) => {
-            let raw_cid = (cid as u16) & rodata.a_cap_mask;
-            if raw_cid != cid as u16 {
-                panic!("Capture group id {} is too large, truncating to {}", cid, raw_cid);
-            }
-
-            rodata.a_match | (rodata.a_cap_mask & raw_cid)
+        Action::Match(fid) => {
+            rodata.a_match | (fid as u16) & rodata.a_id_mask
         },
         Action::Done => rodata.a_done,
         Action::None => 0,
@@ -71,31 +63,20 @@ fn state_action_to_raw(state: u16, action: Action, rodata: &proxy::proxy_types::
     ((action as u32) << 16) | (state as u32)
 }
 
-fn inject_parser(mut parser: HttpParser, skel: &mut proxy::OpenProxySkel) -> Result<()> {
-    // this is necessary so that the DFA won't
-    // parse beyond the HTTP header
-    parser.done_on_http_hdr_end()?;
-    let mut num_matches = 0;
-
+fn inject_parser(parser: HttpParser, skel: &mut proxy::OpenProxySkel) -> Result<()> {
     for (from, to, input, action) in parser.iter_transitions() {
-        if let Action::Match(_) = action {
-            num_matches += 1;
-        }
-
         let val = state_action_to_raw(*to, *action, skel.rodata());
         skel.rodata_mut().s2ts[*from as usize][*input as usize] = val;
     }
 
-    for (cid, mo) in parser.modifications.iter() {
-        let idx = *cid as usize;
+    for (mid, mo) in parser.modifications.iter() {
+        let idx = *mid as usize;
         skel.rodata_mut().mods[idx].len = mo.replacement.len() as u8;
         skel.rodata_mut().mods[idx].tail = mo.tail;
         for (i, c) in mo.replacement.chars().enumerate() {
             skel.rodata_mut().mods[idx].str[i] = c as i8;
         }
     }
-
-    skel.rodata_mut().num_matches = num_matches;
 
     Ok(())
 }
@@ -105,22 +86,50 @@ fn main() -> Result<()> {
     set_print(Some((PrintLevel::Debug, print)));
 
     let args = Args::parse();
+    let config = std::fs::File::open(args.config)?;
+    let config: Config = serde_yaml::from_reader(config)?;
+
     let skel_builder = ProxySkelBuilder::default();
     let mut open_skel = skel_builder.open()?;
+    if log_enabled!(log::Level::Debug) {
+        open_skel.progs_mut().msg_verdict().set_log_level(1)?;
+    }
 
     let mut parser = HttpParser::new(open_skel.rodata().s_init, open_skel.rodata().s_any);
+    let mut mods = HashMap::new();
 
-    for hdr in args.removals.unwrap_or_default() {
-        parser.remove_http_hdr(&hdr)?;
-    }
-    for hdr in args.rewrite.unwrap_or_default() {
-        if let Some((key, val)) = hdr.split_once(":") {
-            parser.rewrite_http_hdr(key.trim(), val.trim())?;
+    for r in config.route {
+        let fid = parser.start_new_filter() as usize;
+
+        for (key, val) in &r.r#match {
+            parser.match_http_hdr(&key, &val)?;
         }
-        else {
-            panic!("Invalid header format: {}", hdr);
+
+        let mut num_mods = 0;
+        if let Some(headers) = r.headers {
+            if let Some(res) = headers.response {
+                for key in res.remove {
+                    // a modification must be unique, otherwise dfa complains
+                    let mid = mods.get(&key).copied().unwrap_or_else(|| {
+                        parser.remove_http_hdr(&key).expect("Failed to add remove header pattern")
+                    });
+                    
+                    mods.insert(key, mid);
+                    open_skel.rodata_mut().filters[fid].mids[num_mods] = num_mods as u8;
+                    num_mods += 1;
+                }
+            }
         }
+
+        debug!("filter {}: {} matches, {} modifications", fid, r.r#match.len(), num_mods);
+
+        open_skel.rodata_mut().filters[fid].num_matches = r.r#match.len() as u8;
+        open_skel.rodata_mut().filters[fid].num_modifications = num_mods as u8;
     }
+
+    // this is necessary so that the DFA won't
+    // parse beyond the HTTP header
+    parser.done_on_http_hdr_end()?;
 
     inject_parser(parser, &mut open_skel)?;
 

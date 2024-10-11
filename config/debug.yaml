@@ -1,0 +1,20 @@
+hosts:
+- name: server1
+  address: 127.0.0.1
+route: 
+- match:
+    signature: server1
+  headers:
+    response:
+      add:
+        test: performance
+      remove:
+        - date
+- match:
+    agent: server2
+  headers:
+    response:
+      add:
+        test: performance
+      remove:
+        - asdf
