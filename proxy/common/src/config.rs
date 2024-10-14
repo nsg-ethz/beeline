@@ -3,18 +3,6 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize, };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct Host {
-    pub name: String,
-    pub address: String,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct Destination {
-    pub host: String,
-    pub port: u16,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub hosts: Vec<Host>,
     pub spec: Spec,
@@ -34,7 +22,7 @@ pub struct Filter {
     // actions
     #[serde(alias = "headers")]
     pub header_mods: Option<HeaderModification>,
-    pub route: Option<Vec<Destination>>,
+    pub route: Option<Vec<Route>>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -47,4 +35,21 @@ pub struct ResponseModification {
     pub add: Option<HashMap<String, String>>,
     pub remove: Option<Vec<String>>,
     pub rewrite: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Host {
+    pub name: String,
+    pub address: String,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Route {
+    pub destination: Destination
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Destination {
+    pub host: String,
+    pub port: u16,
 }
