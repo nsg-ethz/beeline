@@ -9,26 +9,6 @@ pub struct Host {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct Route {
-    pub r#match: HashMap<String, String>,
-
-    // actions
-    pub headers: Option<Headers>,
-    pub destination: Option<Destination>,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct Headers {
-    pub response: Option<HeaderModification>,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct HeaderModification {
-    pub add: HashMap<String, String>,
-    pub remove: Vec<String>,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Destination {
     pub host: String,
     pub port: u16,
@@ -37,5 +17,34 @@ pub struct Destination {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub hosts: Vec<Host>,
-    pub route: Vec<Route>,
+    pub spec: Spec,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Spec {
+    pub hosts: Vec<String>,
+    pub http: Vec<Filter>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Filter {
+    #[serde(alias = "match")]
+    pub patterns: HashMap<String, String>,
+
+    // actions
+    #[serde(alias = "headers")]
+    pub header_mods: Option<HeaderModification>,
+    pub route: Option<Vec<Destination>>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct HeaderModification {
+    pub response: Option<ResponseModification>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct ResponseModification {
+    pub add: Option<HashMap<String, String>>,
+    pub remove: Option<Vec<String>>,
+    pub rewrite: Option<HashMap<String, String>>,
 }

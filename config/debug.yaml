@@ -1,21 +1,24 @@
 hosts:
 - name: server1
   address: 127.0.0.1
-route: 
-- match:
-    signature: server1
-  headers:
-    response:
-      add:
-        test: performance
-      remove:
-        - date
-        - develop
-- match:
-    signature: server2
-  headers:
-    response:
-      add:
-        test: performance
-      remove:
-        - asdf
+spec:   
+  hosts:
+    - "*"
+  http:
+  - match:
+      signature: server1
+    headers:
+      response:
+        add:
+          test: performance
+        remove:
+          - date
+          - develop
+  - match:
+      signature: server2
+    headers:
+      response:
+        add:
+          test: performance
+        remove:
+          - asdf

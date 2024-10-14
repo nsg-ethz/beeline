@@ -99,32 +99,34 @@ fn main() -> Result<()> {
     let mut parser = HttpParser::new(open_skel.rodata().s_init, open_skel.rodata().s_any);
     let mut mods = HashMap::new();
 
-    for r in config.route {
+    for filter in config.spec.http {
         let fid = parser.start_new_filter() as usize;
 
-        for (key, val) in &r.r#match {
+        for (key, val) in &filter.patterns {
             parser.match_http_hdr(&key, &val)?;
         }
 
         let mut num_mods = 0;
-        if let Some(headers) = r.headers {
+        if let Some(headers) = filter.header_mods {
             if let Some(res) = headers.response {
-                for key in res.remove {
-                    // a modification must be unique, otherwise dfa complains
-                    let mid = mods.get(&key).copied().unwrap_or_else(|| {
-                        parser.remove_http_hdr(&key).expect("Failed to add remove header pattern")
-                    });
-                    
-                    mods.insert(key, mid);
-                    open_skel.rodata_mut().filters[fid].mids[num_mods] = mid;
-                    num_mods += 1;
+                if let Some(remove) = res.remove {
+                    for key in remove {
+                        // a modification must be unique, otherwise dfa complains
+                        let mid = mods.get(&key).copied().unwrap_or_else(|| {
+                            parser.remove_http_hdr(&key).expect("Failed to add remove header pattern")
+                        });
+                        
+                        mods.insert(key, mid);
+                        open_skel.rodata_mut().filters[fid].mids[num_mods] = mid;
+                        num_mods += 1;
+                    }
                 }
             }
         }
 
-        debug!("filter {}: {} matches, {} modifications", fid, r.r#match.len(), num_mods);
+        debug!("filter {}: {} matches, {} modifications", fid, filter.patterns.len(), num_mods);
 
-        open_skel.rodata_mut().filters[fid].num_matches = r.r#match.len() as u8;
+        open_skel.rodata_mut().filters[fid].num_matches = filter.patterns.len() as u8;
         open_skel.rodata_mut().filters[fid].num_modifications = num_mods as u8;
     }
 
