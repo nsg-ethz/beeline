@@ -38,7 +38,7 @@ impl DfaBuilder<'_> {
                         self.mid = Some(mid);
                         self.sid = to;
                     },
-                    (Action::None, false) => self.sid = to,
+                    (Action::None, _) => self.sid = to,
                     (old_act, _) => bail!("Conflicting actions (old: {:?}, new: {:?}) for input {}", old_act, act, c.escape_debug())
                 }
             }
@@ -179,7 +179,7 @@ impl Dfa {
     pub fn new(reserved_states: impl Iterator<Item = u16>) -> Dfa {
         Dfa {
             sid: 0,
-            mid: 1,
+            mid: 0,
             states: reserved_states.collect(),
             transitions: HashMap::new(),
         }

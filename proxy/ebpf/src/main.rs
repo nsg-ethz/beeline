@@ -115,7 +115,7 @@ fn main() -> Result<()> {
                     });
                     
                     mods.insert(key, mid);
-                    open_skel.rodata_mut().filters[fid].mids[num_mods] = num_mods as u8;
+                    open_skel.rodata_mut().filters[fid].mids[num_mods] = mid;
                     num_mods += 1;
                 }
             }

@@ -11,7 +11,7 @@ route:
       remove:
         - date
 - match:
-    agent: server2
+    signature: server2
   headers:
     response:
       add:

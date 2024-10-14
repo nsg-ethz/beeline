@@ -280,8 +280,8 @@ int msg_verdict(struct sk_msg_md *msg) {
             __u8 i;
             __u16 no_match = 0xFFFF;
             __u16 fid = no_match;
-            // TODO: why -1 here??
-            bpf_for(i, 0, MAX_MATCHES-1) {
+            bpf_for(i, 0, MAX_MATCHES) {
+                i &= MAX_MATCH_MASK;
                 if (fid_cnt[i] == filters[i].num_matches && filters[i].num_matches > 0) {
                     fid = i;
                     break;
@@ -291,13 +291,16 @@ int msg_verdict(struct sk_msg_md *msg) {
             // we have a match, apply the filter's actions
             if (fid != no_match) {
                 fid &= MAX_MATCH_MASK;
-
-                bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_matches, filters[i].num_modifications);
+                bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_matches, filters[fid].num_modifications);
                 
                 __s16 off = 0;
                 __s16 until = 0;
                 bpf_for(i, 0, filters[fid].num_modifications) {
                     __s16 mid = filters[fid].mids[i] & MAX_MATCH_MASK;
+
+                    // check if we captured a range during parsing
+                    if (cgs[mid].idx == 0 && cgs[mid].len == 0) continue;
+
                     bpf_log("Apply modification %d (fid: %d)", mid, fid);
 
                     cgs[mid].idx += off;

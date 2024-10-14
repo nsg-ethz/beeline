@@ -1,4 +1,4 @@
-use anyhow::{Ok, Result};
+use anyhow::{bail, Ok, Result};
 use crate::parse::{
     dfa::Dfa, Action, Modification
 };
@@ -16,7 +16,7 @@ pub struct HttpParser {
     dfa: Dfa,
 
     // the current filter id
-    fid: u8,
+    fid: Option<u8>,
 }
 
 #[allow(dead_code)]
@@ -33,18 +33,28 @@ impl HttpParser {
             s_any,
             modifications: HashMap::new(),
             dfa: Dfa::new(states.into_iter()),
-            fid: 0
+            fid: None,
         }
     }
 
     pub fn start_new_filter(&mut self) -> u8 {
-        let fid = self.fid;
-        self.fid += 1;
-        fid
+        let val = if let Some(val) = self.fid {
+            val + 1
+        }
+        else {
+            0
+        };
+
+        self.fid = Some(val);
+        val
     }
 
     pub fn done_on_http_hdr_end(&mut self) -> Result<()> {
-        self.dfa.start_pattern(self.s_any, self.fid)
+        if self.fid.is_none() {
+            bail!("No filter id set");
+        }
+
+        self.dfa.start_pattern(self.s_any, self.fid.unwrap())
             .push(CRLF)?
             .done_on(CRLF)?;
 
@@ -52,7 +62,11 @@ impl HttpParser {
     }
 
     pub fn match_http_uri(&mut self, uri: &str) -> Result<()> {
-        self.dfa.start_pattern(self.s_init, self.fid)
+        if self.fid.is_none() {
+            bail!("No filter id set");
+        }
+
+        self.dfa.start_pattern(self.s_init, self.fid.unwrap())
             .push("POST ")?
             .start_capturing()
             .match_on(uri)?;
@@ -61,9 +75,12 @@ impl HttpParser {
     }
     
     pub fn match_http_hdr(&mut self, key: &str, val: &str) -> Result<()> {
-        self.dfa.start_pattern(self.s_any, self.fid)
+        if self.fid.is_none() {
+            bail!("No filter id set");
+        }
+
+        self.dfa.start_pattern(self.s_any, self.fid.unwrap())
             .push(CRLF)?
-            .start_capturing()
             .push(key)?
             .push_optional('\t')?
             .push_optional(' ')?
@@ -77,7 +94,11 @@ impl HttpParser {
     }
 
     pub fn remove_http_hdr(&mut self, key: &str) -> Result<u8> {
-        let mid = self.dfa.start_pattern(self.s_any, self.fid)
+        if self.fid.is_none() {
+            bail!("No filter id set");
+        }
+
+        let mid = self.dfa.start_pattern(self.s_any, self.fid.unwrap())
             .push(CRLF)?
             .start_capturing()
             .push(key)?
@@ -98,7 +119,11 @@ impl HttpParser {
     }
 
     pub fn rewrite_http_hdr(&mut self, key: &str, val: &str) -> Result<u8> {
-        let mid = self.dfa.start_pattern(self.s_any, self.fid)
+        if self.fid.is_none() {
+            bail!("No filter id set");
+        }
+
+        let mid = self.dfa.start_pattern(self.s_any, self.fid.unwrap())
             .push(CRLF)?
             .push(key)?
             .push_optional('\t')?
