@@ -7,13 +7,13 @@ pub struct DfaBuilder<'a> {
     dfa: &'a mut Dfa,
     start: u16,
 
-    // the current filter id
+    // The current filter id
     fid: u8,
 
-    // the current modification id
-    mid: Option<u8>,
+    // The current capture id
+    cid: Option<u8>,
 
-    // the current state id 
+    // The current state id 
     sid: u16,
 
     // `true` if the current pattern captures a range
@@ -26,26 +26,26 @@ impl DfaBuilder<'_> {
         assert!(self.dfa.states.contains(&self.sid));
 
         for c in input.chars() {
-            let start_capture = self.capturing && self.mid.is_none();
+            let start_capture = self.capturing && self.cid.is_none();
 
             if let Some((to, act)) = self.dfa.transitions.get(&(self.sid, c)).map(|(to, action)| (*to, *action)) {    
                 match (act, start_capture) {
-                    (Action::StartCapture(mid), true) => {
-                        self.mid = Some(mid);
-                        self.sid = to;
-                    },
-                    (Action::EndCapture(mid), true) => {
-                        self.mid = Some(mid);
+                    // if the current pattern starts capturing at the same location
+                    // we just take over the capture id 
+                    (Action::StartCapture(cid), start_capture) => {
+                        if start_capture {
+                            self.cid = Some(cid);
+                        }
                         self.sid = to;
                     },
                     (Action::None, _) => self.sid = to,
-                    (old_act, _) => bail!("Conflicting actions (old: {:?}, new: {:?}) for input {}", old_act, act, c.escape_debug())
+                    (act, _) => bail!("Conflicting action {:?} for input {}", act, c.escape_debug())
                 }
             }
             else {
                 let action = if start_capture {
-                    self.mid = Some(self.dfa.new_capture_group());
-                    Action::StartCapture(self.mid.unwrap())
+                    self.cid = Some(self.dfa.insert_capture_start());
+                    Action::StartCapture(self.cid.unwrap())
                 }
                 else {
                     Action::None
@@ -64,7 +64,7 @@ impl DfaBuilder<'_> {
         assert!(self.dfa.states.contains(&self.sid));
         
         // if we start capturing, we have to create a new state
-        let start_capture = self.capturing && self.mid.is_none();
+        let start_capture = self.capturing && self.cid.is_none();
         if start_capture {
             self.push(&input.to_string())?;
         }
@@ -96,19 +96,20 @@ impl DfaBuilder<'_> {
     }
 
     pub fn end_caputuring_and_restart_with(&mut self, input: &str) -> Result<u8> {
-        if !self.capturing || self.mid.is_none() {
+        if !self.capturing || self.cid.is_none() {
             bail!("No capture ID set.");
         }
 
+        let mid = self.dfa.insert_new_modification();
         let to = self.get_sid(input);
-        self.end_pattern(input, Action::EndCapture(self.mid.unwrap()), to)?;
+        self.end_pattern(input, Action::EndCapture(self.cid.unwrap(), mid), to)?;
 
-        Ok(self.mid.unwrap())
+        Ok(mid)
     }
 
     pub fn done_on(&mut self, input: &str) -> Result<&mut Self> {
-        if self.capturing || self.mid.is_some() {
-            bail!("Capture group will always get aborted.");
+        if self.capturing || self.cid.is_some() {
+            bail!("Capturing range will always fail.");
         }
 
         self.end_pattern(input, Action::Done, None)
@@ -167,7 +168,9 @@ pub(crate) struct Dfa {
     sid: u16,
 
     // next free capture id
-    // mid 0 is reserved -> init from 1
+    cid: u8,
+
+    // next free modification id
     mid: u8,
 
     states: HashSet<u16>,
@@ -179,6 +182,7 @@ impl Dfa {
     pub fn new(reserved_states: impl Iterator<Item = u16>) -> Dfa {
         Dfa {
             sid: 0,
+            cid: 0,
             mid: 0,
             states: reserved_states.collect(),
             transitions: HashMap::new(),
@@ -194,7 +198,13 @@ impl Dfa {
         self.sid
     }
 
-    fn new_capture_group(&mut self) -> u8 {
+    fn insert_capture_start(&mut self) -> u8 {
+        let cid = self.cid;
+        self.cid += 1;
+        cid
+    }
+
+    fn insert_new_modification(&mut self) -> u8 {
         let mid = self.mid;
         self.mid += 1;
         mid
@@ -226,7 +236,7 @@ impl Dfa {
             start: from,
             fid,
             sid: from,
-            mid: None,
+            cid: None,
             capturing: false,
         }
     }

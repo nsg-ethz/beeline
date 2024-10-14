@@ -67,8 +67,11 @@ const __u16 a_start_capture = 1 << 13;
 const __u16 a_end_capture = 1 << 12;
 // if a_match -> then this represents the fid
 // if a_done -> then this is 0
-// if a_start_capture or a_end_capture -> then this is the mid
-const __u16 a_id_mask = 0x00FF;
+// if a_start_capture -> then this is the cid
+// if a_end_capture -> then this is cid | mid
+const __u16 a_id_mask = 0x0FFF;
+const __u16 a_id_1_mask = 0x0FC0;
+const __u16 a_id_2_mask = 0x003F;
 
 const __u32 s_mask = 0x0000FFFF;
 const __u16 s_init = 0;
@@ -134,6 +137,7 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
     }
     
     __u16 s = s_init;
+    __u8 num_mods = 0;
 
     memset(cgs, 0, sizeof(cgs));
     memset(mod_idx, 0, sizeof(mod_idx));
@@ -151,18 +155,21 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
         // it should never happen that any of these cases are true simultaneously
         // but it makes the verifier happy when we don't use else if here
         if ((a & a_start_capture) != 0) {
-            __u16 mid = a & a_id_mask & MAX_MATCH_MASK;
-            mod_idx[mid] = i;
+            __u16 cid = a & a_id_mask & MAX_MATCH_MASK;
+            bpf_log("Start capture range (%d, ?) in [%d, ...]", cid, i);
+            mod_idx[cid] = i;
         }
         if ((a & a_end_capture) != 0) {
-            __u16 mid = a & a_id_mask & MAX_MATCH_MASK;
-            bpf_log("Captured range %d in [%d, %d]", mid, mod_idx[mid], i - mod_idx[mid] + 1);
+            __u16 cid = ((a & a_id_1_mask) >> 6) & MAX_MATCH_MASK;
+            __u16 mid = a & a_id_2_mask & MAX_MATCH_MASK;
+            bpf_log("End capture range (%d, %d) in [%d, %d]", cid, mid, mod_idx[cid], i - mod_idx[cid] + 1);
 
             cgs[mid] = (struct capture_group) {
                 .id = mid,
-                .idx = mod_idx[mid],
-                .len = i - mod_idx[mid] + 1
+                .idx = mod_idx[cid],
+                .len = i - mod_idx[cid] + 1
             };
+            mod_idx[cid] = 0;
         }
         if ((a & a_match) != 0) {
             __u16 fid = a & a_id_mask & MAX_MATCH_MASK;
@@ -294,17 +301,32 @@ int msg_verdict(struct sk_msg_md *msg) {
                 bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_matches, filters[fid].num_modifications);
                 
                 __s16 off = 0;
-                __s16 until = 0;
+                __u8 j;
                 bpf_for(i, 0, filters[fid].num_modifications) {
-                    __s16 mid = filters[fid].mids[i] & MAX_MATCH_MASK;
+                    __s16 mid = -1;
+                    __u16 idx_min = 0xFFFF;
 
-                    // check if we captured a range during parsing
-                    if (cgs[mid].idx == 0 && cgs[mid].len == 0) continue;
+                    // find the first detected range
+                    // this is necessary because modify needs to be called in linear order
+                    // the length is checked to make sure that the pattern was actually detected
+                    bpf_for(j, 0, filters[fid].num_modifications) {
+                        __s16 mid_j = filters[fid].mids[j] & MAX_MATCH_MASK;
+                        if (cgs[mid_j].idx < idx_min && cgs[mid_j].len > 0) {
+                            idx_min = cgs[mid_j].idx;
+                            mid = mid_j;
+                        }
+                    }
+
+                    if (mid == -1) {
+                        bpf_err("ERROR: Did not find all %d modifications for filter %d", filters[fid].num_modifications, fid);
+                        break;
+                    }
+
+                    mid &= MAX_MATCH_MASK;
 
                     bpf_log("Apply modification %d (fid: %d)", mid, fid);
 
                     cgs[mid].idx += off;
-                    until = cgs[mid].idx + cgs[mid].len;
 
                     __s16 diff = 0;
                     if (_modify(msg, &cgs[mid], &diff) < 0) {
@@ -313,6 +335,7 @@ int msg_verdict(struct sk_msg_md *msg) {
                     }
 
                     off += diff;
+                    cgs[mid].idx = 0xFFFF;
                 }
             }
         }

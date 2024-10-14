@@ -10,6 +10,7 @@ route:
         test: performance
       remove:
         - date
+        - develop
 - match:
     signature: server2
   headers:

@@ -50,8 +50,9 @@ fn state_action_to_raw(state: u16, action: Action, rodata: &proxy::proxy_types::
         Action::StartCapture(mid) => {
             rodata.a_start_capture | (mid as u16) & rodata.a_id_mask
         },
-        Action::EndCapture(mid) => {
-            rodata.a_end_capture | (mid as u16) & rodata.a_id_mask
+        Action::EndCapture(cid, mid) => {
+            let id = (cid as u16) << 6 | (mid as u16);
+            rodata.a_end_capture | id & rodata.a_id_mask
         }
         Action::Match(fid) => {
             rodata.a_match | (fid as u16) & rodata.a_id_mask

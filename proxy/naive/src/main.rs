@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use core::str;
 use common::{
-    config::{self, Config},
+    config::Config,
     parse::{http::HttpParser, Action}
 };
 use std::{pin::Pin, task::{Context, Poll}};
