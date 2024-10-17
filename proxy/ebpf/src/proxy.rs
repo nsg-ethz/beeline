@@ -206,7 +206,7 @@ impl Proxy<'_> {
 
             debug!("filter {}: {} matches, {} modifications", fid, filter.patterns.len(), num_mods);
 
-            open_skel.rodata_mut().filters[fid].num_matches = filter.patterns.len() as u8;
+            open_skel.rodata_mut().filters[fid].num_patterns = filter.patterns.len() as u8;
             open_skel.rodata_mut().filters[fid].num_modifications = num_mods as u8;
         }
 
@@ -296,13 +296,15 @@ impl Proxy<'_> {
             .collect::<Vec<_>>();
 
         // we now know all but the downstream peer address
-        // start populating the routes map
         let skel = self.skel.as_ref().unwrap();
         let maps = skel.maps();
         let sock_wait_list = maps.sock_wait_list();
 
         // add the upstream sockets to the wait list
         // this lets the sockops program know which connections to add to the sockmap
+        // the sockops will then populate the route map
+        // sockops has to do this, because in userspace we lack the local address 
+        // of the downstream socket until it's too late
         for (socket, _, sock_key, _) in upstream_sockets.iter() {
             let local_addr = socket.local_addr()?.as_socket_ipv4().unwrap().into();
             let key = WaitListKey::try_from(&local_addr)?;

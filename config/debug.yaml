@@ -8,6 +8,9 @@ spec:
   - match:
       backend: server1
     headers:
+      request:
+        add:
+          source: ebpf
       response:
         add:
           test: performance

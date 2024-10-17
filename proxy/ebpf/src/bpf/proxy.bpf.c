@@ -63,7 +63,7 @@ struct modification {
 };
 
 struct filter {
-    __u8 num_matches;
+    __u8 num_patterns;
     __u8 num_modifications;
     __u8 mids[MAX_MATCHES];
 };
@@ -290,7 +290,7 @@ static __always_inline int _try_redirect(struct sk_msg_md *msg, __u8 fid) {
         bpf_err("ERROR: Redirect failed");
     }
     else {
-        bpf_log("Redirecting to socket %d", *skey);
+        bpf_log("Redirecting msg [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid, *skey);
     }
 
     return r;
@@ -300,26 +300,30 @@ SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     __u8 fid = FILTER_ID_DEFAULT;
 
-    bpf_log("Processing %dB msg", msg->size);
+    bool downstream = msg->remote_ip4 == ip4 && bpf_ntohl(msg->remote_port) == port;
+    bpf_log("Processing %dB msg (downstream: %d)", msg->size, downstream);
 
     if (_parse(msg) == 0) {
         // parsing was successful, check if we have a match
-        __u8 i;
-        bpf_for(i, 0, MAX_MATCHES) {
-            i &= MAX_MATCH_MASK;
-            if (fid_cnt[i] == filters[i].num_matches && filters[i].num_matches > 0) {
-                fid = i;
-                break;
-            } 
+        // we only do this for requests
+        if (downstream) {
+            __u8 i;
+            bpf_for(i, 0, MAX_MATCHES) {
+                i &= MAX_MATCH_MASK;
+                if (fid_cnt[i] == filters[i].num_patterns && filters[i].num_patterns > 0) {
+                    fid = i;
+                    break;
+                } 
+            }
         }
 
         // we have a match, apply the filter's actions
-        if (fid != FILTER_ID_DEFAULT) {
+        if ((downstream && fid != FILTER_ID_DEFAULT)) {
             fid &= MAX_MATCH_MASK;
-            bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_matches, filters[fid].num_modifications);
+            bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_patterns, filters[fid].num_modifications);
             
             __s16 off = 0;
-            __u8 j;
+            __u8 i, j;
             bpf_for(i, 0, filters[fid].num_modifications) {
                 __s16 mid = -1;
                 __u16 idx_min = 0xFFFF;
@@ -335,8 +339,8 @@ int msg_verdict(struct sk_msg_md *msg) {
                     }
                 }
 
+                // check if we have to modify anything
                 if (mid == -1) {
-                    bpf_err("ERROR: Did not find all %d modifications for filter %d", filters[fid].num_modifications, fid);
                     break;
                 }
 
@@ -374,11 +378,11 @@ static __always_inline int _add_routes(struct bpf_sock_ops *ops, struct wait_lis
         };
 
         if (bpf_map_update_elem(&route_map, &rkey, &val->route_sock_key[i], BPF_ANY) < 0) {
-            bpf_err("ERROR: Failed to add route [%pI4:%u->%pI4:%u|%u]", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid);
+            bpf_err("ERROR: Failed to add route [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid, val->route_sock_key[i]);
             return -1;
         }
 
-        bpf_log("Add route [%pI4:%u->%pI4:%u|%u]", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid);
+        bpf_log("Add route [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid, val->route_sock_key[i]);
     }
 
     return 0;
