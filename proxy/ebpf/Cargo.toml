@@ -16,6 +16,8 @@ libc = "0.2.155"
 log = "0.4.22"
 common = { version = "0.1.0", path = "../common" }
 serde_yaml = "0.9.34"
+as-bytes = "0.2.0"
+socket2 = "0.5.7"
 
 [build-dependencies]
 libbpf-cargo = "0.23.3"

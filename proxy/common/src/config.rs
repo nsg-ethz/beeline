@@ -10,7 +10,6 @@ pub struct Config {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Spec {
-    pub hosts: Vec<String>,
     pub http: Vec<Filter>,
 }
 
@@ -20,21 +19,21 @@ pub struct Filter {
     pub patterns: HashMap<String, String>,
 
     // actions
-    #[serde(alias = "headers")]
-    pub header_mods: Option<HeaderModification>,
-    pub route: Option<Vec<Route>>,
+    pub headers: Option<Headers>,
+    pub route: Vec<Route>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct HeaderModification {
-    pub response: Option<ResponseModification>,
+pub struct Headers {
+    pub request: Option<HeaderModifications>,
+    pub response: Option<HeaderModifications>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct ResponseModification {
+pub struct HeaderModifications {
     pub add: Option<HashMap<String, String>>,
     pub remove: Option<Vec<String>>,
-    pub rewrite: Option<HashMap<String, String>>,
+    pub set: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

@@ -27,12 +27,27 @@ const __u16 MAX_BYTES = 0xFFFE;
 const __u8 MAX_MATCHES = 16;
 const __u8 MAX_MATCH_MASK = 15;
 const __u8 MAX_MOD_LEN = 0xFF;
+const __u8 FILTER_ID_DEFAULT = 0xF;
 
-struct sock_key {
+struct wait_list_key {
+    __u32 ip4;
+    __u32 port;
+};
+
+struct wait_list_val {
+    __u32 sock_key; 
+
+    __u32 num_routes;
+    __u32 route_fid[MAX_MATCHES]; // this could be u8, but that makes it difficult to manage from userspace
+    __u32 route_sock_key[MAX_MATCHES];
+};
+
+struct route_key {
     __u32 local_ip4;
     __u32 local_port;
     __u32 remote_ip4;
     __u32 remote_port;
+    __u32 fid; 
 };
 
 struct capture_group {
@@ -54,11 +69,25 @@ struct filter {
 };
 
 struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __uint(key_size, sizeof(struct route_key));
+    __uint(value_size, sizeof(__u32));
+} route_map SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 2048);
-    __uint(key_size, sizeof(struct sock_key));
+    __uint(max_entries, 8192);
+    __uint(key_size, sizeof(__u32));
     __uint(value_size, sizeof(int));
 } sock_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __uint(key_size, sizeof(struct wait_list_key));
+    __uint(value_size, sizeof(struct wait_list_val));
+} sock_wait_list SEC(".maps");
 
 const __u32 a_mask = 0xFFFF0000;
 const __u16 a_match = 1 << 15;
@@ -88,28 +117,7 @@ struct capture_group cgs[MAX_MATCHES] = { 0 };
 __u32 mod_idx[MAX_MATCHES] = { 0 };
 __u32 fid_cnt[MAX_MATCHES] = { 0 };
 
-static __always_inline void _skb_extract_key(struct __sk_buff *skb, struct sock_key *key) {
-    key->remote_ip4 = skb->remote_ip4;
-    key->local_ip4 = skb->local_ip4;
-    key->remote_port = bpf_ntohl(skb->remote_port);
-    key->local_port = skb->local_port;
-}
-
-static __always_inline void _msg_extract_key(struct sk_msg_md *msg, struct sock_key *key) {
-    key->remote_ip4 = msg->remote_ip4;
-    key->local_ip4 = msg->local_ip4;
-    key->remote_port = bpf_ntohl(msg->remote_port);
-    key->local_port = msg->local_port;
-}
-
-static __always_inline void _ops_extract_key(struct bpf_sock_ops *ops, struct sock_key *key) {
-    key->remote_ip4 = ops->remote_ip4;
-    key->local_ip4 = ops->local_ip4;
-    key->remote_port = bpf_ntohl(ops->remote_port);
-    key->local_port = ops->local_port;
-}
-
-static __always_inline void next(__u16 state, __u32 input, __u16 *next_state, __u16 *action) {
+static __always_inline void _next(__u16 state, __u32 input, __u16 *next_state, __u16 *action) {
     state &= 0x7F;
     input &= 0xFF;
 
@@ -150,7 +158,7 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
 
         __u16 a = 0;
         __u16 s_old = s;
-        next(s, c, &s, &a);
+        _next(s, c, &s, &a);
 
         // it should never happen that any of these cases are true simultaneously
         // but it makes the verifier happy when we don't use else if here
@@ -184,7 +192,7 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
         // this means that we failed to match the current pattern
         // but maybe a new one starts now?
         if (s == s_any) {
-            next(s_any, c, &s, &a);
+            _next(s_any, c, &s, &a);
         }
     }
 
@@ -262,112 +270,145 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_g
     return 0;
 }
 
-static __always_inline int _try_redirect(struct sk_msg_md *msg) {
-    struct sock_key key = { 0 };
-    _msg_extract_key(msg, &key);
+static __always_inline int _try_redirect(struct sk_msg_md *msg, __u8 fid) {
+    struct route_key rkey = { 
+        .local_ip4 = msg->local_ip4,
+        .local_port = msg->local_port,
+        .remote_ip4 = msg->remote_ip4,
+        .remote_port = bpf_ntohl(msg->remote_port),
+        .fid = fid
+    };
 
-    int r = bpf_msg_redirect_hash(msg, &sock_map, &key, BPF_F_INGRESS);
+    __u32 *skey = bpf_map_lookup_elem(&route_map, &rkey);
+    if (skey == NULL) {
+        bpf_err("ERROR: No route found for [%pI4:%u->%pI4:%u|%u]", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid);
+        return SK_PASS;
+    }
+
+    int r = bpf_msg_redirect_hash(msg, &sock_map, skey, BPF_F_INGRESS);
     if (r == SK_DROP) {
         bpf_err("ERROR: Redirect failed");
     }
-
-    bpf_log("Verdict %d [%pI4:%u->%pI4:%u]", r, &key.local_ip4, key.local_port, &key.remote_ip4, key.remote_port);
+    else {
+        bpf_log("Redirecting to socket %d", *skey);
+    }
 
     return r;
 }
 
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
-    // we're only processing the respoonse for now
-    if (msg->local_port == port) {
-        bpf_log("Processing %dB msg", msg->size);
+    __u8 fid = FILTER_ID_DEFAULT;
 
-        if (_parse(msg) == 0) {
-            // parsing was successful, check if we have a match
-            __u8 i;
-            __u16 no_match = 0xFFFF;
-            __u16 fid = no_match;
-            bpf_for(i, 0, MAX_MATCHES) {
-                i &= MAX_MATCH_MASK;
-                if (fid_cnt[i] == filters[i].num_matches && filters[i].num_matches > 0) {
-                    fid = i;
-                    break;
-                } 
-            }
+    bpf_log("Processing %dB msg", msg->size);
 
-            // we have a match, apply the filter's actions
-            if (fid != no_match) {
-                fid &= MAX_MATCH_MASK;
-                bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_matches, filters[fid].num_modifications);
-                
-                __s16 off = 0;
-                __u8 j;
-                bpf_for(i, 0, filters[fid].num_modifications) {
-                    __s16 mid = -1;
-                    __u16 idx_min = 0xFFFF;
+    if (_parse(msg) == 0) {
+        // parsing was successful, check if we have a match
+        __u8 i;
+        bpf_for(i, 0, MAX_MATCHES) {
+            i &= MAX_MATCH_MASK;
+            if (fid_cnt[i] == filters[i].num_matches && filters[i].num_matches > 0) {
+                fid = i;
+                break;
+            } 
+        }
 
-                    // find the first detected range
-                    // this is necessary because modify needs to be called in linear order
-                    // the length is checked to make sure that the pattern was actually detected
-                    bpf_for(j, 0, filters[fid].num_modifications) {
-                        __s16 mid_j = filters[fid].mids[j] & MAX_MATCH_MASK;
-                        if (cgs[mid_j].idx < idx_min && cgs[mid_j].len > 0) {
-                            idx_min = cgs[mid_j].idx;
-                            mid = mid_j;
-                        }
+        // we have a match, apply the filter's actions
+        if (fid != FILTER_ID_DEFAULT) {
+            fid &= MAX_MATCH_MASK;
+            bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_matches, filters[fid].num_modifications);
+            
+            __s16 off = 0;
+            __u8 j;
+            bpf_for(i, 0, filters[fid].num_modifications) {
+                __s16 mid = -1;
+                __u16 idx_min = 0xFFFF;
+
+                // find the first detected range
+                // this is necessary because modify needs to be called in linear order
+                // the length is checked to make sure that the pattern was actually detected
+                bpf_for(j, 0, filters[fid].num_modifications) {
+                    __s16 mid_j = filters[fid].mids[j] & MAX_MATCH_MASK;
+                    if (cgs[mid_j].idx < idx_min && cgs[mid_j].len > 0) {
+                        idx_min = cgs[mid_j].idx;
+                        mid = mid_j;
                     }
-
-                    if (mid == -1) {
-                        bpf_err("ERROR: Did not find all %d modifications for filter %d", filters[fid].num_modifications, fid);
-                        break;
-                    }
-
-                    mid &= MAX_MATCH_MASK;
-
-                    bpf_log("Apply modification %d (fid: %d)", mid, fid);
-
-                    cgs[mid].idx += off;
-
-                    __s16 diff = 0;
-                    if (_modify(msg, &cgs[mid], &diff) < 0) {
-                        bpf_err("ERROR: Modifying message failed.");
-                        break;
-                    }
-
-                    off += diff;
-                    cgs[mid].idx = 0xFFFF;
                 }
+
+                if (mid == -1) {
+                    bpf_err("ERROR: Did not find all %d modifications for filter %d", filters[fid].num_modifications, fid);
+                    break;
+                }
+
+                mid &= MAX_MATCH_MASK;
+
+                bpf_log("Apply modification %d (fid: %d)", mid, fid);
+
+                cgs[mid].idx += off;
+
+                __s16 diff = 0;
+                if (_modify(msg, &cgs[mid], &diff) < 0) {
+                    bpf_err("ERROR: Modifying message failed.");
+                    break;
+                }
+
+                off += diff;
+                cgs[mid].idx = 0xFFFF;
             }
         }
     }
 
-    return _try_redirect(msg);
+    return _try_redirect(msg, fid);
+}
+
+static __always_inline int _add_routes(struct bpf_sock_ops *ops, struct wait_list_val *val) {
+    for (int i = 0; i < MAX_MATCHES; i++) {
+        if (i == val->num_routes) break;
+
+        struct route_key rkey = {
+            .local_ip4 = ops->local_ip4,
+            .local_port = ops->local_port,
+            .remote_ip4 = ops->remote_ip4,
+            .remote_port = bpf_ntohl(ops->remote_port),
+            .fid = val->route_fid[i]
+        };
+
+        if (bpf_map_update_elem(&route_map, &rkey, &val->route_sock_key[i], BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add route [%pI4:%u->%pI4:%u|%u]", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid);
+            return -1;
+        }
+
+        bpf_log("Add route [%pI4:%u->%pI4:%u|%u]", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid);
+    }
+
+    return 0;
 }
 
 SEC("sockops")
-int monitor_sockets(struct bpf_sock_ops *ctx) {
-    struct sock_key key = { 0 };
-    _ops_extract_key(ctx, &key);
+int monitor_sockets(struct bpf_sock_ops *ops) {
+    // check if this socket is either side of a route that waits for its sockets
+    if (ops->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ops->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
+        __u32 local_ip4 = ops->local_ip4;
+        __u32 local_port = ops->local_port;
+        __u32 remote_ip4 = ops->remote_ip4;
+        __u32 remote_port = bpf_ntohl(ops->remote_port);
 
-    // if (key.local_ip4 != key.remote_ip4) return SK_PASS;
+        struct wait_list_key wkey = { 
+            .ip4 = remote_ip4,
+            .port = remote_port
+        };
+        struct wait_list_val *val = bpf_map_lookup_elem(&sock_wait_list, &wkey);
 
-    if ((key.local_ip4 == ip4 && key.local_port == port) || (key.remote_ip4 == ip4 && key.remote_port == port)) {
-    // if (key.local_port == 3000 || key.remote_port == 3000 || key.local_port == 8000 || key.remote_port == 8000) {
-        if (ctx->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ctx->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
-            __u32 tmp = key.local_port;
-            key.local_port = key.remote_port;
-            key.remote_port = tmp;     
+        if (val != NULL) {
+            _add_routes(ops, val);
 
-            tmp = key.local_ip4;
-            key.local_ip4 = key.remote_ip4;
-            key.remote_ip4 = tmp;   
-
-            if (bpf_sock_hash_update(ctx, &sock_map, &key, BPF_NOEXIST) < 0) {
-                bpf_err("ERROR: Adding socket failed.");
+            if (bpf_sock_hash_update(ops, &sock_map, &val->sock_key, BPF_ANY) < 0) {
+                bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &local_ip4, local_port, &remote_ip4, remote_port);
+                return SK_PASS;
             }
-            else {
-                bpf_log("Added socket [%pI4:%u->%pI4:%u]", &key.local_ip4, key.local_port, &key.remote_ip4, key.remote_port);
-            }
+
+            bpf_log("Add socket [%pI4:%u->%pI4:%u] with key %d", &local_ip4, local_port, &remote_ip4, remote_port, val->sock_key);
+            bpf_map_delete_elem(&sock_wait_list, &wkey);
         }
     }
 

@@ -1,12 +1,12 @@
 hosts:
 - name: server1
   address: 127.0.0.1
+- name: server2
+  address: 127.0.0.1
 spec:   
-  hosts:
-    - "*"
   http:
   - match:
-      signature: server1
+      backend: server1
     headers:
       response:
         add:
@@ -17,12 +17,16 @@ spec:
     route:
     - destination:
         host: server1
-        port: 8080
+        port: 8000
   - match:
-      signature: server2
+      backend: server2
     headers:
       response:
         add:
           test: performance
         remove:
           - asdf
+    route:
+    - destination:
+        host: server2
+        port: 8000
