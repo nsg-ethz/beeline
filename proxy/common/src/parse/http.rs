@@ -10,12 +10,12 @@ pub struct HttpParser {
     pub s_init: u16,
     pub s_any: u16,
 
-    // the modifications that should be made for a given modification id
+    /// the modifications that should be made for a given modification id
     pub modifications: HashMap<u8, Modification>,
 
     dfa: Dfa,
 
-    // the current filter id
+    /// the current filter id
     fid: Option<u8>,
 }
 
@@ -37,16 +37,8 @@ impl HttpParser {
         }
     }
 
-    pub fn start_new_filter(&mut self) -> u8 {
-        let val = if let Some(val) = self.fid {
-            val + 1
-        }
-        else {
-            0
-        };
-
-        self.fid = Some(val);
-        val
+    pub fn start_new_filter(&mut self, fid: u8) {
+        self.fid = Some(fid);
     }
 
     pub fn done_on_http_hdr_end(&mut self) -> Result<()> {
@@ -118,7 +110,7 @@ impl HttpParser {
         Ok(mid)
     }
 
-    pub fn rewrite_http_hdr(&mut self, key: &str, val: &str) -> Result<u8> {
+    pub fn set_http_hdr(&mut self, key: &str, val: &str) -> Result<u8> {
         if self.fid.is_none() {
             bail!("No filter id set");
         }

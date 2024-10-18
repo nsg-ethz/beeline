@@ -7,16 +7,16 @@ pub struct DfaBuilder<'a> {
     dfa: &'a mut Dfa,
     start: u16,
 
-    // The current filter id
+    /// The current filter id
     fid: u8,
 
-    // The current capture id
+    /// The current capture id
     cid: Option<u8>,
 
-    // The current state id 
+    /// The current state id 
     sid: u16,
 
-    // `true` if the current pattern captures a range
+    /// `true` if the current pattern captures a range
     capturing: bool,
 }
 
