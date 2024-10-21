@@ -456,7 +456,7 @@ static __always_inline int _add_routes(struct bpf_sock_ops *ops, struct wait_lis
                 return -1;
             }
 
-            bpf_log("Add req route [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rval.fid, wval->route_sock_key[i]);
+            bpf_log("Add res route [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rval.fid, wval->route_sock_key[i]);
         }
     }
 

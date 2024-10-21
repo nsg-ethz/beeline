@@ -9,14 +9,6 @@ use log::{
 };
 use proxy::Proxy;
 
-mod ebpf {
-    include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/bpf/proxy.skel.rs"
-    ));
-}
-mod proxy;
-
 #[derive(Parser)]
 struct Args {
     #[arg(short, long, default_value="127.0.0.1:3000")]

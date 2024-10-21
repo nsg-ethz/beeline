@@ -11,6 +11,13 @@ use core::panic;
 use socket2::Socket;
 use std::{collections::HashMap, net::{IpAddr, SocketAddr, TcpListener, TcpStream}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, vec};
 
+mod ebpf {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/bpf/proxy.skel.rs"
+    ));
+}
+
 #[repr(C)]
 #[derive(Debug)]
 struct WaitListKey {
@@ -112,8 +119,8 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
 }
 
 pub struct Proxy<'a> {
-    address: SocketAddr,
-    config: Config,
+    pub address: SocketAddr,
+    pub config: Config,
     skel: Option<ProxySkel<'a>>,
     sockops: Option<Link>,
     upstreams: Vec<TcpStream>,
