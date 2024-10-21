@@ -1,4 +1,4 @@
-use eproxy::Proxy;
+use nproxy::Proxy;
 use common::config::{Config, Filter, Host, Route, Destination, Spec};
 use rand::{distributions::Alphanumeric, Rng};
 use core::str;
@@ -77,7 +77,6 @@ fn setup() -> (TcpStream, TcpStream, TcpStream) {
     let (config, socket1, socket2) = test_config();
     let proxy_addr = format!("{}:3000", LOCAL_HOST);
     let mut proxy = Proxy::new(proxy_addr.clone(), config).unwrap();
-    proxy.attach().unwrap();
 
     let server1 = thread::spawn(move || {
         socket1.accept().unwrap().0
@@ -88,11 +87,14 @@ fn setup() -> (TcpStream, TcpStream, TcpStream) {
     });
 
     thread::spawn(move || {
-        _ = proxy.listen();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                proxy.listen().await.unwrap();
+            })
     });
-
-    let server1 = server1.join().unwrap();
-    let server2 = server2.join().unwrap();
 
     let client = loop {
         match TcpStream::connect(proxy_addr.clone()) {
@@ -100,6 +102,9 @@ fn setup() -> (TcpStream, TcpStream, TcpStream) {
             Err(_) => continue
         }
     };
+
+    let server1 = server1.join().unwrap();
+    let server2 = server2.join().unwrap();
 
     (client, server1, server2)
 }

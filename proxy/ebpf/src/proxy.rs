@@ -7,7 +7,6 @@ use common::{
 use crate::ebpf::*;
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapFlags};
 use log::{debug, info, log_enabled};
-use core::panic;
 use socket2::Socket;
 use std::{collections::HashMap, net::{IpAddr, SocketAddr, TcpListener, TcpStream}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, vec};
 
@@ -249,7 +248,7 @@ impl Proxy<'_> {
             open_skel.rodata_mut().ip4 = u32::from_ne_bytes(ip.octets());
         }
         else {
-            panic!("IPv6 is not supported");
+            bail!("IPv6 is not supported");
         }
 
         open_skel.rodata_mut().port = self.address.port() as u32;

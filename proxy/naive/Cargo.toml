@@ -4,7 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "A naive HTTP parser in userspace"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "nproxy"
+path = "src/proxy.rs"
+
+[[bin]]
+name = "proxy-naive"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.87"
@@ -17,3 +23,6 @@ regex = "1.10.6"
 socket2 = "0.5.7"
 tokio = { version = "1.40.0", features = ["tokio-macros", "socket2", "rt", "full"] }
 serde_yaml = "0.9.34"
+
+[dev-dependencies]
+rand = "0.8.5"

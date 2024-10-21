@@ -5,7 +5,7 @@ edition = "2021"
 description = "An experiment to explore the feasibility of composing valid BPF code snippets."
 
 [lib]
-name = "proxy"
+name = "eproxy"
 path = "src/proxy.rs"
 
 [[bin]]
