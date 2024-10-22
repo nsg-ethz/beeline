@@ -4,11 +4,11 @@ use common::{
     config::{Config, Destination},
     parse::{http::HttpParser, Action}
 };
-use crate::ebpf::*;
-use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapFlags};
+use crate::ebpf::{*, types::*};
+use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapMut};
 use log::{debug, info, log_enabled};
 use socket2::Socket;
-use std::{collections::HashMap, net::{IpAddr, SocketAddr, TcpListener, TcpStream}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, vec};
+use std::{collections::HashMap, mem::MaybeUninit, net::{IpAddr, SocketAddr, TcpListener, TcpStream}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, vec};
 
 mod ebpf {
     include!(concat!(
@@ -80,7 +80,7 @@ impl WaitListVal {
 
 }
 
-fn state_action_to_raw(state: u16, action: Action, rodata: &proxy_types::rodata) -> u32 {
+fn state_action_to_raw(state: u16, action: Action, rodata: &rodata) -> u32 {
     let action = match action {
         Action::StartCapture(mid) => {
             rodata.a_start_capture | (mid as u16) & rodata.a_id_mask
@@ -101,39 +101,39 @@ fn state_action_to_raw(state: u16, action: Action, rodata: &proxy_types::rodata)
 
 fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     for (from, to, input, action) in parser.iter_transitions() {
-        let val = state_action_to_raw(*to, *action, skel.rodata());
-        skel.rodata_mut().s2ts[*from as usize][*input as usize] = val;
+        let val = state_action_to_raw(*to, *action, skel.maps.rodata_data);
+        skel.maps.rodata_data.s2ts[*from as usize][*input as usize] = val;
     }
 
     for (mid, mo) in parser.modifications.iter() {
         let idx = *mid as usize;
-        skel.rodata_mut().mods[idx].len = mo.replacement.len() as u8;
-        skel.rodata_mut().mods[idx].tail = mo.tail;
+        skel.maps.rodata_data.mods[idx].len = mo.replacement.len() as u8;
+        skel.maps.rodata_data.mods[idx].tail = mo.tail;
         for (i, c) in mo.replacement.chars().enumerate() {
-            skel.rodata_mut().mods[idx].str[i] = c as i8;
+            skel.maps.rodata_data.mods[idx].str[i] = c as i8;
         }
     }
 
     Ok(())
 }
 
-pub struct Proxy<'a> {
+pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub config: Config,
-    skel: Option<ProxySkel<'a>>,
+    sock_wait_list: Option<MapMut<'obj>>,
     sockops: Option<Link>,
     upstreams: Vec<TcpStream>,
     downstreams: Vec<TcpStream>,
     sock_key: u32
 }
 
-impl Proxy<'_> {
+impl<'obj> Proxy<'obj> {
 
     pub fn new(address: String, config: Config) -> Result<Self> {
         Ok(Self {
             address: address.parse()?,
             config,
-            skel: None,
+            sock_wait_list: None,
             sockops: None,
             upstreams: Vec::new(),
             downstreams: Vec::new(),
@@ -141,14 +141,14 @@ impl Proxy<'_> {
         })
     }
 
-    pub fn attach(&mut self) -> Result<()> {
+    pub fn attach(&mut self, open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>) -> Result<()> {
         let skel_builder = ProxySkelBuilder::default();
-        let mut open_skel = skel_builder.open()?;
+        let mut open_skel = skel_builder.open(open_obj)?;
         if log_enabled!(log::Level::Debug) {
-            open_skel.progs_mut().msg_verdict().set_log_level(1)?;
+            open_skel.progs.msg_verdict.set_log_level(1);
         }
 
-        let mut parser = HttpParser::new(open_skel.rodata().s_init, open_skel.rodata().s_any);
+        let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
         let mut mods = HashMap::new();
 
         // filters from the config are split into two parts:
@@ -193,10 +193,10 @@ impl Proxy<'_> {
 
             debug!("req filter {}: {} patterns, {} modifications", fid, filter.patterns.len(), mids.len());
 
-            open_skel.rodata_mut().filters[fid].num_patterns = filter.patterns.len() as u8;
-            open_skel.rodata_mut().filters[fid].num_modifications = mids.len() as u8;
+            open_skel.maps.rodata_data.filters[fid].num_patterns = filter.patterns.len() as u8;
+            open_skel.maps.rodata_data.filters[fid].num_modifications = mids.len() as u8;
             for (i, mid) in mids.into_iter().enumerate() {
-                open_skel.rodata_mut().filters[fid].mids[i] = mid;
+                open_skel.maps.rodata_data.filters[fid].mids[i] = mid;
             }
 
             // next we add the response filter
@@ -230,10 +230,10 @@ impl Proxy<'_> {
     
                 debug!("res filter {}: {} modifications", fid, mids.len());
     
-                open_skel.rodata_mut().filters[fid].num_patterns = 0;
-                open_skel.rodata_mut().filters[fid].num_modifications = mids.len() as u8;
+                open_skel.maps.rodata_data.filters[fid].num_patterns = 0;
+                open_skel.maps.rodata_data.filters[fid].num_modifications = mids.len() as u8;
                 for (i, mid) in mids.into_iter().enumerate() {
-                    open_skel.rodata_mut().filters[fid].mids[i] = mid;
+                    open_skel.maps.rodata_data.filters[fid].mids[i] = mid;
                 }
             }
         }
@@ -245,18 +245,18 @@ impl Proxy<'_> {
         inject_parser(parser, &mut open_skel)?;
 
         if let IpAddr::V4(ip) = self.address.ip() {
-            open_skel.rodata_mut().ip4 = u32::from_ne_bytes(ip.octets());
+            open_skel.maps.rodata_data.ip4 = u32::from_ne_bytes(ip.octets());
         }
         else {
             bail!("IPv6 is not supported");
         }
 
-        open_skel.rodata_mut().port = self.address.port() as u32;
+        open_skel.maps.rodata_data.port = self.address.port() as u32;
 
-        let mut skel = open_skel.load()?;
+        let skel = open_skel.load()?;
 
-        let sock_map_fd = skel.maps()
-            .sock_map()
+        let sock_map_fd = skel.maps
+            .sock_map
             .as_fd()
             .as_raw_fd();
 
@@ -266,16 +266,16 @@ impl Proxy<'_> {
             .open("/sys/fs/cgroup")?
             .into_raw_fd();
 
-        let sockops = skel.progs_mut()
-            .monitor_sockets()
+        let sockops = skel.progs
+            .monitor_sockets
             .attach_cgroup(cgroup_fd)?;
 
-        skel.progs_mut()
-            .msg_verdict()
+        skel.progs
+            .msg_verdict
             .attach_sockmap(sock_map_fd)?;
 
-        self.skel = Some(skel);
         self.sockops = Some(sockops);
+        self.sock_wait_list = Some(skel.maps.sock_wait_list);
 
         Ok(())
     }
@@ -296,6 +296,10 @@ impl Proxy<'_> {
     }
 
     fn accept(&mut self, listener: &TcpListener) -> Result<()> {
+        if self.sock_wait_list.is_none() {
+            bail!("sock_wait_list is not loaded");
+        }
+
         let downstream_sock_key = self.get_new_sock_id();
 
         // we first bind the sockets to local ports
@@ -336,9 +340,7 @@ impl Proxy<'_> {
             .collect::<Vec<_>>();
 
         // we now know all but the downstream peer address
-        let skel = self.skel.as_ref().unwrap();
-        let maps = skel.maps();
-        let sock_wait_list = maps.sock_wait_list();
+        let sock_wait_list = self.sock_wait_list.as_ref().unwrap();
 
         // add the upstream sockets to the wait list
         // this lets the sockops program know which connections to add to the sockmap

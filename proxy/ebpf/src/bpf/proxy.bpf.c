@@ -82,29 +82,29 @@ struct filter {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
-    __uint(key_size, sizeof(struct req_route_key));
-    __uint(value_size, sizeof(__u32));
+    __type(key, struct req_route_key);
+    __type(value, __u32);
 } req_route_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
-    __uint(key_size, sizeof(struct res_route_key));
-    __uint(value_size, sizeof(struct res_route_val));
+    __type(key, struct res_route_key);
+    __type(value, struct res_route_val);
 } res_route_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, 8192);
-    __uint(key_size, sizeof(__u32));
-    __uint(value_size, sizeof(int));
+    __type(key, __u32);
+    __type(value, int);
 } sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
-    __uint(key_size, sizeof(struct wait_list_key));
-    __uint(value_size, sizeof(struct wait_list_val));
+    __type(key, struct wait_list_key);
+    __type(value, struct wait_list_val);
 } sock_wait_list SEC(".maps");
 
 const __u32 a_mask = 0xFFFF0000;

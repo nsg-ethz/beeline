@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use anyhow::Result;
 use clap::Parser;
 use common::config::Config;
@@ -7,7 +9,7 @@ use log::{
     warn,
     info,
 };
-use proxy::Proxy;
+use eproxy::Proxy;
 
 #[derive(Parser)]
 struct Args {
@@ -37,7 +39,8 @@ fn main() -> Result<()> {
     let config = std::fs::File::open(args.config)?;
     let config: Config = serde_yaml::from_reader(config)?;
 
+    let mut open_obj = MaybeUninit::uninit();
     let mut proxy = Proxy::new(args.address, config)?;
-    proxy.attach()?;
+    proxy.attach(&mut open_obj)?;
     proxy.listen()
 }
