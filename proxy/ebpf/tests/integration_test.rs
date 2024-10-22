@@ -2,7 +2,7 @@ use eproxy::Proxy;
 use common::config::{Config, Filter, Host, Route, Destination, Spec};
 use rand::{distributions::Alphanumeric, Rng};
 use core::str;
-use std::{collections::HashMap, io::{Read, Write}, net::{TcpListener, TcpStream}, thread};
+use std::{collections::HashMap, io::{Read, Write}, mem::MaybeUninit, net::{TcpListener, TcpStream}, thread};
 
 static LOCAL_HOST: &str = "127.0.0.1";
 static SERVER1_PORT: u16 = 8001;
@@ -76,8 +76,6 @@ fn setup() -> (TcpStream, TcpStream, TcpStream) {
     env_logger::init();
     let (config, socket1, socket2) = test_config();
     let proxy_addr = format!("{}:3000", LOCAL_HOST);
-    let mut proxy = Proxy::new(proxy_addr.clone(), config).unwrap();
-    proxy.attach().unwrap();
 
     let server1 = thread::spawn(move || {
         socket1.accept().unwrap().0
@@ -87,7 +85,11 @@ fn setup() -> (TcpStream, TcpStream, TcpStream) {
         socket2.accept().unwrap().0
     });
 
+    let addr = proxy_addr.clone();
     thread::spawn(move || {
+        let mut open_obj = MaybeUninit::uninit();
+        let mut proxy = Proxy::new(&addr, config).unwrap();
+        proxy.attach(&mut open_obj).unwrap();
         _ = proxy.listen();
     });
 
@@ -95,7 +97,7 @@ fn setup() -> (TcpStream, TcpStream, TcpStream) {
     let server2 = server2.join().unwrap();
 
     let client = loop {
-        match TcpStream::connect(proxy_addr.clone()) {
+        match TcpStream::connect(&proxy_addr) {
             Ok(client) => break client,
             Err(_) => continue
         }

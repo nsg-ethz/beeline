@@ -5,10 +5,10 @@ use common::{
     parse::{http::HttpParser, Action}
 };
 use crate::ebpf::{*, types::*};
-use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapMut};
+use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags};
 use log::{debug, info, log_enabled};
 use socket2::Socket;
-use std::{collections::HashMap, mem::MaybeUninit, net::{IpAddr, SocketAddr, TcpListener, TcpStream}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, vec};
+use std::{collections::HashMap, mem::MaybeUninit, net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, vec};
 
 mod ebpf {
     include!(concat!(
@@ -17,44 +17,28 @@ mod ebpf {
     ));
 }
 
-#[repr(C)]
-#[derive(Debug)]
-struct WaitListKey {
-    ip: u32,
-    port: u32,
-}
-
-impl TryFrom<&SocketAddr> for WaitListKey {
+impl TryFrom<&SocketAddr> for wait_list_key {
 
     type Error = anyhow::Error;
 
-    fn try_from(addr: &SocketAddr) -> Result<WaitListKey> {
+    fn try_from(addr: &SocketAddr) -> Result<wait_list_key> {
 
-        let ip = match addr.ip() {
+        let ip4 = match addr.ip() {
             IpAddr::V4(ip) => u32::from_ne_bytes(ip.octets()),
             _ => bail!("RouteKey only supports IPv4 addresses")
         };
 
-        Ok(WaitListKey {
-            ip,
+        Ok(wait_list_key {
+            ip4,
             port: addr.port() as u32,
         })
     }
 
 }
 
-#[repr(C)]
-#[derive(Debug)]
-struct WaitListVal {
-    sock_key: u32,
-    num_routes: u32,
-    route_fids: [u32; 16],
-    route_sock_keys: [u32; 16],
-}
+impl wait_list_val {
 
-impl WaitListVal {
-
-    fn new(sock_key: u32, route_fids: Vec<u32>, route_sock_keys: Vec<u32>) -> Result<WaitListVal> {
+    fn new(sock_key: u32, route_fids: Vec<u32>, route_sock_keys: Vec<u32>) -> Result<wait_list_val> {
         if route_sock_keys.len() != route_fids.len() {
             bail!("Route addresses, sock keys, and FIDs must have the same length");
         }
@@ -70,11 +54,11 @@ impl WaitListVal {
             sock_keys[i] = route_sock_keys[i];
         }
 
-        Ok(WaitListVal {
+        Ok(wait_list_val {
             sock_key,
             num_routes: route_fids.len() as u32,
-            route_fids: fids,
-            route_sock_keys: sock_keys
+            route_fid: fids,
+            route_sock_key: sock_keys
         })
     }
 
@@ -120,7 +104,7 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub config: Config,
-    sock_wait_list: Option<MapMut<'obj>>,
+    skel: Option<ProxySkel<'obj>>,
     sockops: Option<Link>,
     upstreams: Vec<TcpStream>,
     downstreams: Vec<TcpStream>,
@@ -129,11 +113,15 @@ pub struct Proxy<'obj> {
 
 impl<'obj> Proxy<'obj> {
 
-    pub fn new(address: String, config: Config) -> Result<Self> {
+    pub fn new<A: ToSocketAddrs>(address: A, config: Config) -> Result<Self> {
+        let address = address.to_socket_addrs()?
+            .next()
+            .expect("Failed to resolve address");
+
         Ok(Self {
-            address: address.parse()?,
+            address,
             config,
-            sock_wait_list: None,
+            skel: None,
             sockops: None,
             upstreams: Vec::new(),
             downstreams: Vec::new(),
@@ -275,7 +263,7 @@ impl<'obj> Proxy<'obj> {
             .attach_sockmap(sock_map_fd)?;
 
         self.sockops = Some(sockops);
-        self.sock_wait_list = Some(skel.maps.sock_wait_list);
+        self.skel = Some(skel);
 
         Ok(())
     }
@@ -296,8 +284,8 @@ impl<'obj> Proxy<'obj> {
     }
 
     fn accept(&mut self, listener: &TcpListener) -> Result<()> {
-        if self.sock_wait_list.is_none() {
-            bail!("sock_wait_list is not loaded");
+        if self.skel.is_none() {
+            bail!("eBPF program has not been attached");
         }
 
         let downstream_sock_key = self.get_new_sock_id();
@@ -340,7 +328,9 @@ impl<'obj> Proxy<'obj> {
             .collect::<Vec<_>>();
 
         // we now know all but the downstream peer address
-        let sock_wait_list = self.sock_wait_list.as_ref().unwrap();
+        let sock_wait_list = &self.skel.as_ref().unwrap()
+            .maps
+            .sock_wait_list;
 
         // add the upstream sockets to the wait list
         // this lets the sockops program know which connections to add to the sockmap
@@ -349,10 +339,10 @@ impl<'obj> Proxy<'obj> {
         // of the downstream socket until it's too late
         for (socket, _, sock_key, _, res_fid) in upstream_sockets.iter() {
             let local_addr = socket.local_addr()?.as_socket_ipv4().unwrap().into();
-            let key = WaitListKey::try_from(&local_addr)?;
+            let key = wait_list_key::try_from(&local_addr)?;
             let key = unsafe { key.as_bytes() };
 
-            let val = WaitListVal::new(
+            let val = wait_list_val::new(
                 *sock_key, 
                 vec![res_fid.unwrap_or_default()],
                 vec![downstream_sock_key]
@@ -363,7 +353,7 @@ impl<'obj> Proxy<'obj> {
         }
 
         // add the downstream socket to the wait list
-        let key = WaitListKey::try_from(&self.address)?;
+        let key = wait_list_key::try_from(&self.address)?;
         let key = unsafe { key.as_bytes() };
 
         let req_fids = upstream_sockets.iter()
@@ -373,7 +363,7 @@ impl<'obj> Proxy<'obj> {
             .map(|(_, _, sock_key, _, _)| *sock_key)
             .collect::<Vec<_>>();
         
-        let val = WaitListVal::new(
+        let val = wait_list_val::new(
             downstream_sock_key, 
             req_fids,
             sock_keys
