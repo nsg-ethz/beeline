@@ -8,10 +8,10 @@ pub enum Action {
     StartCapture(u8),
 
     /// Ends capturing a range with a given cid (1st argument)
-    /// The range is identified by the mid (2nd argument)
+    /// The range is identified by the rid (2nd argument)
     EndCapture(u8, u8),
 
-    /// Matches a filter with a given fid
+    /// Matches a pattern with a given mid
     Match(u8),
 
     /// Terminates parsing

@@ -7,9 +7,6 @@ pub struct DfaBuilder<'a> {
     dfa: &'a mut Dfa,
     start: u16,
 
-    /// The current filter id
-    fid: u8,
-
     /// The current capture id
     cid: Option<u8>,
 
@@ -44,7 +41,7 @@ impl DfaBuilder<'_> {
             }
             else {
                 let action = if start_capture {
-                    self.cid = Some(self.dfa.insert_capture_start());
+                    self.cid = Some(self.dfa.insert_new_capture_start());
                     Action::StartCapture(self.cid.unwrap())
                 }
                 else {
@@ -85,14 +82,16 @@ impl DfaBuilder<'_> {
     }
 
     pub fn match_on(&mut self, input: &str) -> Result<u8> {
-        self.end_pattern(input, Action::Match(self.fid), None)?;
-        Ok(self.fid)
+        let mid = self.dfa.insert_new_match();
+        self.end_pattern(input, Action::Match(mid), None)?;
+        Ok(mid)
     }
 
     pub fn match_and_restart_with(&mut self, input: &str) -> Result<u8> {
+        let mid = self.dfa.insert_new_match();
         let to = self.get_sid(input);
-        self.end_pattern(input, Action::Match(self.fid), to)?;
-        Ok(self.fid)
+        self.end_pattern(input, Action::Match(mid), to)?;
+        Ok(mid)
     }
 
     pub fn end_caputuring_and_restart_with(&mut self, input: &str) -> Result<u8> {
@@ -100,11 +99,11 @@ impl DfaBuilder<'_> {
             bail!("No capture ID set.");
         }
 
-        let mid = self.dfa.insert_new_modification();
+        let rid = self.dfa.insert_new_range();
         let to = self.get_sid(input);
-        self.end_pattern(input, Action::EndCapture(self.cid.unwrap(), mid), to)?;
+        self.end_pattern(input, Action::EndCapture(self.cid.unwrap(), rid), to)?;
 
-        Ok(mid)
+        Ok(rid)
     }
 
     pub fn done_on(&mut self, input: &str) -> Result<&mut Self> {
@@ -164,13 +163,16 @@ impl DfaBuilder<'_> {
 }
 
 pub(crate) struct Dfa {
-    // next free state id
+    /// The next free state id
     sid: u16,
 
-    // next free capture id
+    /// The next free capture id
     cid: u8,
 
-    // next free modification id
+    /// The next free range id
+    rid: u8,
+
+    /// The next free match id
     mid: u8,
 
     states: HashSet<u16>,
@@ -183,6 +185,7 @@ impl Dfa {
         Dfa {
             sid: 0,
             cid: 0,
+            rid: 0,
             mid: 0,
             states: reserved_states.collect(),
             transitions: HashMap::new(),
@@ -198,13 +201,19 @@ impl Dfa {
         self.sid
     }
 
-    fn insert_capture_start(&mut self) -> u8 {
+    fn insert_new_capture_start(&mut self) -> u8 {
         let cid = self.cid;
         self.cid += 1;
         cid
     }
 
-    fn insert_new_modification(&mut self) -> u8 {
+    fn insert_new_range(&mut self) -> u8 {
+        let rid = self.rid;
+        self.rid += 1;
+        rid
+    }
+
+    fn insert_new_match(&mut self) -> u8 {
         let mid = self.mid;
         self.mid += 1;
         mid
@@ -229,12 +238,11 @@ impl Dfa {
         None
     }
 
-    pub fn start_pattern<'a>(&'a mut self, from: u16, fid: u8) -> DfaBuilder<'a> {
-        debug!(target: "dfa", "new pattern starting from: {} for filter: {}", from, fid);
+    pub fn start_pattern<'a>(&'a mut self, from: u16) -> DfaBuilder<'a> {
+        debug!(target: "dfa", "new pattern starting from: {}", from);
         DfaBuilder {
             dfa: self,
             start: from,
-            fid,
             sid: from,
             cid: None,
             capturing: false,

@@ -137,94 +137,98 @@ impl<'obj> Proxy<'obj> {
         }
 
         let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
-        let mut mods = HashMap::new();
+        // let mut mods = HashMap::new();
+
+        parser.match_http_hdr("backend", "server1")?;
+        parser.match_http_hdr("backend", "server2")?;
+        parser.set_http_hdr("content-length", "whatever")?;
 
         // filters from the config are split into two parts:
         // request and response filters
-        let mut num_filters = 0;
-        for filter in &self.config.spec.http {
-            // first the req filter is added
-            // it is added anyways, because it dictates where to route traffic to
-            let fid = num_filters + 1;
-            parser.start_new_filter(fid as u8);
-            num_filters += 1;
+        // let mut num_filters = 0;
+        // for filter in &self.config.spec.http {
+        //     // first the req filter is added
+        //     // it is added anyways, because it dictates where to route traffic to
+        //     let fid = num_filters + 1;
+        //     parser.start_new_filter(fid as u8);
+        //     num_filters += 1;
 
-            for (key, val) in &filter.patterns {
-                parser.match_http_hdr(&key, &val)?;
-            }
+        //     for (key, val) in &filter.patterns {
+        //         parser.match_http_hdr(&key, &val)?;
+        //     }
         
-            let req = filter.mods
-                .clone()
-                .and_then(|h| h.request);
+        //     let req = filter.mods
+        //         .clone()
+        //         .and_then(|h| h.request);
 
-            let mids = req.and_then(|req| {
-                let remove = req.remove.unwrap_or_default()
-                    .iter()
-                    .map(|key| {
-                        // only add a modification once to the dfa
-                        if let Some(mid) = mods.get(key) {
-                            *mid
-                        }
-                        else {
-                            let mid = parser.remove_http_hdr(&key)
-                                .expect("Failed to add header modification");
-                            mods.insert(key.clone(), mid.clone());
-                            mid
-                        }
-                    })
-                    .collect::<Vec<_>>();
+        //     let mids = req.and_then(|req| {
+        //         let remove = req.remove.unwrap_or_default()
+        //             .iter()
+        //             .map(|key| {
+        //                 // only add a modification once to the dfa
+        //                 if let Some(mid) = mods.get(key) {
+        //                     *mid
+        //                 }
+        //                 else {
+        //                     let mid = parser.remove_http_hdr(&key)
+        //                         .expect("Failed to add header modification");
+        //                     mods.insert(key.clone(), mid.clone());
+        //                     mid
+        //                 }
+        //             })
+        //             .collect::<Vec<_>>();
 
                 
-                Some(remove)
-            })
-            .unwrap_or_default();
+        //         Some(remove)
+        //     })
+        //     .unwrap_or_default();
 
-            debug!("req filter {}: {} patterns, {} modifications", fid, filter.patterns.len(), mids.len());
+        //     debug!("req filter {}: {} patterns, {} modifications", fid, filter.patterns.len(), mids.len());
 
-            open_skel.maps.rodata_data.filters[fid].num_patterns = filter.patterns.len() as u8;
-            open_skel.maps.rodata_data.filters[fid].num_modifications = mids.len() as u8;
-            for (i, mid) in mids.into_iter().enumerate() {
-                open_skel.maps.rodata_data.filters[fid].mids[i] = mid;
-            }
+        //     open_skel.maps.rodata_data.filters[fid].num_patterns = filter.patterns.len() as u8;
+        //     open_skel.maps.rodata_data.filters[fid].num_modifications = mids.len() as u8;
+        //     for (i, mid) in mids.into_iter().enumerate() {
+        //         open_skel.maps.rodata_data.filters[fid].mids[i] = mid;
+        //     }
 
-            // next we add the response filter
-            // it is only added if the response needs to be modified
-            let res = filter.mods
-                .clone()
-                .and_then(|h| h.response);
+        //     // next we add the response filter
+        //     // it is only added if the response needs to be modified
+        //     let res = filter.mods
+        //         .clone()
+        //         .and_then(|h| h.response);
 
-            if let Some(res) = res {
-                let fid = num_filters + 1;
-                parser.start_new_filter(fid as u8);
-                num_filters += 1;
+        //     if let Some(res) = res {
+        //         let fid = num_filters + 1;
+        //         parser.start_new_filter(fid as u8);
+        //         num_filters += 1;
 
-                let remove = res.remove.unwrap_or_default()
-                    .iter()
-                    .map(|key| {
-                        // only add a modification once to the dfa
-                        if let Some(mid) = mods.get(key) {
-                            *mid
-                        }
-                        else {
-                            let mid = parser.remove_http_hdr(&key)
-                                .expect("Failed to add header modification");
-                            mods.insert(key.clone(), mid.clone());
-                            mid
-                        }
-                    })
-                    .collect::<Vec<_>>();
+        //         let remove = res.remove.unwrap_or_default()
+        //             .iter()
+        //             .map(|key| {
+        //                 // only add a modification once to the dfa
+        //                 if let Some(mid) = mods.get(key) {
+        //                     *mid
+        //                 }
+        //                 else {
+        //                     let mid = parser.remove_http_hdr(&key)
+        //                         .expect("Failed to add header modification");
+        //                     mods.insert(key.clone(), mid.clone());
+        //                     mid
+        //                 }
+        //             })
+        //             .collect::<Vec<_>>();
 
-                let mids = remove;
+        //         let mids = remove;
     
-                debug!("res filter {}: {} modifications", fid, mids.len());
+        //         debug!("res filter {}: {} modifications", fid, mids.len());
     
-                open_skel.maps.rodata_data.filters[fid].num_patterns = 0;
-                open_skel.maps.rodata_data.filters[fid].num_modifications = mids.len() as u8;
-                for (i, mid) in mids.into_iter().enumerate() {
-                    open_skel.maps.rodata_data.filters[fid].mids[i] = mid;
-                }
-            }
-        }
+        //         open_skel.maps.rodata_data.filters[fid].num_patterns = 0;
+        //         open_skel.maps.rodata_data.filters[fid].num_modifications = mids.len() as u8;
+        //         for (i, mid) in mids.into_iter().enumerate() {
+        //             open_skel.maps.rodata_data.filters[fid].mids[i] = mid;
+        //         }
+        //     }
+        // }
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header

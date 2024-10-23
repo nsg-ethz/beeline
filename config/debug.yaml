@@ -5,6 +5,12 @@ hosts:
   address: 127.0.0.1
 spec:   
   http:
+    # parse:
+    # - match:
+    #     backend: server1
+    #     backend: server2
+    #   extract:
+    #     content-length: u32
   - match:
       backend: server1
     headers:

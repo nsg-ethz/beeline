@@ -23,10 +23,26 @@
 char LICENSE[] SEC("license") = "GPL";
 
 // these restrictions are needed to make the verifier happy
-const __u16 MAX_BYTES = 0xFFFE;
-const __u8 MAX_MATCHES = 16;
-const __u8 MAX_MATCH_MASK = 15;
-const __u8 MAX_MOD_LEN = 0xFF;
+#define MAX_BYTES 0xFFFE
+#define MAX_MATCHES 16
+#define MAX_MATCH_MASK 15
+#define MAX_MOD_LEN 0xFF
+
+enum pr_action {
+	PR_DROP = 0,
+	PR_PASS,
+    PR_USPA
+};
+
+struct addr_key {
+    __u32 ip4;
+    __u32 port;
+};
+
+struct sock_key {
+    struct addr_key local;
+    struct addr_key remote;
+};
 
 struct wait_list_key {
     __u32 ip4;
@@ -61,8 +77,7 @@ struct res_route_val {
     __u32 fid;
 };
 
-struct capture_group {
-    __u16 id;
+struct prange {
     __u16 idx;
     __u16 len;
 };
@@ -71,12 +86,6 @@ struct modification {
     __u8 len;
     char str[MAX_MOD_LEN];
     __u8 tail;
-};
-
-struct filter {
-    __u8 num_patterns;
-    __u8 num_modifications;
-    __u8 mids[MAX_MATCHES];
 };
 
 struct {
@@ -128,12 +137,55 @@ volatile const __u32 ip4;
 volatile const __u32 port;
 volatile const __u32 s2ts[128][256] = { s_init };
 volatile const struct modification mods[MAX_MATCHES] = { 0 };
-volatile const struct filter filters[MAX_MATCHES] = { 0 };
 
-struct capture_group cgs[MAX_MATCHES] = { 0 };
-// this is internal to the _parse function
-__u32 mod_idx[MAX_MATCHES] = { 0 };
-__u32 fid_cnt[MAX_MATCHES] = { 0 };
+struct prange pranges[MAX_MATCHES] = { 0 };
+bool pmatches[MAX_MATCHES] = { 0 };
+
+// ----------------------------------------------
+
+struct ds_conn_state {
+    __u32 num_bytes;
+    __u32 num_reqs;
+    __u64 last_req_ts;
+    __u64 this_req_ts;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct sock_key);
+    __type(value, struct ds_conn_state);
+} ds_conns SEC(".maps");
+
+struct parse_res {
+    __u32 content_length;
+    bool backend_is_server1;
+    bool backend_is_server2;
+};
+
+int update_ds_state(struct sock_key *dkey, struct parse_res *params) {
+    bpf_log("Update DS state: server1: %d, server2: %d, content-length: %d", params->backend_is_server1, params->backend_is_server2, params->content_length);
+    struct ds_conn_state *state = bpf_map_lookup_elem(&ds_conns, dkey);
+    if (state == NULL) {
+        struct ds_conn_state new_state = {
+            .num_bytes = params->content_length,
+            .num_reqs = 1,
+            .last_req_ts = 0,
+            .this_req_ts = bpf_ktime_get_ns()
+        };
+        bpf_map_update_elem(&ds_conns, dkey, &new_state, BPF_ANY);
+    }
+    else {
+        state->num_bytes += params->content_length;
+        state->num_reqs++;
+        state->last_req_ts = state->this_req_ts;
+        state->this_req_ts = bpf_ktime_get_ns();
+    }
+
+    return 0;
+}
+
+// ----------------------------------------------
 
 static __always_inline void _next(__u16 state, __u32 input, __u16 *next_state, __u16 *action) {
     state &= 0x7F;
@@ -153,6 +205,7 @@ static __always_inline void _next(__u16 state, __u32 input, __u16 *next_state, _
     *action = (sa & a_mask) >> 16;
 }
 
+__u32 cidx[MAX_MATCHES] = { 0 };
 static __always_inline int _parse(const struct sk_msg_md *msg) {
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
@@ -165,9 +218,9 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
     __u16 s = s_init;
     __u8 num_mods = 0;
 
-    memset(cgs, 0, sizeof(cgs));
-    memset(mod_idx, 0, sizeof(mod_idx));
-    memset(fid_cnt, 0, sizeof(fid_cnt));
+    __builtin_memset(cidx, 0, sizeof(cidx));
+    __builtin_memset(pranges, 0, sizeof(pranges));
+    __builtin_memset(pmatches, 0, sizeof(pmatches));
 
     __u32 i;
     bpf_for(i, 0, len) {
@@ -183,24 +236,23 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
         if ((a & a_start_capture) != 0) {
             __u16 cid = a & a_id_mask & MAX_MATCH_MASK;
             bpf_log("Start capture range (%d, ?) in [%d, ...]", cid, i);
-            mod_idx[cid] = i;
+            cidx[cid] = i;
         }
         if ((a & a_end_capture) != 0) {
             __u16 cid = ((a & a_id_1_mask) >> 6) & MAX_MATCH_MASK;
-            __u16 mid = a & a_id_2_mask & MAX_MATCH_MASK;
-            bpf_log("End capture range (%d, %d) in [%d, %d]", cid, mid, mod_idx[cid], i - mod_idx[cid] + 1);
+            __u16 rid = a & a_id_2_mask & MAX_MATCH_MASK;
+            bpf_log("End capture range (%d, %d) in [%d, %d]", cid, rid, cidx[cid], i - cidx[cid] + 1);
 
-            cgs[mid] = (struct capture_group) {
-                .id = mid,
-                .idx = mod_idx[cid],
-                .len = i - mod_idx[cid] + 1
+            pranges[rid] = (struct prange) {
+                .idx = cidx[cid],
+                .len = i - cidx[cid] + 1
             };
-            mod_idx[cid] = 0;
+            cidx[cid] = 0;
         }
         if ((a & a_match) != 0) {
-            __u16 fid = a & a_id_mask & MAX_MATCH_MASK;
-            bpf_log("Matched filter %d at %d", fid, i);
-            fid_cnt[fid]++;
+            __u16 mid = a & a_id_mask & MAX_MATCH_MASK;
+            bpf_log("Match %d at %d", mid, i);
+            pmatches[mid] = true;
         }
         if ((a & a_done) != 0) {
             bpf_log("Done parsing at %d", i);
@@ -219,6 +271,21 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
     return 0;
 }
 
+static __always_inline void _init_parse_res(struct sk_msg_md *msg, struct parse_res *res) {
+    char *data = (char *)(long)msg->data;
+    char *data_end = (char *)(long)msg->data_end;
+    __u32 len = (data_end - data) & MAX_BYTES;
+
+    const struct prange r0 = pranges[0];
+    unsigned long val = 0;
+
+    bpf_strtoul(data + r0.idx, r0.len, 10, &val);
+
+    res->backend_is_server1 = pmatches[0];
+    res->backend_is_server2 = pmatches[1];
+    res->content_length = (__u32)val;
+}
+
 static __always_inline int _log_msg_range(struct sk_msg_md *msg, __u16 idx, __u16 len) {
     if (bpf_msg_pull_data(msg, idx, idx+len, 0) < 0) return -1;
 
@@ -230,15 +297,17 @@ static __always_inline int _log_msg_range(struct sk_msg_md *msg, __u16 idx, __u1
         if (data + j + 1 > data_end) return -1;
         bpf_log("data[%d]=%c", idx+j, data[j]);
     }
+
+    return 0;
 }
 
-static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_group *cg, __s16 *diff) {
+static __always_inline int _modify(struct sk_msg_md *msg, const struct prange *r, volatile const struct modification *m, __s16 *diff) {
     // in case something fails, we don't want to resport a wrong diff
     if (diff == NULL) return -1;
     *diff = 0;
 
-    __u16 len = cg->len;
-    __u16 idx = cg->idx;
+    __u16 len = r->len;
+    __u16 idx = r->idx;
 
     if (len > MAX_BYTES) return -1;
     len &= 0xFF;
@@ -246,17 +315,14 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_g
     if (idx > MAX_BYTES) return -1;
     idx &= 0xFFF;
 
-    if (cg->id >= MAX_MATCHES) return -1;
-    volatile const struct modification *mod = &mods[cg->id];
+    len -= m->tail;
+    __s16 delta = m->len - len;
 
-    len -= mod->tail;
-    __s16 delta = mod->len - len;
-
-    bpf_log("Increasing msg size by %d (%d-%d) at %d (mid: %d)", delta, mod->len, len, idx, cg->id);
+    bpf_log("Increasing msg size by %d (%d-%d) at %d", delta, m->len, len, idx);
 
     // we first have to linearize the data
     // TODO: figure out if we have to pull the data for every single modification
-    if (bpf_msg_pull_data(msg, 0, idx+mod->len, 0) < 0) return -1;
+    if (bpf_msg_pull_data(msg, 0, idx+m->len, 0) < 0) return -1;
 
     if (delta > 0) {
         if (bpf_msg_push_data(msg, idx, delta, 0) < 0) return -1;
@@ -269,20 +335,20 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct capture_g
     *diff = delta;
 
     // we're done if we don't have to write anything
-    if (mod->len == 0) return 0;
+    if (m->len == 0) return 0;
 
     bpf_log("Rewriting payload (%dB) in range [%d, %d]", msg->size, idx, len);
 
     // at this point we have to pull the data again to get valid data pointers    
-    if (bpf_msg_pull_data(msg, idx, idx+mod->len, 0) < 0) return -1;
+    if (bpf_msg_pull_data(msg, idx, idx+m->len, 0) < 0) return -1;
 
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
     
     __u16 i;
-    bpf_for(i, 0, mod->len) {
+    bpf_for(i, 0, m->len) {
         if (data + i + 1 > data_end) return -1;
-        data[i] = mod->str[i];
+        data[i] = m->str[i];
     }
 
     return 0;
@@ -343,75 +409,80 @@ static __always_inline int _try_redirect_res(struct sk_msg_md *msg, __u8 *fid) {
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     __u8 fid = 0;
-
+    int r = SK_PASS;
     bool downstream = msg->remote_ip4 == ip4 && bpf_ntohl(msg->remote_port) == port;
     bpf_log("Processing %dB msg (downstream: %d)", msg->size, downstream);
-    int r = SK_PASS;
 
-    if (_parse(msg) == 0) {
-        // parsing was successful, check if we have a match
-        // we only do this for requests
-        // for responses, we get the fid to apply from the route
-        if (downstream) {
-            __u8 i;
-            bpf_for(i, 1, MAX_MATCHES) {
-                i &= MAX_MATCH_MASK;
-                if (fid_cnt[i] == filters[i].num_patterns && filters[i].num_patterns > 0) {
-                    fid = i;
-                    break;
-                } 
-            }
+    if (_parse(msg) < 0) return r;
 
-            r = _try_redirect_req(msg, fid);
+    struct parse_res params;
+    _init_parse_res(msg, &params);
+
+    struct sock_key skey = {
+        .local = {
+            .ip4 = msg->local_ip4,
+            .port = msg->local_port
+        },
+        .remote = {
+            .ip4 = msg->remote_ip4,
+            .port = bpf_ntohl(msg->remote_port)
         }
-        else {
-            r = _try_redirect_res(msg, &fid);
-        }
+    };
 
-        // we have a match, apply the filter's actions
-        if (fid > 0) {
-            fid &= MAX_MATCH_MASK;
-            bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_patterns, filters[fid].num_modifications);
-            
-            __s16 off = 0;
-            __u8 i, j;
-            bpf_for(i, 0, filters[fid].num_modifications) {
-                __s16 mid = -1;
-                __u16 idx_min = 0xFFFF;
-
-                // find the first detected range
-                // this is necessary because modify needs to be called in linear order
-                // the length is checked to make sure that the pattern was actually detected
-                bpf_for(j, 0, filters[fid].num_modifications) {
-                    __s16 mid_j = filters[fid].mids[j] & MAX_MATCH_MASK;
-                    if (cgs[mid_j].idx < idx_min && cgs[mid_j].len > 0) {
-                        idx_min = cgs[mid_j].idx;
-                        mid = mid_j;
-                    }
-                }
-
-                // check if we have to modify anything
-                if (mid == -1) {
-                    break;
-                }
-
-                mid &= MAX_MATCH_MASK;
-
-                bpf_log("Apply modification %d (fid: %d)", mid, fid);
-
-                cgs[mid].idx += off;
-
-                __s16 diff = 0;
-                if (_modify(msg, &cgs[mid], &diff) < 0) {
-                    bpf_err("ERROR: Modifying message failed.");
-                    break;
-                }
-
-                off += diff;
-                cgs[mid].idx = 0xFFFF;
-            }
-        }
+    // parsing was successful, check if we have a match
+    // we only do this for requests
+    // for responses, we get the fid to apply from the route
+    if (downstream) {
+        update_ds_state(&skey, &params);
+        r = _try_redirect_req(msg, fid);
     }
+    else {
+        r = _try_redirect_res(msg, &fid);
+    }
+
+    // we have a match, apply the filter's actions
+    // if (fid > 0) {
+    //     fid &= MAX_MATCH_MASK;
+    //     bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_patterns, filters[fid].num_modifications);
+        
+    //     __s16 off = 0;
+    //     __u8 i, j;
+    //     bpf_for(i, 0, filters[fid].num_modifications) {
+    //         __s16 mid = -1;
+    //         __u16 idx_min = 0xFFFF;
+
+    //         // find the first detected range
+    //         // this is necessary because modify needs to be called in linear order
+    //         // the length is checked to make sure that the pattern was actually detected
+    //         bpf_for(j, 0, filters[fid].num_modifications) {
+    //             __s16 mid_j = filters[fid].mids[j] & MAX_MATCH_MASK;
+    //             if (pranges[mid_j].idx < idx_min && pranges[mid_j].len > 0) {
+    //                 idx_min = pranges[mid_j].idx;
+    //                 mid = mid_j;
+    //             }
+    //         }
+
+    //         // check if we have to modify anything
+    //         if (mid == -1) {
+    //             break;
+    //         }
+
+    //         mid &= MAX_MATCH_MASK;
+
+    //         bpf_log("Apply modification %d (fid: %d)", mid, fid);
+
+    //         pranges[mid].idx += off;
+
+    //         __s16 diff = 0;
+    //         if (_modify(msg, &pranges[mid], &mods[mid], &diff) < 0) {
+    //             bpf_err("ERROR: Modifying message failed.");
+    //             break;
+    //         }
+
+    //         off += diff;
+    //         pranges[mid].idx = 0xFFFF;
+    //     }
+    // }
 
     return r;
 }
