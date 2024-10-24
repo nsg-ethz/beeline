@@ -2,14 +2,13 @@ use std::mem::MaybeUninit;
 
 use anyhow::Result;
 use clap::Parser;
-use common::config::Config;
 use libbpf_rs::{set_print, PrintLevel};
 use log::{
     debug,
     warn,
     info,
 };
-use eproxy::Proxy;
+use proxy::{Proxy, config::Config};
 
 #[derive(Parser)]
 struct Args {

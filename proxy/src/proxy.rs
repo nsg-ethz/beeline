@@ -1,21 +1,24 @@
 use anyhow::{bail, Result};
 use as_bytes::AsBytes;
-use common::{
+use crate::{
+    bpf::{*, types::*},
     config::{Config, Destination},
     parse::{http::HttpParser, Action}
 };
-use crate::ebpf::{*, types::*};
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags};
 use log::{debug, info, log_enabled};
 use socket2::Socket;
 use std::{collections::HashMap, mem::MaybeUninit, net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, vec};
 
-mod ebpf {
+mod bpf {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/bpf/proxy.skel.rs"
     ));
 }
+
+pub mod config;
+pub mod parse;
 
 impl TryFrom<&SocketAddr> for wait_list_key {
 

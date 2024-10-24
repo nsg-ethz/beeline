@@ -1,5 +1,5 @@
-use eproxy::Proxy;
-use common::config::{Config, Filter, Host, Route, Destination, Spec};
+use proxy::Proxy;
+use proxy::config::{Config, Filter, Host, Route, Destination, Spec};
 use rand::{distributions::Alphanumeric, Rng};
 use core::str;
 use std::{collections::HashMap, io::{Read, Write}, mem::MaybeUninit, net::{TcpListener, TcpStream}, thread};

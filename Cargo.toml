@@ -3,7 +3,5 @@ resolver = "2"
 
 members = [
     "backend", 
-    "proxy/ebpf",
-    "proxy/naive",
-    "proxy/common",
+    "proxy",
 ]

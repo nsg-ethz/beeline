@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-
-use serde::{Serialize, Deserialize, };
+use serde::{Serialize, Deserialize };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Config {
