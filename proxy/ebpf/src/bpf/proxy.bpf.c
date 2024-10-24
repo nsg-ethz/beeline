@@ -142,6 +142,18 @@ struct prange pranges[MAX_MATCHES] = { 0 };
 bool pmatches[MAX_MATCHES] = { 0 };
 
 // ----------------------------------------------
+// compiler generated
+
+struct parse_res {
+    char backend[4096];
+    __u32 backend_len;
+
+    __u32 content_length;
+};
+struct parse_res pres = { 0 };
+
+// ----------------------------------------------
+// user provided
 
 struct ds_conn_state {
     __u32 num_bytes;
@@ -157,32 +169,108 @@ struct {
     __type(value, struct ds_conn_state);
 } ds_conns SEC(".maps");
 
-struct parse_res {
-    __u32 content_length;
-    bool backend_is_server1;
-    bool backend_is_server2;
+struct us_conn_state {
+    __u32 num_bytes;
+    __u32 num_reqs;
 };
 
-int update_ds_state(struct sock_key *dkey, struct parse_res *params) {
-    bpf_log("Update DS state: server1: %d, server2: %d, content-length: %d", params->backend_is_server1, params->backend_is_server2, params->content_length);
-    struct ds_conn_state *state = bpf_map_lookup_elem(&ds_conns, dkey);
-    if (state == NULL) {
-        struct ds_conn_state new_state = {
-            .num_bytes = params->content_length,
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct addr_key);
+    __type(value, struct us_conn_state);
+} us_conns SEC(".maps");
+
+int update_ds_state(const struct sock_key *dkey, const struct parse_res *res, struct ds_conn_state *state) {
+    bpf_log("Update DS state: server: %s, content-length: %d", res->backend, res->content_length);
+    struct ds_conn_state *s = bpf_map_lookup_elem(&ds_conns, dkey);
+    if (s == NULL) {
+        *state = (struct ds_conn_state) {
+            .num_bytes = res->content_length,
             .num_reqs = 1,
             .last_req_ts = 0,
             .this_req_ts = bpf_ktime_get_ns()
         };
-        bpf_map_update_elem(&ds_conns, dkey, &new_state, BPF_ANY);
+        bpf_map_update_elem(&ds_conns, dkey, state, BPF_ANY);
     }
     else {
-        state->num_bytes += params->content_length;
-        state->num_reqs++;
-        state->last_req_ts = state->this_req_ts;
-        state->this_req_ts = bpf_ktime_get_ns();
+        s->num_bytes += res->content_length;
+        s->num_reqs++;
+        s->last_req_ts = s->this_req_ts;
+        s->this_req_ts = bpf_ktime_get_ns();
+        state = s;
     }
 
     return 0;
+}
+
+int update_us_state(const struct sock_key *ukey, const struct parse_res *res, struct us_conn_state *state) {
+    const struct addr_key *rukey = &ukey->remote;
+    struct us_conn_state *s = bpf_map_lookup_elem(&us_conns, rukey);
+    if (s == NULL) {
+        *state = (struct us_conn_state) {
+            .num_bytes = res->content_length,
+            .num_reqs = 1,
+        };
+        bpf_map_update_elem(&us_conns, rukey, state, BPF_ANY);
+    }
+    else {
+        s->num_bytes += res->content_length;
+        s->num_reqs++;
+        state = s;
+    }
+
+    return 0;
+}
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 100);
+    __type(key, __u32);
+    __type(value, struct sock_key);
+} us2ds_routes SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 100);
+    __type(key, __u32);
+    __type(value, struct sock_key);
+} ds2us_routes SEC(".maps");
+
+int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *state, const struct parse_res *res, struct sock_key *ukey) {
+    if (dkey == NULL || state == NULL || res == NULL) {
+        return PR_DROP;
+    }
+
+    // rate limit connection if it's sent a request less than 1ms ago
+    __u64 req_interval = state->this_req_ts - state->last_req_ts;
+    bpf_log("Request interval: %llu", req_interval);
+    if (state->last_req_ts < 10000000) {
+        return PR_DROP;
+    }
+
+    const char *server1 = "server1";
+    bool backend_is_server1 = bpf_strncmp(res->backend, 7, server1) == 0;
+    if (backend_is_server1) {
+        __u32 key = 0;
+        ukey = bpf_map_lookup_elem(&ds2us_routes, &key);
+        return PR_PASS;
+    }
+    
+    const char *server2 = "server2";
+    bool backend_is_server2 = bpf_strncmp(res->backend, 7, server2) == 0;
+    if (backend_is_server2) {
+        __u32 key = 1;
+        ukey = bpf_map_lookup_elem(&ds2us_routes, &key);
+        return PR_PASS;
+    }
+    
+    return PR_USPA;
+}
+
+int forward_us_conn(const struct sock_key *ukey, const struct us_conn_state *state, const struct parse_res *res, struct sock_key *dkey) {
+    dkey = bpf_map_lookup_elem(&ds2us_routes, ukey);
+    return PR_PASS;
 }
 
 // ----------------------------------------------
@@ -271,19 +359,26 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
     return 0;
 }
 
-static __always_inline void _init_parse_res(struct sk_msg_md *msg, struct parse_res *res) {
+char buf[0xfff];
+static __always_inline int _init_parse_res(struct sk_msg_md *msg) {
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
-    __u32 len = (data_end - data) & MAX_BYTES;
 
-    const struct prange r0 = pranges[0];
+    struct prange r0 = pranges[0];
+    __u32 r0_len = r0.len & 0xfff;
+    if (r0_len == 0) return -1;
+    if (bpf_probe_read_kernel(pres.backend, r0_len, data + r0.idx) < 0) return -1;
+    pres.backend_len = r0_len;
+
+    struct prange r1 = pranges[1];
+    __u32 r1_len = r1.len & 0xfff;
+    if (r1_len == 0) return -1;
+    if (bpf_probe_read_kernel(buf, r1_len, data + r1.idx) < 0) return -1;
     unsigned long val = 0;
+    bpf_strtoul(buf, r1_len, 10, &val);
+    pres.content_length = (__u32)val;
 
-    bpf_strtoul(data + r0.idx, r0.len, 10, &val);
-
-    res->backend_is_server1 = pmatches[0];
-    res->backend_is_server2 = pmatches[1];
-    res->content_length = (__u32)val;
+    return 0;
 }
 
 static __always_inline int _log_msg_range(struct sk_msg_md *msg, __u16 idx, __u16 len) {
@@ -415,10 +510,10 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     if (_parse(msg) < 0) return r;
 
-    struct parse_res params;
-    _init_parse_res(msg, &params);
+    _init_parse_res(msg);
 
-    struct sock_key skey = {
+    // socket identifeir of the ingress connection
+    struct sock_key ikey = {
         .local = {
             .ip4 = msg->local_ip4,
             .port = msg->local_port
@@ -429,15 +524,28 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
     };
 
-    // parsing was successful, check if we have a match
-    // we only do this for requests
-    // for responses, we get the fid to apply from the route
+    struct sock_key ekey = { 0 };
     if (downstream) {
-        update_ds_state(&skey, &params);
-        r = _try_redirect_req(msg, fid);
+        struct ds_conn_state state = { 0 };
+        if (update_ds_state(&ikey, &pres, &state) < 0) {
+            bpf_err("ERROR: Updating downstream connection state failed.");
+        }
+        
+        enum pr_action act = forward_ds_conn(&ikey, &state, &pres, &ekey);
+        if (act != PR_PASS) {
+            return act;
+        }
     }
     else {
-        r = _try_redirect_res(msg, &fid);
+        struct us_conn_state state = { 0 };
+        if (update_us_state(&ikey, &pres, &state) < 0) {
+            bpf_err("ERROR: Updating upstream connection state failed.");
+        }
+
+        enum pr_action act = forward_us_conn(&ikey, &state, &pres, &ekey);
+        if (act != PR_PASS) {
+            return act;
+        }
     }
 
     // we have a match, apply the filter's actions

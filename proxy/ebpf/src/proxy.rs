@@ -139,8 +139,9 @@ impl<'obj> Proxy<'obj> {
         let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
         // let mut mods = HashMap::new();
 
-        parser.match_http_hdr("backend", "server1")?;
-        parser.match_http_hdr("backend", "server2")?;
+        // parser.match_http_hdr("backend", "server1")?;
+        // parser.match_http_hdr("backend", "server2")?;
+        parser.set_http_hdr("backend", "doesntmatter")?;
         parser.set_http_hdr("content-length", "whatever")?;
 
         // filters from the config are split into two parts:
