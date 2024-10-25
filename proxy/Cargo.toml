@@ -22,8 +22,8 @@ libc = "0.2.155"
 log = "0.4.22"
 serde_yaml = "0.9.34"
 as-bytes = "0.2.0"
-socket2 = "0.5.7"
 serde = { version = "1.0.213", features = ["derive"] }
+tokio = { version = "1.41.0", features = ["full"] }
 
 [build-dependencies]
 libbpf-cargo = "0.24"

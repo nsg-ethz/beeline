@@ -30,7 +30,8 @@ fn print(level: PrintLevel, msg: String) {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     env_logger::init();
     set_print(Some((PrintLevel::Debug, print)));
 
@@ -41,5 +42,5 @@ fn main() -> Result<()> {
     let mut open_obj = MaybeUninit::uninit();
     let mut proxy = Proxy::new(&args.address, config)?;
     proxy.attach(&mut open_obj)?;
-    proxy.listen()
+    proxy.listen().await
 }

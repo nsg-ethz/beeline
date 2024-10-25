@@ -674,7 +674,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_yaml",
- "socket2",
+ "tokio",
 ]
 
 [[package]]

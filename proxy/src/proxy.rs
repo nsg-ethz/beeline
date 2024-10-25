@@ -5,10 +5,10 @@ use crate::{
     config::{Config, Destination},
     parse::{http::HttpParser, Action}
 };
-use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags};
+use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapImpl, MapMut};
 use log::{debug, info, log_enabled};
-use socket2::Socket;
-use std::{collections::HashMap, mem::MaybeUninit, net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, vec};
+use std::{mem::MaybeUninit, net::{IpAddr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, sync::Arc};
+use tokio::{io::copy, net::{TcpListener, TcpStream}};
 
 mod bpf {
     include!(concat!(
@@ -16,52 +16,43 @@ mod bpf {
         "/src/bpf/proxy.skel.rs"
     ));
 }
-
 pub mod config;
 pub mod parse;
 
-impl TryFrom<&SocketAddr> for wait_list_key {
+trait TryIntoRawOctets {
 
-    type Error = anyhow::Error;
+    fn try_into_ne_octets(&self) -> Result<u32>;
 
-    fn try_from(addr: &SocketAddr) -> Result<wait_list_key> {
+}
 
-        let ip4 = match addr.ip() {
-            IpAddr::V4(ip) => u32::from_ne_bytes(ip.octets()),
+impl TryIntoRawOctets for SocketAddr {
+
+    fn try_into_ne_octets(&self) -> Result<u32> {
+        match self.ip() {
+            IpAddr::V4(ip) => Ok(u32::from_ne_bytes(ip.octets())),
             _ => bail!("RouteKey only supports IPv4 addresses")
-        };
-
-        Ok(wait_list_key {
-            ip4,
-            port: addr.port() as u32,
-        })
+        }
     }
 
 }
 
-impl wait_list_val {
+impl TryFrom<(&SocketAddr, &SocketAddr)> for sock_key {
+    
+    type Error = anyhow::Error;
 
-    fn new(sock_key: u32, route_fids: Vec<u32>, route_sock_keys: Vec<u32>) -> Result<wait_list_val> {
-        if route_sock_keys.len() != route_fids.len() {
-            bail!("Route addresses, sock keys, and FIDs must have the same length");
-        }
-        if route_fids.len() > 16 {
-            bail!("Too many routes");
-        }
-
-        let mut fids = [0; 16];
-        let mut sock_keys = [0; 16];
-
-        for i in 0..route_fids.len() {
-            fids[i] = route_fids[i];
-            sock_keys[i] = route_sock_keys[i];
-        }
-
-        Ok(wait_list_val {
-            sock_key,
-            num_routes: route_fids.len() as u32,
-            route_fid: fids,
-            route_sock_key: sock_keys
+    fn try_from((local, remote): (&SocketAddr, &SocketAddr)) -> Result<Self> {
+        let local_ip4 = local.try_into_ne_octets()?;
+        let remote_ip4 = remote.try_into_ne_octets()?;
+        
+        Ok(sock_key {
+            local: addr_key {
+                ip4: local_ip4,
+                port: local.port() as u32,
+            },
+            remote: addr_key {
+                ip4: remote_ip4,
+                port: remote.port() as u32,
+            }
         })
     }
 
@@ -107,11 +98,10 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub config: Config,
+    sock_id: u32,
     skel: Option<ProxySkel<'obj>>,
     sockops: Option<Link>,
     upstreams: Vec<TcpStream>,
-    downstreams: Vec<TcpStream>,
-    sock_key: u32
 }
 
 impl<'obj> Proxy<'obj> {
@@ -124,11 +114,10 @@ impl<'obj> Proxy<'obj> {
         Ok(Self {
             address,
             config,
+            sock_id: 0,
             skel: None,
             sockops: None,
             upstreams: Vec::new(),
-            downstreams: Vec::new(),
-            sock_key: 0
         })
     }
 
@@ -140,99 +129,8 @@ impl<'obj> Proxy<'obj> {
         }
 
         let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
-        // let mut mods = HashMap::new();
-
-        // parser.match_http_hdr("backend", "server1")?;
-        // parser.match_http_hdr("backend", "server2")?;
         parser.set_http_hdr("backend", "doesntmatter")?;
         parser.set_http_hdr("content-length", "whatever")?;
-
-        // filters from the config are split into two parts:
-        // request and response filters
-        // let mut num_filters = 0;
-        // for filter in &self.config.spec.http {
-        //     // first the req filter is added
-        //     // it is added anyways, because it dictates where to route traffic to
-        //     let fid = num_filters + 1;
-        //     parser.start_new_filter(fid as u8);
-        //     num_filters += 1;
-
-        //     for (key, val) in &filter.patterns {
-        //         parser.match_http_hdr(&key, &val)?;
-        //     }
-        
-        //     let req = filter.mods
-        //         .clone()
-        //         .and_then(|h| h.request);
-
-        //     let mids = req.and_then(|req| {
-        //         let remove = req.remove.unwrap_or_default()
-        //             .iter()
-        //             .map(|key| {
-        //                 // only add a modification once to the dfa
-        //                 if let Some(mid) = mods.get(key) {
-        //                     *mid
-        //                 }
-        //                 else {
-        //                     let mid = parser.remove_http_hdr(&key)
-        //                         .expect("Failed to add header modification");
-        //                     mods.insert(key.clone(), mid.clone());
-        //                     mid
-        //                 }
-        //             })
-        //             .collect::<Vec<_>>();
-
-                
-        //         Some(remove)
-        //     })
-        //     .unwrap_or_default();
-
-        //     debug!("req filter {}: {} patterns, {} modifications", fid, filter.patterns.len(), mids.len());
-
-        //     open_skel.maps.rodata_data.filters[fid].num_patterns = filter.patterns.len() as u8;
-        //     open_skel.maps.rodata_data.filters[fid].num_modifications = mids.len() as u8;
-        //     for (i, mid) in mids.into_iter().enumerate() {
-        //         open_skel.maps.rodata_data.filters[fid].mids[i] = mid;
-        //     }
-
-        //     // next we add the response filter
-        //     // it is only added if the response needs to be modified
-        //     let res = filter.mods
-        //         .clone()
-        //         .and_then(|h| h.response);
-
-        //     if let Some(res) = res {
-        //         let fid = num_filters + 1;
-        //         parser.start_new_filter(fid as u8);
-        //         num_filters += 1;
-
-        //         let remove = res.remove.unwrap_or_default()
-        //             .iter()
-        //             .map(|key| {
-        //                 // only add a modification once to the dfa
-        //                 if let Some(mid) = mods.get(key) {
-        //                     *mid
-        //                 }
-        //                 else {
-        //                     let mid = parser.remove_http_hdr(&key)
-        //                         .expect("Failed to add header modification");
-        //                     mods.insert(key.clone(), mid.clone());
-        //                     mid
-        //                 }
-        //             })
-        //             .collect::<Vec<_>>();
-
-        //         let mids = remove;
-    
-        //         debug!("res filter {}: {} modifications", fid, mids.len());
-    
-        //         open_skel.maps.rodata_data.filters[fid].num_patterns = 0;
-        //         open_skel.maps.rodata_data.filters[fid].num_modifications = mids.len() as u8;
-        //         for (i, mid) in mids.into_iter().enumerate() {
-        //             open_skel.maps.rodata_data.filters[fid].mids[i] = mid;
-        //         }
-        //     }
-        // }
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
@@ -246,7 +144,6 @@ impl<'obj> Proxy<'obj> {
         else {
             bail!("IPv6 is not supported");
         }
-
         open_skel.maps.rodata_data.port = self.address.port() as u32;
 
         let skel = open_skel.load()?;
@@ -276,125 +173,105 @@ impl<'obj> Proxy<'obj> {
         Ok(())
     }
 
-    pub fn listen(&mut self) -> Result<()> {
-        info!("Listening on {}", self.address);
+    pub async fn listen(&mut self) -> Result<()> {
+        let addr = self.address;
+        info!("Listening on {}", addr);
 
-        let listener = TcpListener::bind(&self.address)?;
+        let listener = TcpListener::bind(&addr).await?;
         loop {
-            self.accept(&listener)?;
+            let sock_id = self.get_new_sock_id();
+            self.add_socket_to_wait_list(&addr, sock_id)?;
+            self.accept(&listener).await?;
         }
     }
 
-    fn get_new_sock_id(&mut self) -> u32 {
-        let id = self.sock_key;
-        self.sock_key += 1;
-        id
-    }
-
-    fn accept(&mut self, listener: &TcpListener) -> Result<()> {
+    async fn accept(&mut self, listener: &TcpListener) -> Result<()> {
         if self.skel.is_none() {
             bail!("eBPF program has not been attached");
         }
 
-        let downstream_sock_key = self.get_new_sock_id();
-
-        // we first bind the sockets to local ports
-        // this makes it possible to know the ports before establishing the connection
-        let mut port = 12345;
-        let mut fid = 1;
-        let upstream_sockets = self.config.spec.http
-            .clone()
-            .iter()
-            .map(|filter| {
-                let socket = Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap();
-                let dest = &filter.route.first().unwrap().destination;
-                let peer_addr = self.get_socket_addr_for_dest(&dest);
-
-                loop {
-                    let addr = SocketAddr::new(self.address.ip(), port);
-
-                    if let Err(_) = socket.bind(&addr.into()) {
-                        port += 1;
-                    }
-                    else {
-                        debug!("Bind socket to {} for connection to {:?}", port, peer_addr);
-                        break;
-                    }
-                }
-
-                let sock_key = self.get_new_sock_id();
-                let req_fid = fid;
-                let res_fid = filter.mods
-                    .clone()
-                    .and_then(|h| h.response)
-                    .map(|_| fid + 1);
-
-                fid = res_fid.unwrap_or(req_fid) + 1;
-                
-                (socket, peer_addr, sock_key, req_fid, res_fid)
-            })
-            .collect::<Vec<_>>();
-
-        // we now know all but the downstream peer address
-        let sock_wait_list = &self.skel.as_ref().unwrap()
-            .maps
-            .sock_wait_list;
-
-        // add the upstream sockets to the wait list
-        // this lets the sockops program know which connections to add to the sockmap
-        // the sockops will then populate the route map
-        // sockops has to do this, because in userspace we lack the local address 
-        // of the downstream socket until it's too late
-        for (socket, _, sock_key, _, res_fid) in upstream_sockets.iter() {
-            let local_addr = socket.local_addr()?.as_socket_ipv4().unwrap().into();
-            let key = wait_list_key::try_from(&local_addr)?;
-            let key = unsafe { key.as_bytes() };
-
-            let val = wait_list_val::new(
-                *sock_key, 
-                vec![res_fid.unwrap_or_default()],
-                vec![downstream_sock_key]
-            )?;
-            let val = unsafe { val.as_bytes() };
-
-            sock_wait_list.update(&key, &val, MapFlags::ANY)?;
-        }
-
-        // add the downstream socket to the wait list
-        let key = wait_list_key::try_from(&self.address)?;
-        let key = unsafe { key.as_bytes() };
-
-        let req_fids = upstream_sockets.iter()
-            .map(|(_, _, _, req_fid, _)| *req_fid as u32)
-            .collect::<Vec<_>>();
-        let sock_keys = upstream_sockets.iter()
-            .map(|(_, _, sock_key, _, _)| *sock_key)
-            .collect::<Vec<_>>();
-        
-        let val = wait_list_val::new(
-            downstream_sock_key, 
-            req_fids,
-            sock_keys
-        )?;
-        let val = unsafe { val.as_bytes() };
-
-        sock_wait_list.update(&key, &val, MapFlags::ANY)?;
-
-        // we first connect upstream to avoid the race condition
-        // where the downstream wants to route to upstream, but upstream hasn't connected yet
-        for (socket, peer_addr, _, _, _) in upstream_sockets.into_iter() {
-            let peer_addr = socket2::SockAddr::from(peer_addr);
-            socket.connect(&peer_addr)?;
-            let upstream = TcpStream::from(socket);
-
-            self.upstreams.push(upstream);
-        }
-
-        // this will block until a connection is established
-        let (downstream, downstream_addr) = listener.accept()?;
+        let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        self.downstreams.push(downstream);
+        self.handle_downstream(downstream).await?;
+
+        Ok(())
+    }
+
+    async fn handle_downstream(&mut self, mut downstream: TcpStream) -> Result<()> {
+        let dkey = sock_key::try_from((&downstream.peer_addr()?, &self.address))?;
+        let dkey = unsafe { dkey.as_bytes() };
+        let sock_id = self.get_new_sock_id();
+        let wait_list = &self.skel.as_ref().unwrap().maps.forward_wait_list;
+        let forward_map = &self.skel.as_ref().unwrap().maps.forward_map;
+
+        loop {
+            // wait until the downstream connection is readable
+            if downstream.readable().await.is_err() {
+                continue;
+            }
+
+            // if it is, it means that the proxy needs userspace to open a new connection
+            let val = wait_list.lookup_and_delete(&dkey)
+                .expect("Key not found");
+
+            if let Some(val) = val {
+                let (head, body, _tail) = unsafe {
+                    val.align_to::<forwarding_decision>()
+                };
+                if !head.is_empty() || body.len() != 1 {
+                    bail!("Invalid value size");
+                }
+
+                let fd = body[0];
+                debug!("Downstream connection requests new connection: {:?}", fd);
+
+                let upstream_addr = if fd.backend == 1 {
+                    "127.0.0.1:8001"
+                }
+                else {
+                    "127.0.0.1:8002"
+                };
+
+                self.add_socket_to_wait_list(&upstream_addr, sock_id)?;
+                let sock_id = sock_id.to_ne_bytes();
+                wait_list.update(dkey, val.as_slice(), MapFlags::ANY)?;
+                forward_map.update(val.as_slice(), &sock_id, MapFlags::ANY)?;
+
+                let mut upstream = TcpStream::connect(upstream_addr).await?;
+                copy(&mut downstream, &mut upstream).await?;
+
+                self.upstreams.push(upstream);
+            }
+
+            break;
+        }
+
+        Ok(())
+    }
+
+    fn get_new_sock_id(&mut self) -> u32 {
+        let id = self.sock_id;
+        self.sock_id += 1;
+        id
+    }
+
+    fn add_socket_to_wait_list<A: ToSocketAddrs>(&self, addr: A, sock_id: u32) -> Result<()> {
+        let addr = addr.to_socket_addrs()?
+            .next()
+            .expect("Failed to resolve address");
+
+        let val = sock_id.to_ne_bytes();
+        let wait_list = &self.skel.as_ref().unwrap().maps.sock_wait_list;
+        let akey = addr_key {
+            ip4: addr.try_into_ne_octets()?,
+            port: addr.port() as u32,
+        };
+        let akey = unsafe { akey.as_bytes() };
+
+        debug!("Adding socket to wait list: {:?}", addr);
+
+        wait_list.update(akey, &val, MapFlags::ANY)?;
 
         Ok(())
     }

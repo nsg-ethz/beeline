@@ -28,12 +28,6 @@ char LICENSE[] SEC("license") = "GPL";
 #define MAX_MATCH_MASK 15
 #define MAX_MOD_LEN 0xFF
 
-enum pr_action {
-	PR_DROP = 0,
-	PR_PASS,
-    PR_USPA
-};
-
 struct addr_key {
     __u32 ip4;
     __u32 port;
@@ -42,39 +36,6 @@ struct addr_key {
 struct sock_key {
     struct addr_key local;
     struct addr_key remote;
-};
-
-struct wait_list_key {
-    __u32 ip4;
-    __u32 port;
-};
-
-struct wait_list_val {
-    __u32 sock_key; 
-
-    __u32 num_routes;
-    __u32 route_fid[MAX_MATCHES]; // this could be u8, but that makes it difficult to manage from userspace
-    __u32 route_sock_key[MAX_MATCHES];
-};
-
-struct req_route_key {
-    __u32 local_ip4;
-    __u32 local_port;
-    __u32 remote_ip4;
-    __u32 remote_port;
-    __u32 fid; 
-};
-
-struct res_route_key {
-    __u32 local_ip4;
-    __u32 local_port;
-    __u32 remote_ip4;
-    __u32 remote_port;
-};
-
-struct res_route_val {
-    __u32 sock_key;
-    __u32 fid;
 };
 
 struct prange {
@@ -91,16 +52,16 @@ struct modification {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
-    __type(key, struct req_route_key);
-    __type(value, __u32);
-} req_route_map SEC(".maps");
+    __type(key, struct sock_key);
+    __type(value, struct forwarding_decision);
+} forward_wait_list SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
-    __type(key, struct res_route_key);
-    __type(value, struct res_route_val);
-} res_route_map SEC(".maps");
+    __type(key, struct forwarding_decision);
+    __type(value, __u32);
+} forward_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
@@ -112,8 +73,8 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
-    __type(key, struct wait_list_key);
-    __type(value, struct wait_list_val);
+    __type(key, struct addr_key);
+    __type(value, u32);
 } sock_wait_list SEC(".maps");
 
 const __u32 a_mask = 0xFFFF0000;
@@ -147,10 +108,25 @@ bool pmatches[MAX_MATCHES] = { 0 };
 struct parse_res {
     char backend[4096];
     __u32 backend_len;
-
     __u32 content_length;
+} pres;
+
+enum fd_direction {
+    PR_DOWNSTREAM = 1,
+    PR_UPSTREAM
 };
-struct parse_res pres = { 0 };
+
+enum fd_backend {
+    PR_SERVER1 = 1,
+    PR_SERVER2
+};
+
+struct forwarding_decision {
+    __u8 direction;
+    __u8 backend;
+    __u8 num_bytes_min;
+    struct sock_key socket;
+};
 
 // ----------------------------------------------
 // user provided
@@ -225,52 +201,44 @@ int update_us_state(const struct sock_key *ukey, const struct parse_res *res, st
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 100);
-    __type(key, __u32);
+    __uint(max_entries, 8192);
+    __type(key, struct sock_key);
     __type(value, struct sock_key);
-} us2ds_routes SEC(".maps");
+} us2ds_conns SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 100);
-    __type(key, __u32);
-    __type(value, struct sock_key);
-} ds2us_routes SEC(".maps");
-
-int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *state, const struct parse_res *res, struct sock_key *ukey) {
-    if (dkey == NULL || state == NULL || res == NULL) {
-        return PR_DROP;
+int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *state, const struct parse_res *res, struct forwarding_decision *fd) {
+    if (dkey == NULL || state == NULL || res == NULL || fd == NULL) {
+        return SK_DROP;
     }
 
     // rate limit connection if it's sent a request less than 1ms ago
     __u64 req_interval = state->this_req_ts - state->last_req_ts;
     bpf_log("Request interval: %llu", req_interval);
-    if (state->last_req_ts < 10000000) {
-        return PR_DROP;
+    if (req_interval < 10000000) {
+        return SK_DROP;
     }
 
     const char *server1 = "server1";
     bool backend_is_server1 = bpf_strncmp(res->backend, 7, server1) == 0;
-    if (backend_is_server1) {
-        __u32 key = 0;
-        ukey = bpf_map_lookup_elem(&ds2us_routes, &key);
-        return PR_PASS;
-    }
-    
     const char *server2 = "server2";
     bool backend_is_server2 = bpf_strncmp(res->backend, 7, server2) == 0;
-    if (backend_is_server2) {
-        __u32 key = 1;
-        ukey = bpf_map_lookup_elem(&ds2us_routes, &key);
-        return PR_PASS;
+    if (!backend_is_server1 && !backend_is_server2) {
+        return SK_DROP;
     }
+
+    fd->direction = PR_UPSTREAM;
+    fd->backend = backend_is_server1 ? PR_SERVER1 : PR_SERVER2;
+    fd->num_bytes_min = true;
     
-    return PR_USPA;
+    return SK_PASS;
 }
 
-int forward_us_conn(const struct sock_key *ukey, const struct us_conn_state *state, const struct parse_res *res, struct sock_key *dkey) {
-    dkey = bpf_map_lookup_elem(&ds2us_routes, ukey);
-    return PR_PASS;
+int forward_us_conn(const struct sock_key *ukey, const struct us_conn_state *state, const struct parse_res *res, struct forwarding_decision *fd) {
+    fd->direction = PR_DOWNSTREAM;
+    fd->backend = 0;
+    // fd->socket = 
+
+    return SK_PASS;
 }
 
 // ----------------------------------------------
@@ -449,69 +417,8 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct prange *r
     return 0;
 }
 
-static __always_inline int _try_redirect_req(struct sk_msg_md *msg, __u8 fid) {
-    struct req_route_key rkey = { 
-        .local_ip4 = msg->local_ip4,
-        .local_port = msg->local_port,
-        .remote_ip4 = msg->remote_ip4,
-        .remote_port = bpf_ntohl(msg->remote_port),
-        .fid = fid
-    };
-
-    __u32 *skey = bpf_map_lookup_elem(&req_route_map, &rkey);
-    if (skey == NULL) {
-        bpf_err("ERROR: No req route found for [%pI4:%u->%pI4:%u|%u]", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid);
-        return SK_PASS;
-    }
-
-    int r = bpf_msg_redirect_hash(msg, &sock_map, skey, BPF_F_INGRESS);
-    if (r == SK_DROP) {
-        bpf_err("ERROR: Redirect failed");
-    }
-    else {
-        bpf_log("Redirecting req [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid, *skey);
-    }
-
-    return r;
-}
-
-static __always_inline int _try_redirect_res(struct sk_msg_md *msg, __u8 *fid) {
-    struct res_route_key rkey = { 
-        .local_ip4 = msg->local_ip4,
-        .local_port = msg->local_port,
-        .remote_ip4 = msg->remote_ip4,
-        .remote_port = bpf_ntohl(msg->remote_port),
-    };
-
-    struct res_route_val *rval = bpf_map_lookup_elem(&res_route_map, &rkey);
-    if (rval == NULL) {
-        bpf_err("ERROR: No res route found for [%pI4:%u->%pI4:%u]", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port);
-        return SK_PASS;
-    }
-
-    int r = bpf_msg_redirect_hash(msg, &sock_map, &rval->sock_key, BPF_F_INGRESS);
-    if (r == SK_DROP) {
-        bpf_err("ERROR: Redirect failed");
-    }
-    else {
-        *fid = rval->fid;
-        bpf_log("Redirecting res [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rval->fid, rval->sock_key);
-    }
-
-    return r;
-}
-
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
-    __u8 fid = 0;
-    int r = SK_PASS;
-    bool downstream = msg->remote_ip4 == ip4 && bpf_ntohl(msg->remote_port) == port;
-    bpf_log("Processing %dB msg (downstream: %d)", msg->size, downstream);
-
-    if (_parse(msg) < 0) return r;
-
-    _init_parse_res(msg);
-
     // socket identifeir of the ingress connection
     struct sock_key ikey = {
         .local = {
@@ -524,28 +431,65 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
     };
 
-    struct sock_key ekey = { 0 };
-    if (downstream) {
-        struct ds_conn_state state = { 0 };
-        if (update_ds_state(&ikey, &pres, &state) < 0) {
-            bpf_err("ERROR: Updating downstream connection state failed.");
-        }
-        
-        enum pr_action act = forward_ds_conn(&ikey, &state, &pres, &ekey);
-        if (act != PR_PASS) {
-            return act;
-        }
-    }
-    else {
-        struct us_conn_state state = { 0 };
-        if (update_us_state(&ikey, &pres, &state) < 0) {
-            bpf_err("ERROR: Updating upstream connection state failed.");
+    __u8 fid = 0;
+    enum sk_action act = SK_PASS;
+    bool downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
+    bool retry = (ikey.local.ip4 == ip4 && ikey.local.port != port) && !downstream;
+    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u]", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+
+    struct forwarding_decision fd = { 0 };
+    if (retry) {
+        struct forwarding_decision *fd_cached = bpf_map_lookup_elem(&forward_wait_list, &ikey);
+        if (fd_cached == NULL) {
+            bpf_err("ERROR: Failed to find forwarding decision for retry");
+            return SK_DROP;
         }
 
-        enum pr_action act = forward_us_conn(&ikey, &state, &pres, &ekey);
-        if (act != PR_PASS) {
-            return act;
+        fd = *fd_cached;
+    }
+    else {
+        if (_parse(msg) < 0) return act;
+        _init_parse_res(msg);
+
+        if (downstream) {
+            struct ds_conn_state state = { 0 };
+            if (update_ds_state(&ikey, &pres, &state) < 0) {
+                bpf_err("ERROR: Updating downstream connection state failed.");
+            }
+            
+            act = forward_ds_conn(&ikey, &state, &pres, &fd);
         }
+        else {
+            struct us_conn_state state = { 0 };
+            if (update_us_state(&ikey, &pres, &state) < 0) {
+                bpf_err("ERROR: Updating upstream connection state failed.");
+            }
+
+            act = forward_us_conn(&ikey, &state, &pres, &fd);
+        }
+        if (act == SK_DROP) return act;
+    }
+
+    __u32 *ekey = bpf_map_lookup_elem(&forward_map, &fd);
+    if (ekey == NULL) {
+        if (retry) {
+            bpf_err("ERROR: Failed to find socket for retry");
+            return SK_DROP;
+        }
+        
+        bpf_log("Add forwarding decision to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        if (bpf_map_update_elem(&forward_wait_list, &ikey, &fd, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add forwarding decision to wait list");
+        }
+        return SK_PASS;
+    }
+
+    act = bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS);
+    if (act == SK_DROP) {
+        bpf_err("ERROR: Redirect failed");
+    }
+    else {
+        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket %d", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, *ekey);
     }
 
     // we have a match, apply the filter's actions
@@ -592,81 +536,28 @@ int msg_verdict(struct sk_msg_md *msg) {
     //     }
     // }
 
-    return r;
-}
-
-static __always_inline int _add_routes(struct bpf_sock_ops *ops, struct wait_list_val *wval) {
-    for (int i = 0; i < MAX_MATCHES; i++) {
-        if (i == wval->num_routes) break;
-
-        // if it's downstream, add the route to req_route_map, otherwise to res_route_map
-        bool downstream = ops->remote_ip4 == ip4 && bpf_ntohl(ops->remote_port) == port;
-        if (downstream) {
-            struct req_route_key rkey = {
-                .local_ip4 = ops->local_ip4,
-                .local_port = ops->local_port,
-                .remote_ip4 = ops->remote_ip4,
-                .remote_port = bpf_ntohl(ops->remote_port),
-                .fid = wval->route_fid[i]
-            };
-
-            if (bpf_map_update_elem(&req_route_map, &rkey, &wval->route_sock_key[i], BPF_ANY) < 0) {
-                bpf_err("ERROR: Failed to add req route [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid, wval->route_sock_key[i]);
-                return -1;
-            }
-
-            bpf_log("Add req route [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rkey.fid, wval->route_sock_key[i]);
-        }
-        else {
-            struct res_route_key rkey = {
-                .local_ip4 = ops->local_ip4,
-                .local_port = ops->local_port,
-                .remote_ip4 = ops->remote_ip4,
-                .remote_port = bpf_ntohl(ops->remote_port),
-            };
-
-            struct res_route_val rval = {
-                .sock_key = wval->route_sock_key[i],
-                .fid = wval->route_fid[i]
-            };
-
-            if (bpf_map_update_elem(&res_route_map, &rkey, &rval, BPF_ANY) < 0) {
-                bpf_err("ERROR: Failed to add res route [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rval.fid, wval->route_sock_key[i]);
-                return -1;
-            }
-
-            bpf_log("Add res route [%pI4:%u->%pI4:%u|%u] to socket %d", &rkey.local_ip4, rkey.local_port, &rkey.remote_ip4, rkey.remote_port, rval.fid, wval->route_sock_key[i]);
-        }
-    }
-
-    return 0;
+    return act;
 }
 
 SEC("sockops")
 int monitor_sockets(struct bpf_sock_ops *ops) {
     // check if this socket is either side of a route that waits for its sockets
     if (ops->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ops->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
-        __u32 local_ip4 = ops->local_ip4;
+        __u32 local_ip = ops->local_ip4;
         __u32 local_port = ops->local_port;
-        __u32 remote_ip4 = ops->remote_ip4;
-        __u32 remote_port = bpf_ntohl(ops->remote_port);
-
-        struct wait_list_key wkey = { 
-            .ip4 = remote_ip4,
-            .port = remote_port
+        struct addr_key akey = {
+            .ip4 = ops->remote_ip4,
+            .port = bpf_ntohl(ops->remote_port)
         };
-        struct wait_list_val *val = bpf_map_lookup_elem(&sock_wait_list, &wkey);
 
-        if (val != NULL) {
-            _add_routes(ops, val);
-
-            if (bpf_sock_hash_update(ops, &sock_map, &val->sock_key, BPF_ANY) < 0) {
-                bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &local_ip4, local_port, &remote_ip4, remote_port);
+        __u32 *sock_id = bpf_map_lookup_elem(&sock_wait_list, &akey);
+        if (sock_id != NULL) {
+            if (bpf_sock_hash_update(ops, &sock_map, sock_id, BPF_ANY) < 0) {
+                bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &local_ip, local_port, &akey.ip4, akey.port);
                 return SK_PASS;
             }
 
-            bpf_log("Add socket [%pI4:%u->%pI4:%u] with key %d", &local_ip4, local_port, &remote_ip4, remote_port, val->sock_key);
-            bpf_map_delete_elem(&sock_wait_list, &wkey);
+            bpf_log("Add socket [%pI4:%u->%pI4:%u]", &local_ip, local_port, &akey.ip4, akey.port);
         }
     }
 
