@@ -9,42 +9,29 @@ pub struct Config {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Spec {
-    pub http: Vec<Filter>,
+    #[serde(alias = "parse")]
+    pub patterns: Patterns,
+
+    #[serde(alias = "forward")]
+    pub routes: Vec<Route>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-pub struct Filter {
-    #[serde(alias = "match")]
-    pub patterns: HashMap<String, String>,
-
-    // actions
-    #[serde(alias = "headers")]
-    pub mods: Option<Headers>,
-    pub route: Vec<Route>,
+pub struct Patterns {
+    pub http: HashMap<String, String>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-pub struct Headers {
-    pub request: Option<HeaderModifications>,
-    pub response: Option<HeaderModifications>,
-}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-pub struct HeaderModifications {
-    pub add: Option<HashMap<String, String>>,
-    pub remove: Option<Vec<String>>,
-    pub set: Option<HashMap<String, String>>,
+pub struct Route {
+    pub predicates: HashMap<String, String>,
+    pub destination: Destination
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Host {
     pub name: String,
     pub address: String,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-pub struct Route {
-    pub destination: Destination
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]

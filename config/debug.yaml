@@ -4,38 +4,18 @@ hosts:
 - name: server2
   address: 127.0.0.1
 spec:   
-  http:
-    # parse:
-    # - match:
-    #     backend: server1
-    #     backend: server2
-    #   extract:
-    #     content-length: u32
-  - match:
-      backend: server1
-    headers:
-      request:
-        add:
-          source: ebpf
-      response:
-        add:
-          test: performance
-        remove:
-          - date
-          - develop
-    route:
-    - destination:
+  parse:
+    http:
+      backend: str,
+      content-length: u32
+  forward:
+    - predicates:
+        backend: 1
+      destination:
         host: server1
-        port: 8000
-  - match:
-      backend: server2
-    headers:
-      response:
-        add:
-          test: performance
-        remove:
-          - asdf
-    route:
-    - destination:
+        port: 8001
+    - predicates:
+        backend: 2
+      destination:
         host: server2
-        port: 8000
+        port: 8002

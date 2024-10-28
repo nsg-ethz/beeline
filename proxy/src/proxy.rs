@@ -130,12 +130,32 @@ fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_ad
     Ok(())
 }
 
-fn add_forwarding_rule<M: MapCore>(map: &M, fd: forwarding_decision, sock_id: u32) -> Result<()> {
-    let fd = unsafe { fd.as_bytes() };
-    let sock_id = sock_id.to_ne_bytes();
-    map.update(fd, &sock_id, MapFlags::ANY)?;
+fn get_configured_dest_addr(config: &Config, fd: &forwarding_decision) -> Result<SocketAddr> {
+    if fd.direction != 2 {
+        bail!("Invalid direction");
+    }
 
-    Ok(())
+    let dest = config.spec.routes.iter()
+        .find(|route| {
+            if let Some(backend) = route.predicates.get("backend").and_then(|b| b.parse::<u8>().ok()) {
+                if backend != fd.backend {
+                    return false;
+                }
+            }
+
+            true
+        })
+        .map(|r| &r.destination)
+        .expect("No matching route found");
+
+    let host = config.hosts.iter()
+        .find(|h| h.name == dest.host)
+        .expect(format!("Host not found: {}", dest.host).as_str());
+
+    let addr = format!("{}:{}", host.address, dest.port);
+    let addr = SocketAddr::from_str(&addr)?;
+
+    Ok(addr)
 }
 
 pub struct Proxy<'obj> {
@@ -245,6 +265,7 @@ impl<'obj> Proxy<'obj> {
         let forward_wait_list = self.get_forward_wait_list()?;
         let forward_map = self.get_forward_map()?;
         let sock_wait_list = self.get_sock_wait_list()?;
+        let config = self.config.clone();
 
         tokio::spawn(async move {
             let dkey = sock_key::try_from((&downstream.peer_addr()?, &addr))?;
@@ -273,13 +294,7 @@ impl<'obj> Proxy<'obj> {
 
                     let fd = body[0];
 
-                    let us_remote_addr = if fd.backend == 1 {
-                        "127.0.0.1:8001"
-                    }
-                    else {
-                        "127.0.0.1:8002"
-                    };
-                    let us_remote_addr = SocketAddr::from_str(&us_remote_addr)?;
+                    let us_remote_addr = get_configured_dest_addr(&config, &fd)?;
                     let us_local_addr = upstream_sock.local_addr()?;
 
                     add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd)?;
@@ -346,16 +361,6 @@ impl<'obj> Proxy<'obj> {
                 break Ok(socket);
             }
         }
-    }
-
-    fn get_socket_addr_for_dest(&self, dest: &Destination) -> SocketAddr {
-        let host = self.config.hosts.iter()
-            .find(|h| h.name == dest.host)
-            .expect(format!("Host not found: {}", dest.host).as_str());
-
-        let addr = format!("{}:{}", host.address, dest.port);
-        addr.parse()
-            .expect(format!("Invalid address: {}", addr).as_str())
     }
 
 }
