@@ -40,7 +40,6 @@ async fn main() -> Result<()> {
     let config: Config = serde_yaml::from_reader(config)?;
 
     let mut open_obj = MaybeUninit::uninit();
-    let mut proxy = Proxy::new(&args.address, config)?;
-    proxy.attach(&mut open_obj)?;
+    let mut proxy = Proxy::attach(&args.address, config, &mut open_obj)?;
     proxy.listen().await
 }

@@ -5,10 +5,10 @@ use crate::{
     config::{Config, Destination},
     parse::{http::HttpParser, Action}
 };
-use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags};
-use log::{debug, info, log_enabled};
+use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
+use log::{debug, info, error, log_enabled};
 use std::{mem::MaybeUninit, net::{IpAddr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr};
-use tokio::{io::copy, net::{TcpListener, TcpSocket, TcpStream}};
+use tokio::{io::{self, copy}, net::{TcpListener, TcpSocket, TcpStream}};
 
 mod bpf {
     include!(concat!(
@@ -95,33 +95,43 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
+fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: A, sock_id: u32) -> Result<()> {
+    let addr = addr.to_socket_addrs()?
+        .next()
+        .expect("Failed to resolve address");
+
+    let val = sock_id.to_ne_bytes();
+    let akey = addr_key {
+        ip4: addr.try_into_ne_octets()?,
+        port: addr.port() as u32,
+    };
+    let akey = unsafe { akey.as_bytes() };
+
+    debug!("Adding socket to wait list: {:?}", addr);
+
+    map.update(akey, &val, MapFlags::ANY)?;
+
+    Ok(())
+}
+
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub config: Config,
     sock_id: u32,
-    skel: Option<ProxySkel<'obj>>,
-    sockops: Option<Link>,
+    skel: ProxySkel<'obj>,
+
+    #[allow(dead_code)]
+    sockops: Link,
     upstreams: Vec<TcpStream>,
 }
 
 impl<'obj> Proxy<'obj> {
 
-    pub fn new<A: ToSocketAddrs>(address: A, config: Config) -> Result<Self> {
+    pub fn attach<A: ToSocketAddrs>(address: A, config: Config, open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>) -> Result<Self> {
         let address = address.to_socket_addrs()?
             .next()
             .expect("Failed to resolve address");
 
-        Ok(Self {
-            address,
-            config,
-            sock_id: 0,
-            skel: None,
-            sockops: None,
-            upstreams: Vec::new(),
-        })
-    }
-
-    pub fn attach(&mut self, open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>) -> Result<()> {
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
         if log_enabled!(log::Level::Debug) {
@@ -138,13 +148,13 @@ impl<'obj> Proxy<'obj> {
 
         inject_parser(parser, &mut open_skel)?;
 
-        if let IpAddr::V4(ip) = self.address.ip() {
+        if let IpAddr::V4(ip) = address.ip() {
             open_skel.maps.rodata_data.ip4 = u32::from_ne_bytes(ip.octets());
         }
         else {
             bail!("IPv6 is not supported");
         }
-        open_skel.maps.rodata_data.port = self.address.port() as u32;
+        open_skel.maps.rodata_data.port = address.port() as u32;
 
         let skel = open_skel.load()?;
 
@@ -166,11 +176,16 @@ impl<'obj> Proxy<'obj> {
         skel.progs
             .msg_verdict
             .attach_sockmap(sock_map_fd)?;
+    
 
-        self.sockops = Some(sockops);
-        self.skel = Some(skel);
-
-        Ok(())
+        Ok(Self {
+            address,
+            config,
+            sock_id: 0,
+            skel: skel,
+            sockops: sockops,
+            upstreams: Vec::new(),
+        })
     }
 
     pub async fn listen(&mut self) -> Result<()> {
@@ -184,115 +199,116 @@ impl<'obj> Proxy<'obj> {
     }
 
     async fn accept(&mut self, listener: &TcpListener) -> Result<()> {
-        if self.skel.is_none() {
-            bail!("eBPF program has not been attached");
-        }
-
         let sock_id = self.get_new_sock_id();
-        self.add_socket_to_wait_list(&self.address, sock_id)?;
+        let sock_wait_list = self.get_sock_wait_list()?;
+        add_socket_to_wait_list(&sock_wait_list, &self.address, sock_id)?;
 
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        self.handle_downstream(downstream, sock_id).await?;
+        if let Err(e) = self.handle_downstream(downstream, sock_id).await {
+            error!("Error handling downstream connection: {:?}", e);
+        }
 
         Ok(())
     }
 
     async fn handle_downstream(&mut self, mut downstream: TcpStream, sock_id: u32) -> Result<()> {
-        let dkey = sock_key::try_from((&downstream.peer_addr()?, &self.address))?;
-        let dkey = unsafe { dkey.as_bytes() };
+        let addr = self.address.clone();
         let sock_id_wr = self.get_new_sock_id();
         let sock_id_rd = self.get_new_sock_id();
         let upstream_sock = self.get_new_local_socket()?;
-        let wait_list = &self.skel.as_ref().unwrap().maps.forward_wait_list;
-        let forward_map = &self.skel.as_ref().unwrap().maps.forward_map;
+        let forward_wait_list = self.get_forward_wait_list()?;
+        let forward_map = self.get_forward_map()?;
+        let sock_wait_list = self.get_sock_wait_list()?;
 
-        loop {
-            // wait until the downstream connection is readable
-            if downstream.readable().await.is_err() {
-                continue;
-            }
+        tokio::spawn(async move {
+            let dkey = sock_key::try_from((&downstream.peer_addr()?, &addr))?;
+            let dkey = unsafe { dkey.as_bytes() };
+            let mut upstreams = Vec::new();
 
-            // if it is, it means that the proxy needs userspace to open a new connection
-            let val = wait_list.lookup_and_delete(&dkey)
-                .expect("Key not found");
-
-            if let Some(val) = val {
-                let (head, body, _tail) = unsafe {
-                    val.align_to::<forwarding_decision>()
-                };
-                if !head.is_empty() || body.len() != 1 {
-                    bail!("Invalid value size");
+            loop {
+                // wait until the downstream connection is readable
+                match downstream.readable().await {
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    Err(e) => bail!(e),
+                    Ok(()) => {}
                 }
 
-                let fd = body[0];
-                debug!("Downstream connection requests new connection: {:?}", fd);
+                // if it is, it means that the proxy needs userspace to open a new connection
+                let val = forward_wait_list.lookup_and_delete(&dkey)
+                    .expect("Key not found");
 
-                let upstream_addr = if fd.backend == 1 {
-                    "127.0.0.1:8001"
+                if let Some(val) = val {
+                    let (head, body, _tail) = unsafe {
+                        val.align_to::<forwarding_decision>()
+                    };
+                    if !head.is_empty() || body.len() != 1 {
+                        bail!("Invalid value size");
+                    }
+
+                    let fd = body[0];
+
+                    let upstream_addr = if fd.backend == 1 {
+                        "127.0.0.1:8001"
+                    }
+                    else {
+                        "127.0.0.1:8002"
+                    };
+                    let upstream_addr = SocketAddr::from_str(&upstream_addr)?;
+
+                    let ukey_wr = sock_key::try_from((&upstream_sock.local_addr()?, &upstream_addr))?;
+                    let ukey_wr = unsafe { ukey_wr.as_bytes() };
+                    forward_wait_list.update(ukey_wr, val.as_slice(), MapFlags::ANY)?;
+
+                    add_socket_to_wait_list(&sock_wait_list, &upstream_sock.local_addr()?, sock_id_wr)?;
+                    let sock_id_wr = sock_id_wr.to_ne_bytes();
+                    forward_map.update(val.as_slice(), &sock_id_wr, MapFlags::ANY)?;
+
+                    add_socket_to_wait_list(&sock_wait_list, &upstream_addr, sock_id_rd)?;
+
+                    let ukey_rd = sock_key::try_from((&upstream_addr, &upstream_sock.local_addr()?))?;
+                    let fd = forwarding_decision {
+                        direction: 1,
+                        origin: ukey_rd,
+                        ..forwarding_decision::default()
+                    };
+                    let fd = unsafe { fd.as_bytes() };
+                    let sock_id = sock_id.to_ne_bytes();
+                    forward_map.update(fd, &sock_id, MapFlags::ANY)?;
+
+                    let mut upstream = upstream_sock.connect(upstream_addr).await?;
+                    copy(&mut downstream, &mut upstream).await?;
+
+                    upstreams.push(upstream);
                 }
-                else {
-                    "127.0.0.1:8002"
-                };
-                let upstream_addr = SocketAddr::from_str(&upstream_addr)?;
 
-                let ukey_wr = sock_key::try_from((&upstream_sock.local_addr()?, &upstream_addr))?;
-                let ukey_wr = unsafe { ukey_wr.as_bytes() };
-                wait_list.update(ukey_wr, val.as_slice(), MapFlags::ANY)?;
-
-                self.add_socket_to_wait_list(&upstream_sock.local_addr()?, sock_id_wr)?;
-                let sock_id_wr = sock_id_wr.to_ne_bytes();
-                forward_map.update(val.as_slice(), &sock_id_wr, MapFlags::ANY)?;
-
-                self.add_socket_to_wait_list(&upstream_addr, sock_id_rd)?;
-
-                let ukey_rd = sock_key::try_from((&upstream_addr, &upstream_sock.local_addr()?))?;
-                let fd = forwarding_decision {
-                    direction: 1,
-                    origin: ukey_rd,
-                    ..forwarding_decision::default()
-                };
-                let fd = unsafe { fd.as_bytes() };
-                let sock_id = sock_id.to_ne_bytes();
-                forward_map.update(fd, &sock_id, MapFlags::ANY)?;
-
-                let mut upstream = upstream_sock.connect(upstream_addr).await?;
-                copy(&mut downstream, &mut upstream).await?;
-
-                self.upstreams.push(upstream);
-            }
-
-            break;
-        }
+                break Ok(());
+            }     
+        });
 
         Ok(())
+    }
+
+    fn get_sock_wait_list(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.sock_wait_list.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_forward_map(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.forward_map.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_forward_wait_list(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.forward_wait_list.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
     }
 
     fn get_new_sock_id(&mut self) -> u32 {
         let id = self.sock_id;
         self.sock_id += 1;
         id
-    }
-
-    fn add_socket_to_wait_list<A: ToSocketAddrs>(&self, addr: A, sock_id: u32) -> Result<()> {
-        let addr = addr.to_socket_addrs()?
-            .next()
-            .expect("Failed to resolve address");
-
-        let val = sock_id.to_ne_bytes();
-        let wait_list = &self.skel.as_ref().unwrap().maps.sock_wait_list;
-        let akey = addr_key {
-            ip4: addr.try_into_ne_octets()?,
-            port: addr.port() as u32,
-        };
-        let akey = unsafe { akey.as_bytes() };
-
-        debug!("Adding socket to wait list: {:?}", addr);
-
-        wait_list.update(akey, &val, MapFlags::ANY)?;
-
-        Ok(())
     }
 
     fn get_new_local_socket(&mut self) -> Result<TcpSocket> {
