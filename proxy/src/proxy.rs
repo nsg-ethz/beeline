@@ -95,7 +95,7 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: A, sock_id: u32) -> Result<()> {
+fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, sock_id: u32) -> Result<()> {
     let addr = addr.to_socket_addrs()?
         .next()
         .expect("Failed to resolve address");
@@ -107,9 +107,33 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: A, sock_
     };
     let akey = unsafe { akey.as_bytes() };
 
-    debug!("Adding socket to wait list: {:?}", addr);
-
     map.update(akey, &val, MapFlags::ANY)?;
+
+    Ok(())
+}
+
+fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_addr: &A, remote_addr: &A, fd: forwarding_decision) -> Result<()> {
+    let local_addr = local_addr.to_socket_addrs()?
+        .next()
+        .expect("Failed to resolve local address");
+
+    let remote_addr = remote_addr.to_socket_addrs()?
+        .next()
+        .expect("Failed to resolve local address");
+
+    let skey = sock_key::try_from((&local_addr, &remote_addr))?;
+    let skey = unsafe { skey.as_bytes() };
+    let fd = unsafe { fd.as_bytes() };
+
+    map.update(skey, fd, MapFlags::ANY)?;
+
+    Ok(())
+}
+
+fn add_forwarding_rule<M: MapCore>(map: &M, fd: forwarding_decision, sock_id: u32) -> Result<()> {
+    let fd = unsafe { fd.as_bytes() };
+    let sock_id = sock_id.to_ne_bytes();
+    map.update(fd, &sock_id, MapFlags::ANY)?;
 
     Ok(())
 }
@@ -249,25 +273,23 @@ impl<'obj> Proxy<'obj> {
 
                     let fd = body[0];
 
-                    let upstream_addr = if fd.backend == 1 {
+                    let us_remote_addr = if fd.backend == 1 {
                         "127.0.0.1:8001"
                     }
                     else {
                         "127.0.0.1:8002"
                     };
-                    let upstream_addr = SocketAddr::from_str(&upstream_addr)?;
+                    let us_remote_addr = SocketAddr::from_str(&us_remote_addr)?;
+                    let us_local_addr = upstream_sock.local_addr()?;
 
-                    let ukey_wr = sock_key::try_from((&upstream_sock.local_addr()?, &upstream_addr))?;
-                    let ukey_wr = unsafe { ukey_wr.as_bytes() };
-                    forward_wait_list.update(ukey_wr, val.as_slice(), MapFlags::ANY)?;
-
-                    add_socket_to_wait_list(&sock_wait_list, &upstream_sock.local_addr()?, sock_id_wr)?;
+                    add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd)?;
+                    add_socket_to_wait_list(&sock_wait_list, &us_local_addr, sock_id_wr)?;
                     let sock_id_wr = sock_id_wr.to_ne_bytes();
                     forward_map.update(val.as_slice(), &sock_id_wr, MapFlags::ANY)?;
 
-                    add_socket_to_wait_list(&sock_wait_list, &upstream_addr, sock_id_rd)?;
+                    add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, sock_id_rd)?;
 
-                    let ukey_rd = sock_key::try_from((&upstream_addr, &upstream_sock.local_addr()?))?;
+                    let ukey_rd = sock_key::try_from((&us_remote_addr, &us_local_addr))?;
                     let fd = forwarding_decision {
                         direction: 1,
                         origin: ukey_rd,
@@ -277,7 +299,7 @@ impl<'obj> Proxy<'obj> {
                     let sock_id = sock_id.to_ne_bytes();
                     forward_map.update(fd, &sock_id, MapFlags::ANY)?;
 
-                    let mut upstream = upstream_sock.connect(upstream_addr).await?;
+                    let mut upstream = upstream_sock.connect(us_remote_addr).await?;
                     copy(&mut downstream, &mut upstream).await?;
 
                     upstreams.push(upstream);
