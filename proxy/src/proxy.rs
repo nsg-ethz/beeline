@@ -5,10 +5,10 @@ use crate::{
     config::{Config, Destination},
     parse::{http::HttpParser, Action}
 };
-use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapImpl, MapMut};
+use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags};
 use log::{debug, info, log_enabled};
-use std::{mem::MaybeUninit, net::{IpAddr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, sync::Arc};
-use tokio::{io::copy, net::{TcpListener, TcpStream}};
+use std::{mem::MaybeUninit, net::{IpAddr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr};
+use tokio::{io::copy, net::{TcpListener, TcpSocket, TcpStream}};
 
 mod bpf {
     include!(concat!(
@@ -179,8 +179,6 @@ impl<'obj> Proxy<'obj> {
 
         let listener = TcpListener::bind(&addr).await?;
         loop {
-            let sock_id = self.get_new_sock_id();
-            self.add_socket_to_wait_list(&addr, sock_id)?;
             self.accept(&listener).await?;
         }
     }
@@ -190,18 +188,23 @@ impl<'obj> Proxy<'obj> {
             bail!("eBPF program has not been attached");
         }
 
+        let sock_id = self.get_new_sock_id();
+        self.add_socket_to_wait_list(&self.address, sock_id)?;
+
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        self.handle_downstream(downstream).await?;
+        self.handle_downstream(downstream, sock_id).await?;
 
         Ok(())
     }
 
-    async fn handle_downstream(&mut self, mut downstream: TcpStream) -> Result<()> {
+    async fn handle_downstream(&mut self, mut downstream: TcpStream, sock_id: u32) -> Result<()> {
         let dkey = sock_key::try_from((&downstream.peer_addr()?, &self.address))?;
         let dkey = unsafe { dkey.as_bytes() };
-        let sock_id = self.get_new_sock_id();
+        let sock_id_wr = self.get_new_sock_id();
+        let sock_id_rd = self.get_new_sock_id();
+        let upstream_sock = self.get_new_local_socket()?;
         let wait_list = &self.skel.as_ref().unwrap().maps.forward_wait_list;
         let forward_map = &self.skel.as_ref().unwrap().maps.forward_map;
 
@@ -232,13 +235,29 @@ impl<'obj> Proxy<'obj> {
                 else {
                     "127.0.0.1:8002"
                 };
+                let upstream_addr = SocketAddr::from_str(&upstream_addr)?;
 
-                self.add_socket_to_wait_list(&upstream_addr, sock_id)?;
+                let ukey_wr = sock_key::try_from((&upstream_sock.local_addr()?, &upstream_addr))?;
+                let ukey_wr = unsafe { ukey_wr.as_bytes() };
+                wait_list.update(ukey_wr, val.as_slice(), MapFlags::ANY)?;
+
+                self.add_socket_to_wait_list(&upstream_sock.local_addr()?, sock_id_wr)?;
+                let sock_id_wr = sock_id_wr.to_ne_bytes();
+                forward_map.update(val.as_slice(), &sock_id_wr, MapFlags::ANY)?;
+
+                self.add_socket_to_wait_list(&upstream_addr, sock_id_rd)?;
+
+                let ukey_rd = sock_key::try_from((&upstream_addr, &upstream_sock.local_addr()?))?;
+                let fd = forwarding_decision {
+                    direction: 1,
+                    origin: ukey_rd,
+                    ..forwarding_decision::default()
+                };
+                let fd = unsafe { fd.as_bytes() };
                 let sock_id = sock_id.to_ne_bytes();
-                wait_list.update(dkey, val.as_slice(), MapFlags::ANY)?;
-                forward_map.update(val.as_slice(), &sock_id, MapFlags::ANY)?;
+                forward_map.update(fd, &sock_id, MapFlags::ANY)?;
 
-                let mut upstream = TcpStream::connect(upstream_addr).await?;
+                let mut upstream = upstream_sock.connect(upstream_addr).await?;
                 copy(&mut downstream, &mut upstream).await?;
 
                 self.upstreams.push(upstream);
@@ -274,6 +293,21 @@ impl<'obj> Proxy<'obj> {
         wait_list.update(akey, &val, MapFlags::ANY)?;
 
         Ok(())
+    }
+
+    fn get_new_local_socket(&mut self) -> Result<TcpSocket> {
+        let mut port = 12345;
+        loop {
+            let addr = SocketAddr::new(self.address.ip(), port);
+            let socket = TcpSocket::new_v4()?;
+
+            if let Err(_) = socket.bind(addr.into()) {
+                port += 1;
+            }
+            else {
+                break Ok(socket);
+            }
+        }
     }
 
     fn get_socket_addr_for_dest(&self, dest: &Destination) -> SocketAddr {

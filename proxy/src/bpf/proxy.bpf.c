@@ -96,6 +96,7 @@ const __u16 s_any = 1;
 
 volatile const __u32 ip4;
 volatile const __u32 port;
+const __u32 local_port = 12345;
 volatile const __u32 s2ts[128][256] = { s_init };
 volatile const struct modification mods[MAX_MATCHES] = { 0 };
 
@@ -125,8 +126,22 @@ struct forwarding_decision {
     __u8 direction;
     __u8 backend;
     __u8 num_bytes_min;
-    struct sock_key socket;
+    struct sock_key origin;
 };
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct sock_key);
+    __type(value, struct ds_conn_state);
+} ds_conns SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct addr_key);
+    __type(value, struct us_conn_state);
+} us_conns SEC(".maps");
 
 // ----------------------------------------------
 // user provided
@@ -138,24 +153,10 @@ struct ds_conn_state {
     __u64 this_req_ts;
 };
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
-    __type(key, struct sock_key);
-    __type(value, struct ds_conn_state);
-} ds_conns SEC(".maps");
-
 struct us_conn_state {
     __u32 num_bytes;
     __u32 num_reqs;
 };
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
-    __type(key, struct addr_key);
-    __type(value, struct us_conn_state);
-} us_conns SEC(".maps");
 
 int update_ds_state(const struct sock_key *dkey, const struct parse_res *res, struct ds_conn_state *state) {
     bpf_log("Update DS state: server: %s, content-length: %d", res->backend, res->content_length);
@@ -199,13 +200,6 @@ int update_us_state(const struct sock_key *ukey, const struct parse_res *res, st
     return 0;
 }
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
-    __type(key, struct sock_key);
-    __type(value, struct sock_key);
-} us2ds_conns SEC(".maps");
-
 int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *state, const struct parse_res *res, struct forwarding_decision *fd) {
     if (dkey == NULL || state == NULL || res == NULL || fd == NULL) {
         return SK_DROP;
@@ -235,8 +229,7 @@ int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *sta
 
 int forward_us_conn(const struct sock_key *ukey, const struct us_conn_state *state, const struct parse_res *res, struct forwarding_decision *fd) {
     fd->direction = PR_DOWNSTREAM;
-    fd->backend = 0;
-    // fd->socket = 
+    fd->origin = *ukey;
 
     return SK_PASS;
 }
@@ -434,7 +427,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     __u8 fid = 0;
     enum sk_action act = SK_PASS;
     bool downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
-    bool retry = (ikey.local.ip4 == ip4 && ikey.local.port != port) && !downstream;
+    bool retry = (ikey.local.ip4 == ip4 && ikey.local.port != port) && !downstream && ikey.local.port >= local_port;
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u]", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
 
     struct forwarding_decision fd = { 0 };
@@ -467,7 +460,10 @@ int msg_verdict(struct sk_msg_md *msg) {
 
             act = forward_us_conn(&ikey, &state, &pres, &fd);
         }
-        if (act == SK_DROP) return act;
+        if (act == SK_DROP) {
+            bpf_log("Plugin decided to drop msg");
+            return act;
+        }
     }
 
     __u32 *ekey = bpf_map_lookup_elem(&forward_map, &fd);
@@ -487,9 +483,23 @@ int msg_verdict(struct sk_msg_md *msg) {
     act = bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS);
     if (act == SK_DROP) {
         bpf_err("ERROR: Redirect failed");
+        return act;
     }
-    else {
-        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket %d", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, *ekey);
+    
+    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket %d", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, *ekey);
+
+    // at this point we have to manage special forwarding decision
+    if (downstream && fd.direction == PR_UPSTREAM) {
+        struct forwarding_decision fd_org = { 0 };
+        fd_org.direction = PR_DOWNSTREAM;
+        fd_org.origin = ikey;
+
+        if (bpf_map_update_elem(&forward_map, &fd_org, ekey, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add origin forwarding decision");
+        }
+        else {
+            bpf_log("Add origin forwarding decision [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        }
     }
 
     // we have a match, apply the filter's actions
