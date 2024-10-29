@@ -1,0 +1,35 @@
+hosts:
+- name: server1
+  address: 10.0.1.1
+- name: server2
+  address: 10.0.2.1
+- name: server3
+  address: 10.0.3.1
+- name: server4
+  address: 10.0.4.1
+spec:   
+  parse:
+    http:
+      backend: str,
+      content-length: u32
+  forward:
+    - predicates:
+        backend: 1
+      destination:
+        host: server1
+        port: 8000
+    - predicates:
+        backend: 2
+      destination:
+        host: server2
+        port: 8000
+    - predicates:
+        backend: 3
+      destination:
+        host: server3
+        port: 8000
+    - predicates:
+        backend: 4
+      destination:
+        host: server4
+        port: 8000

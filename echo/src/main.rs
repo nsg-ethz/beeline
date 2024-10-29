@@ -21,6 +21,9 @@ struct Args {
 
     #[arg(short='H', long="header")]
     headers: Option<Vec<String>>,
+
+    #[arg(short='e', long="echo-header")]
+    header_echos: Option<Vec<String>>,
 }
 
 fn prepare_socket<S: AsFd>(socket: &S) -> Result<()> {
@@ -40,7 +43,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let Args {
         address,
-        headers
+        headers,
+        header_echos
     } = Args::parse();
 
     let addr = address.parse()?;
@@ -65,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // `hyper::rt` IO traits.
         let io = TokioIo::new(stream);
         let headers = headers.clone();
+        let header_echos = header_echos.clone();
 
         // Spawn a tokio task to serve multiple connections concurrently
         tokio::task::spawn(async move {
@@ -84,6 +89,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 .collect();
                             res = res.header(hs[0], hs[1]);
                         }   
+                    }
+                    if let Some(header_echos) = &header_echos {
+                        for key in header_echos {
+                            if let Some(val) = req.headers().get(key) {
+                                res = res.header(key, val);
+                            }
+                        }
                     }
 
                     let body: Incoming = req.into_body();
