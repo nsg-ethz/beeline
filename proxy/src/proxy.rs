@@ -7,7 +7,7 @@ use crate::{
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
 use log::{debug, info, error, log_enabled};
-use std::{mem::MaybeUninit, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{atomic::{AtomicU32, Ordering}, Arc}};
+use std::{mem::MaybeUninit, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr};
 use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpSocket, TcpStream}};
 
 mod bpf {
@@ -95,17 +95,17 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, sock_id: u32) -> Result<()> {
+fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, add_remote: bool) -> Result<()> {
     let addr = addr.to_socket_addrs()?
         .next()
         .expect("Failed to resolve address");
 
-    let val = sock_id.to_ne_bytes();
     let akey = addr_key {
         ip4: addr.try_into_ne_octets()?,
         port: addr.port() as u32,
     };
     let akey = unsafe { akey.as_bytes() };
+    let val = (add_remote as u8).to_ne_bytes();
 
     map.update(akey, &val, MapFlags::ANY)?;
 
@@ -137,7 +137,7 @@ fn get_configured_dest_addr(config: &Config, fd: &forwarding_decision) -> Result
 
     let dest = config.spec.routes.iter()
         .find(|route| {
-            if let Some(backend) = route.predicates.get("backend").and_then(|b| b.parse::<u32>().ok()) {
+            if let Some(backend) = route.predicates.get("backend").and_then(|b| b.parse::<u8>().ok()) {
                 if backend != fd.backend {
                     return false;
                 }
@@ -210,6 +210,7 @@ impl<'obj> Proxy<'obj> {
         let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
         parser.set_http_hdr("backend", "doesntmatter")?;
         parser.set_http_hdr("content-length", "whatever")?;
+        parser.set_http_hdr("conn-id", "lol")?;
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
@@ -261,29 +262,27 @@ impl<'obj> Proxy<'obj> {
         info!("Listening on {}", addr);
 
         let listener = TcpListener::bind(&addr).await?;
-        let sock_id = Arc::new(AtomicU32::new(0));
         loop {
-            let sock_id = sock_id.clone();
-            self.accept(&listener, sock_id).await?;
+            self.accept(&listener).await?;
         }
     }
 
-    async fn accept(&self, listener: &TcpListener, id_counter: Arc<AtomicU32>) -> Result<()> {
-        let sock_id = id_counter.fetch_add(1, Ordering::Relaxed);
+    async fn accept(&self, listener: &TcpListener) -> Result<()> {
         let sock_wait_list = self.get_sock_wait_list()?;
-        add_socket_to_wait_list(&sock_wait_list, &self.address, sock_id)?;
+        add_socket_to_wait_list(&sock_wait_list, &self.address, false)?;
 
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        if let Err(e) = self.handle_downstream(downstream, sock_id, id_counter).await {
+        if let Err(e) = self.handle_downstream(downstream).await {
             error!("Error handling downstream connection: {:?}", e);
         }
 
         Ok(())
     }
 
-    async fn handle_downstream(&self, mut downstream: TcpStream, sock_id: u32, id_counter: Arc<AtomicU32>) -> Result<()> {
+    // TODO: currently the upstream connections are not reused
+    async fn handle_downstream(&self, mut downstream: TcpStream) -> Result<()> {
         let addr = self.address.clone();
         let forward_wait_list = self.get_forward_wait_list()?;
         let forward_map = self.get_forward_map()?;
@@ -322,28 +321,25 @@ impl<'obj> Proxy<'obj> {
                     let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
                     let us_sock = get_new_bound_socket(&us_remote_addr).unwrap();
                     let us_local_addr = us_sock.local_addr().unwrap();
-                    let sock_id_wr = id_counter.fetch_add(1, Ordering::Relaxed);
-                    let sock_id_rd = id_counter.fetch_add(1, Ordering::Relaxed);
 
                     add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
-                    add_socket_to_wait_list(&sock_wait_list, &us_local_addr, sock_id_wr).unwrap();
-                    let sock_id_wr = sock_id_wr.to_ne_bytes();
-                    forward_map.update(val.as_slice(), &sock_id_wr, MapFlags::ANY).unwrap();
+                    add_socket_to_wait_list(&sock_wait_list, &us_local_addr, true).unwrap();
 
-                    add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, sock_id_rd).unwrap();
-
-                    let ukey_rd = sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap();
-                    let fd = forwarding_decision {
-                        direction: 1,
-                        origin: ukey_rd,
-                        ..forwarding_decision::default()
+                    let ds_fd = unsafe { fd.as_bytes() };
+                    let ds_akey = addr_key {
+                        ip4: us_local_addr.try_into_ne_octets().unwrap(),
+                        port: us_local_addr.port() as u32,
                     };
-                    
-                    let fd = unsafe { fd.as_bytes() };
-                    let sock_id = sock_id.to_ne_bytes();
-                    forward_map.update(fd, &sock_id, MapFlags::ANY).unwrap();
+                    let ds_akey = unsafe { ds_akey.as_bytes() };
+                    forward_map.update(ds_fd, &ds_akey, MapFlags::ANY).unwrap();
 
-                    // This should use be made more robust
+                    add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, true).unwrap();
+                    
+                    // let us_fd = unsafe { fd.upstream.as_bytes() };
+                    // let sock_id = sock_id.to_ne_bytes();
+                    // forward_map.update(us_fd, &sock_id, MapFlags::ANY).unwrap();
+
+                    // TODO: This should use be made more robust
                     let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
                     let len = downstream.read(&mut buf).await.unwrap();
                     upstream.write(&buf[..len]).await.unwrap();
