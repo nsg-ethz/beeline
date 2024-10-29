@@ -54,7 +54,7 @@ pod 2 ${ECHO_BIN} -a 10.0.2.1:8000 -H "signature: server2" -H "benchmark: test"
 pod 3 ${ECHO_BIN} -a 10.0.3.1:8000 -H "signature: server3" -H "benchmark: test"
 pod 4 ${ECHO_BIN} -a 10.0.4.1:8000 -H "signature: server4" -H "benchmark: test"
 
-sudo -b -E systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -a 10.0.5.1:3000 -c config/bench.yaml
+pod 5 ${PROXY_BIN} -a 10.0.5.1:3000 -c ${ROOT}/../config/bench.yaml
 echo -e "${COLOR_GREEN}Launched exp-pod5-proxy in pod5.${COLOR_OFF}"
 
 sleep 0.25

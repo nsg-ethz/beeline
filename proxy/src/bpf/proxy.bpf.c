@@ -122,11 +122,12 @@ enum fd_backend {
     PR_SERVER2
 };
 
+// TODO: this needs special care to get aligned
 struct forwarding_decision {
-    __u8 direction;
-    __u8 backend;
-    __u8 num_bytes_min;
     struct sock_key origin;
+    __u32 direction;
+    __u32 backend;
+    __u32 num_bytes_min;
 };
 
 struct {
@@ -142,6 +143,28 @@ struct {
     __type(key, struct addr_key);
     __type(value, struct us_conn_state);
 } us_conns SEC(".maps");
+
+char buf[0xfff];
+static __always_inline int _init_parse_res(struct sk_msg_md *msg) {
+    char *data = (char *)(long)msg->data;
+    char *data_end = (char *)(long)msg->data_end;
+
+    struct prange r0 = pranges[0];
+    __u32 r0_len = r0.len & 0xfff;
+    if (r0_len == 0) return -1;
+    if (bpf_probe_read_kernel(pres.backend, r0_len, data + r0.idx) < 0) return -1;
+    pres.backend_len = r0_len;
+
+    struct prange r1 = pranges[1];
+    __u32 r1_len = r1.len & 0xfff;
+    if (r1_len == 0) return -1;
+    if (bpf_probe_read_kernel(buf, r1_len, data + r1.idx) < 0) return -1;
+    unsigned long val = 0;
+    bpf_strtoul(buf, r1_len, 10, &val);
+    pres.content_length = (__u32)val;
+
+    return 0;
+}
 
 // ----------------------------------------------
 // user provided
@@ -159,7 +182,6 @@ struct us_conn_state {
 };
 
 int update_ds_state(const struct sock_key *dkey, const struct parse_res *res, struct ds_conn_state *state) {
-    bpf_log("Update DS state: server: %s, content-length: %d", res->backend, res->content_length);
     struct ds_conn_state *s = bpf_map_lookup_elem(&ds_conns, dkey);
     if (s == NULL) {
         *state = (struct ds_conn_state) {
@@ -207,7 +229,6 @@ int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *sta
 
     // rate limit connection if it's sent a request less than 1ms ago
     __u64 req_interval = state->this_req_ts - state->last_req_ts;
-    bpf_log("Request interval: %llu", req_interval);
     if (req_interval < 10000000) {
         return SK_DROP;
     }
@@ -316,28 +337,6 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
     }
 
     bpf_log("WARN: Parsed entire payload (%dB)", len);
-
-    return 0;
-}
-
-char buf[0xfff];
-static __always_inline int _init_parse_res(struct sk_msg_md *msg) {
-    char *data = (char *)(long)msg->data;
-    char *data_end = (char *)(long)msg->data_end;
-
-    struct prange r0 = pranges[0];
-    __u32 r0_len = r0.len & 0xfff;
-    if (r0_len == 0) return -1;
-    if (bpf_probe_read_kernel(pres.backend, r0_len, data + r0.idx) < 0) return -1;
-    pres.backend_len = r0_len;
-
-    struct prange r1 = pranges[1];
-    __u32 r1_len = r1.len & 0xfff;
-    if (r1_len == 0) return -1;
-    if (bpf_probe_read_kernel(buf, r1_len, data + r1.idx) < 0) return -1;
-    unsigned long val = 0;
-    bpf_strtoul(buf, r1_len, 10, &val);
-    pres.content_length = (__u32)val;
 
     return 0;
 }
