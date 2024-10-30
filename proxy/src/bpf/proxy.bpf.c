@@ -4,6 +4,17 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
+#ifndef bpf_clamp_uminmax
+#define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
+    asm volatile("if %0 >= %[min] goto +2\n"                                                       \
+                 "%0 = %[min]\n"                                                                   \
+                 "goto +2\n"                                                                       \
+                 "if %0 <= %[max] goto +1\n"                                                       \
+                 "%0 = %[max]\n"                                                                   \
+                 : "+r"(VAR)                                                                       \
+                 : [min] "i"(UMIN), [max] "i"(UMAX))
+#endif
+
 #ifdef LOG_LEVEL
     #if LOG_LEVEL == 0
         #define bpf_log(...) (0)
@@ -294,6 +305,7 @@ static __always_inline void _next(__u16 state, __u32 input, __u16 *next_state, _
     __u32 sa = s2ts[state][input];
     if (sa == 0) {
         sa = s2ts[state]['*'];
+        bpf_clamp_uminmax(sa, 0, 0xFFFFFFFF);
         if (sa == 0) {
             *next_state = s_any;
             *action = 0;   
