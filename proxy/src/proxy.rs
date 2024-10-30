@@ -326,18 +326,11 @@ impl<'obj> Proxy<'obj> {
                     add_socket_to_wait_list(&sock_wait_list, &us_local_addr, true).unwrap();
 
                     let ds_fd = unsafe { fd.as_bytes() };
-                    let ds_akey = addr_key {
-                        ip4: us_local_addr.try_into_ne_octets().unwrap(),
-                        port: us_local_addr.port() as u32,
-                    };
-                    let ds_akey = unsafe { ds_akey.as_bytes() };
-                    forward_map.update(ds_fd, &ds_akey, MapFlags::ANY).unwrap();
+                    let ds_skey = sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap();
+                    let ds_skey = unsafe { ds_skey.as_bytes() };
+                    forward_map.update(ds_fd, &ds_skey, MapFlags::ANY).unwrap();
 
                     add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, true).unwrap();
-                    
-                    // let us_fd = unsafe { fd.upstream.as_bytes() };
-                    // let sock_id = sock_id.to_ne_bytes();
-                    // forward_map.update(us_fd, &sock_id, MapFlags::ANY).unwrap();
 
                     // TODO: This should use be made more robust
                     let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();

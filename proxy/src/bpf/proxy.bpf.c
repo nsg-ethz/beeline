@@ -60,13 +60,13 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
     __type(key, struct forwarding_decision);
-    __type(value, struct addr_key);
+    __type(value, struct sock_key);
 } forward_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, 8192);
-    __type(key, struct addr_key);
+    __type(key, struct sock_key);
     __type(value, int);
 } sock_map SEC(".maps");
 
@@ -97,7 +97,8 @@ const __u16 s_any = 1;
 volatile const __u32 ip4;
 volatile const __u32 port;
 const __u32 local_port = 12345;
-volatile const __u32 s2ts[128][256] = { s_init };
+const __u32 local_gw = 254;
+volatile const __u32 s2ts[128][256];
 volatile const struct modification mods[MAX_MATCHES] = { 0 };
 
 struct prange pranges[MAX_MATCHES] = { 0 };
@@ -121,7 +122,9 @@ enum fd_direction {
 
 enum fd_backend {
     PR_SERVER1 = 1,
-    PR_SERVER2
+    PR_SERVER2 = 2,
+    PR_SERVER3 = 3,
+    PR_SERVER4 = 4
 };
 
 // TODO: this needs special care to get aligned
@@ -150,7 +153,6 @@ struct {
 char buf[0xfff];
 static __always_inline int _init_parse_res(struct sk_msg_md *msg) {
     char *data = (char *)(long)msg->data;
-    char *data_end = (char *)(long)msg->data_end;
     unsigned long val = 0;
 
     struct prange r0 = pranges[0];
@@ -240,21 +242,30 @@ int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *sta
     }
 
     // rate limit connection if it's sent a request less than 1ms ago
-    __u64 req_interval = state->this_req_ts - state->last_req_ts;
-    if (req_interval < 10000000) {
-        return SK_DROP;
-    }
+    // __u64 req_interval = state->this_req_ts - state->last_req_ts;
+    // if (req_interval < 10000000) {
+    //     return SK_DROP;
+    // }
 
     const char *server1 = "server1";
     bool backend_is_server1 = bpf_strncmp(res->backend, 7, server1) == 0;
     const char *server2 = "server2";
     bool backend_is_server2 = bpf_strncmp(res->backend, 7, server2) == 0;
-    if (!backend_is_server1 && !backend_is_server2) {
+    const char *server3 = "server3";
+    bool backend_is_server3 = bpf_strncmp(res->backend, 7, server3) == 0;
+    const char *server4 = "server4";
+    bool backend_is_server4 = bpf_strncmp(res->backend, 7, server4) == 0;
+
+    if (!backend_is_server1 && !backend_is_server2 && !backend_is_server3 && !backend_is_server4) {
         return SK_DROP;
     }
 
+    if (backend_is_server1) fd->backend = PR_SERVER1;
+    if (backend_is_server2) fd->backend = PR_SERVER2;
+    if (backend_is_server3) fd->backend = PR_SERVER3;
+    if (backend_is_server4) fd->backend = PR_SERVER4;
+
     fd->direction = PR_UPSTREAM;
-    fd->backend = backend_is_server1 ? PR_SERVER1 : PR_SERVER2;
     fd->num_bytes_min = true;
     
     return SK_PASS;
@@ -304,20 +315,17 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
         return 0;
     }
     
-    __u16 s = s_init;
-    __u8 num_mods = 0;
-
     __builtin_memset(cidx, 0, sizeof(cidx));
     __builtin_memset(pranges, 0, sizeof(pranges));
     __builtin_memset(pmatches, 0, sizeof(pmatches));
 
+    __u16 s = s_init;
     __u32 i;
     bpf_for(i, 0, len) {
         if (data + i + 1 > data_end) return -1;
         char c = data[i];
 
         __u16 a = 0;
-        __u16 s_old = s;
         _next(s, c, &s, &a);
 
         // it should never happen that any of these cases are true simultaneously
@@ -340,7 +348,7 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
         }
         if ((a & a_match) != 0) {
             __u16 mid = a & a_id_mask & MAX_MATCH_MASK;
-            bpf_log("Match %d at %d", mid, i);
+            bpf_err("Match %d at %d", mid, i);
             pmatches[mid] = true;
         }
         if ((a & a_done) != 0) {
@@ -442,13 +450,13 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
     };
 
-    __u8 fid = 0;
-    bool downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
-    bool retry = (ikey.local.ip4 == ip4 && ikey.local.port != port) && !downstream && ikey.local.port >= local_port;
-    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u]", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+    bool is_downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
+    bool is_local_gw = ((ikey.local.ip4 >> 24) & 0xFF) == local_gw || ikey.local.ip4 == ip4;
+    bool is_retry = !is_downstream && ikey.local.port >= local_port && is_local_gw;
+    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d, retry: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream, is_retry);
 
     struct forwarding_decision fd = { 0 };
-    if (retry) {
+    if (is_retry) {
         struct forwarding_decision *fd_cached = bpf_map_lookup_elem(&forward_wait_list, &ikey);
         if (fd_cached == NULL) {
             bpf_err("ERROR: Failed to find forwarding decision for retry");
@@ -461,7 +469,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         if (_parse(msg) < 0) return SK_DROP;
         _init_parse_res(msg);
 
-        if (downstream) {
+        if (is_downstream) {
             struct ds_conn_state state = { 0 };
             if (update_ds_state(&ikey, &pres, &state) < 0) {
                 bpf_err("ERROR: Updating downstream connection state failed.");
@@ -480,7 +488,7 @@ int msg_verdict(struct sk_msg_md *msg) {
                 return SK_DROP;
             }
 
-            if (bpf_map_update_elem(&forward_map, &fd_inv, &ikey.local, BPF_ANY) < 0) {
+            if (bpf_map_update_elem(&forward_map, &fd_inv, &ikey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to set downstream forwarding decision");
             }
             else {
@@ -500,9 +508,9 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
     }
 
-    struct addr_key *ekey = bpf_map_lookup_elem(&forward_map, &fd);
+    struct sock_key *ekey = bpf_map_lookup_elem(&forward_map, &fd);
     if (ekey == NULL) {
-        if (retry) {
+        if (is_retry) {
             bpf_err("ERROR: Failed to find socket for retry");
             return SK_DROP;
         }
@@ -516,11 +524,11 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     enum sk_action act = bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS);
     if (act == SK_DROP) {
-        bpf_err("ERROR: Redirection from [%pI4:%u->%pI4:%u] to socket [%pI4:%u] failed", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->ip4, ekey->port);
+        bpf_err("ERROR: Redirection from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u] failed", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
         return act;
     }
     
-    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket [%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->ip4, ekey->port);
+    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
 
     // we have a match, apply the filter's actions
     // if (fid > 0) {
@@ -584,15 +592,14 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             }
         };
 
-        bool *add_remote = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
-        if (add_remote != NULL) {
-            struct addr_key akey = (*add_remote) ? skey.remote : skey.local;
-            if (bpf_sock_hash_update(ops, &sock_map, &akey, BPF_ANY) < 0) {
+        bool *token = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
+        if (token != NULL) {
+            if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
 
-            bpf_log("Add socket [%pI4:%u->%pI4:%u] with key [%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port, &akey.ip4, akey.port);
+            bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
         }
     }
 
