@@ -173,7 +173,7 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
     char buf[64]; // a number cannot be larger than 64 bytes
 
     struct prange r0 = pranges[0];
-    __u32 r0_len = r0.len & 31;
+    __u32 r0_len = r0.len & 63;
     if (r0_len > 0 && bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx) == 0) {
         pres->backend_len = r0_len;
     }
@@ -182,7 +182,7 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
     }
 
     struct prange r1 = pranges[1];
-    __u32 r1_len = r1.len & 31;
+    __u32 r1_len = r1.len & 63;
     if (r1_len > 0 && bpf_probe_read_kernel(buf, r1_len, data + r1.idx) == 0) {
         unsigned long val = 0;
         bpf_strtoul(buf, r1_len, 10, &val);
@@ -193,7 +193,7 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
     }
 
     struct prange r2 = pranges[2];
-    __u32 r2_len = r2.len & 31;
+    __u32 r2_len = r2.len & 63;
     if (r2_len > 0 && bpf_probe_read_kernel(buf, r2_len, data + r2.idx) == 0) {
         unsigned long val = 0;
         bpf_strtoul(buf, r2_len, 10, &val);
@@ -541,7 +541,19 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
 
     struct sock_key *ekey = bpf_map_lookup_elem(&forward_map, &fd);
-    if (ekey == NULL) {
+    bool redirected = false;
+
+    if (ekey != NULL) {
+        if (bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS) == SK_DROP) {
+            bpf_log("WARN: Redirection from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u] failed", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
+        }
+        else {
+            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
+            redirected = true;
+        }
+    }
+
+    if (!redirected) {
         if (is_retry) {
             bpf_err("ERROR: Failed to find socket for retry");
             return SK_DROP;
@@ -554,13 +566,6 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    enum sk_action act = bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS);
-    if (act == SK_DROP) {
-        bpf_err("ERROR: Redirection from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u] failed", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
-        return act;
-    }
-    
-    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
 
     // we have a match, apply the filter's actions
     // if (fid > 0) {
@@ -606,7 +611,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     //     }
     // }
 
-    return act;
+    return SK_PASS;
 }
 
 SEC("sockops")
@@ -643,8 +648,6 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             }
         }
     }
-
-    // TODO: cleanup if an upstream connection gets closed
 
     return SK_PASS;
 }

@@ -285,7 +285,6 @@ impl<'obj> Proxy<'obj> {
         Ok(())
     }
 
-    // TODO: currently the upstream connections are not reused
     async fn handle_downstream(&self, downstream: TcpStream, port_range: std::ops::Range<u16>) -> Result<()> {
         let addr = self.address.clone();
         let forward_wait_list = self.get_forward_wait_list()?;
