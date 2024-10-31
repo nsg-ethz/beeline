@@ -112,9 +112,6 @@ const __u32 local_gw = 254;
 volatile const __u32 s2ts[128][256];
 volatile const struct modification mods[MAX_MATCHES] = { 0 };
 
-struct prange pranges[MAX_MATCHES] = { 0 };
-bool pmatches[MAX_MATCHES] = { 0 };
-
 // ----------------------------------------------
 // compiler generated
 
@@ -162,7 +159,7 @@ struct {
 
 // TODO: buf is not thread safe
 char buf[0xfff];
-static __always_inline int _init_parse_res(struct sk_msg_md *msg) {
+static __always_inline int _init_parse_res(struct sk_msg_md *msg, const struct prange *pranges) {
     char *data = (char *)(long)msg->data;
     unsigned long val = 0;
 
@@ -317,8 +314,7 @@ static __always_inline void _next(__u16 state, __u32 input, __u16 *next_state, _
     *action = (sa & a_mask) >> 16;
 }
 
-__u32 cidx[MAX_MATCHES] = { 0 };
-static __always_inline int _parse(const struct sk_msg_md *msg) {
+static __always_inline int _parse(const struct sk_msg_md *msg, struct prange *pranges, bool *pmatches) {
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
     __u32 len = (data_end - data) & MAX_BYTES;
@@ -326,10 +322,8 @@ static __always_inline int _parse(const struct sk_msg_md *msg) {
     if (len == 0) {
         return 0;
     }
-    
-    __builtin_memset(cidx, 0, sizeof(cidx));
-    __builtin_memset(pranges, 0, sizeof(pranges));
-    __builtin_memset(pmatches, 0, sizeof(pmatches));
+
+    __u32 cidx[MAX_MATCHES] = { 0 };
 
     __u16 s = s_init;
     __u32 i;
@@ -478,8 +472,11 @@ int msg_verdict(struct sk_msg_md *msg) {
         fd = *fd_cached;
     }
     else {
-        if (_parse(msg) < 0) return SK_DROP;
-        _init_parse_res(msg);
+        struct prange pranges[MAX_MATCHES] = { 0 };
+        bool pmatches[MAX_MATCHES] = { 0 };
+
+        if (_parse(msg, pranges, pmatches) < 0) return SK_DROP;
+        _init_parse_res(msg, pranges);
 
         if (is_downstream) {
             struct ds_conn_state state = { 0 };
@@ -488,7 +485,7 @@ int msg_verdict(struct sk_msg_md *msg) {
             }
             
             if (forward_ds_conn(&ikey, &state, &pres, &fd) == SK_DROP) {
-                bpf_log("Plugin decided to drop msg");
+                bpf_log("Plugin decided to drop downstream msg");
                 return SK_DROP;
             }
 
@@ -496,7 +493,7 @@ int msg_verdict(struct sk_msg_md *msg) {
             // this request back to the client
             struct forwarding_decision fd_inv = { 0 };
             if (set_ds_forwarding_decision(&ikey, &state, &pres, &fd_inv) == SK_DROP) {
-                bpf_log("Plugin decided to drop msg");
+                bpf_log("Did not find inverse forwarding decision. Dropping.");
                 return SK_DROP;
             }
 
@@ -514,7 +511,7 @@ int msg_verdict(struct sk_msg_md *msg) {
             }
 
             if (forward_us_conn(&ikey, &state, &pres, &fd) == SK_DROP) {
-                bpf_log("Plugin decided to drop msg");
+                bpf_log("Plugin decided to drop upstream msg");
                 return SK_DROP;
             }
         }
@@ -591,7 +588,6 @@ int msg_verdict(struct sk_msg_md *msg) {
 
 SEC("sockops")
 int monitor_sockets(struct bpf_sock_ops *ops) {
-    // check if this socket is either side of a route that waits for its sockets
     if (ops->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ops->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
         struct sock_key skey = {
             .local = {
@@ -614,6 +610,8 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
         }
     }
+
+    // TODO: cleanup if an upstream connection gets closed
 
     return SK_PASS;
 }

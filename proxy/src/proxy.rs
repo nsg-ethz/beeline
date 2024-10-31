@@ -6,9 +6,9 @@ use crate::{
     parse::{http::HttpParser, Action}
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
-use log::{debug, info, error, log_enabled};
-use std::{mem::MaybeUninit, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr};
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpSocket, TcpStream}};
+use log::{debug, error, info, log_enabled};
+use std::{mem::MaybeUninit, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}};
+use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpSocket, TcpStream}};
 
 mod bpf {
     include!(concat!(
@@ -158,30 +158,28 @@ fn get_configured_dest_addr(config: &Config, fd: &forwarding_decision) -> Result
     Ok(addr)
 }
 
-fn get_new_bound_socket(addr: &SocketAddr) -> Result<TcpSocket> {
-    let ip = if addr.ip().is_loopback() {
-        addr.ip()
+fn get_new_bound_socket(dest: &SocketAddr, port_range: std::ops::Range<u16>) -> Result<TcpSocket> {
+    let ip = if dest.ip().is_loopback() {
+        dest.ip()
     }
     else {
-        let octets = match addr.ip() {
+        let octets = match dest.ip() {
             IpAddr::V4(ip) => ip.octets(),
             _ => bail!("IPv6 is not supported")
         };
         IpAddr::V4(Ipv4Addr::new(octets[0], octets[1], octets[2], 254))
     };
-    let mut port = 12345;
 
-    loop {
+    let socket = TcpSocket::new_v4()?;
+    for port in port_range {
         let addr = SocketAddr::new(ip, port);
-        let socket = TcpSocket::new_v4()?;
 
-        if let Err(_) = socket.bind(addr.into()) {
-            port += 1;
-        }
-        else {
-            break Ok(socket);
+        if let Ok(()) = socket.bind(addr.into()) {
+            return Ok(socket);
         }
     }
+
+    bail!("Failed to bind socket")
 }
 
 pub struct Proxy<'obj> {
@@ -191,7 +189,7 @@ pub struct Proxy<'obj> {
 
     #[allow(dead_code)]
     sockops: Link,
-    upstreams: Vec<TcpStream>,
+    upstreams: Arc<Mutex<Vec<TcpStream>>>
 }
 
 impl<'obj> Proxy<'obj> {
@@ -246,14 +244,13 @@ impl<'obj> Proxy<'obj> {
         skel.progs
             .msg_verdict
             .attach_sockmap(sock_map_fd)?;
-    
 
         Ok(Self {
             address,
             config,
             skel: skel,
             sockops: sockops,
-            upstreams: Vec::new(),
+            upstreams: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -261,20 +258,22 @@ impl<'obj> Proxy<'obj> {
         let addr = self.address;
         info!("Listening on {}", addr);
 
+        let mut port_range = 12345..13345;
         let listener = TcpListener::bind(&addr).await?;
         loop {
-            self.accept(&listener).await?;
+            self.accept(&listener, port_range.clone()).await?;
+            port_range = port_range.end..(port_range.end + 1000);
         }
     }
 
-    async fn accept(&self, listener: &TcpListener) -> Result<()> {
+    async fn accept(&self, listener: &TcpListener, port_range: std::ops::Range<u16>) -> Result<()> {
         let sock_wait_list = self.get_sock_wait_list()?;
         add_socket_to_wait_list(&sock_wait_list, &self.address, false)?;
 
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        if let Err(e) = self.handle_downstream(downstream).await {
+        if let Err(e) = self.handle_downstream(downstream, port_range).await {
             error!("Error handling downstream connection: {:?}", e);
         }
 
@@ -282,66 +281,82 @@ impl<'obj> Proxy<'obj> {
     }
 
     // TODO: currently the upstream connections are not reused
-    async fn handle_downstream(&self, mut downstream: TcpStream) -> Result<()> {
+    async fn handle_downstream(&self, downstream: TcpStream, port_range: std::ops::Range<u16>) -> Result<()> {
         let addr = self.address.clone();
         let forward_wait_list = self.get_forward_wait_list()?;
         let forward_map = self.get_forward_map()?;
         let sock_wait_list = self.get_sock_wait_list()?;
         let config = self.config.clone();
+        let upstreams = self.upstreams.clone();
 
         tokio::spawn(async move {
             let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr))
                 .unwrap();
             let dkey = unsafe { dkey.as_bytes() };
-            let mut upstreams = Vec::new();
             let mut buf = [0u8; 8192];
+            let mut new_upstreams = Vec::new();
 
-            let err = loop {
+            let res = loop {
                 // wait until the downstream connection is readable
                 match downstream.readable().await {
                     Err(ref e)if e.kind() == io::ErrorKind::WouldBlock => continue,
-                    Err(e) => break anyhow!(e),
+                    Err(e) => break Err(anyhow!(e)),
                     Ok(()) => {}
                 }
 
-                // if it is, it means that the proxy needs userspace to open a new connection
-                let val = forward_wait_list.lookup_and_delete(&dkey)
-                    .expect("No forwarding decision in wait list");
+                match downstream.try_read(&mut buf) {
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    Err(e) => break Err(anyhow!(e)),
+                    Ok(0) => break Ok(()),
+                    Ok(len) => {
+                        // if it is, it means that the proxy needs userspace to open a new connection
+                        let val = forward_wait_list.lookup_and_delete(&dkey)
+                            .expect("No forwarding decision in wait list");
 
-                if let Some(val) = val {
-                    let (head, body, _tail) = unsafe {
-                        val.align_to::<forwarding_decision>()
-                    };
-                    if !head.is_empty() || body.len() != 1 {
-                        break anyhow!("Invalid value size");
+                        if let Some(val) = val {
+                            let (head, body, _tail) = unsafe {
+                                val.align_to::<forwarding_decision>()
+                            };
+                            if !head.is_empty() || body.len() != 1 {
+                                break Err(anyhow!("Invalid value size"));
+                            }
+
+                            let fd = body[0];
+
+                            let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
+                            let us_sock = get_new_bound_socket(&us_remote_addr, port_range.clone()).unwrap();
+                            let us_local_addr = us_sock.local_addr().unwrap();
+
+                            add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
+                            add_socket_to_wait_list(&sock_wait_list, &us_local_addr, true).unwrap();
+
+                            let ds_fd = unsafe { fd.as_bytes() };
+                            let ds_skey = sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap();
+                            let ds_skey = unsafe { ds_skey.as_bytes() };
+                            forward_map.update(ds_fd, &ds_skey, MapFlags::ANY).unwrap();
+
+                            add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, true).unwrap();
+
+                            // TODO: This should also handle the case where the req doesn't fit into one buffer
+                            debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
+                            let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
+                            upstream.write(&buf[..len]).await.unwrap();
+
+                            new_upstreams.push(upstream);
+                        }
                     }
-
-                    let fd = body[0];
-
-                    let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
-                    let us_sock = get_new_bound_socket(&us_remote_addr).unwrap();
-                    let us_local_addr = us_sock.local_addr().unwrap();
-
-                    add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
-                    add_socket_to_wait_list(&sock_wait_list, &us_local_addr, true).unwrap();
-
-                    let ds_fd = unsafe { fd.as_bytes() };
-                    let ds_skey = sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap();
-                    let ds_skey = unsafe { ds_skey.as_bytes() };
-                    forward_map.update(ds_fd, &ds_skey, MapFlags::ANY).unwrap();
-
-                    add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, true).unwrap();
-
-                    // TODO: This should use be made more robust
-                    let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
-                    let len = downstream.read(&mut buf).await.unwrap();
-                    upstream.write(&buf[..len]).await.unwrap();
-
-                    upstreams.push(upstream);
                 }
             };
 
-            debug!("Closing connection to {:?} ({:?}", downstream.peer_addr().unwrap(), err);
+            if let Err(e) = res {
+                error!("Error handling downstream connection: {:?}", e);
+            }
+
+            // upstream connections are automatically reused by the eBPF program
+            // we just have to keep them alive here
+            upstreams.lock()
+                .unwrap()
+                .extend(new_upstreams.into_iter());
         });
 
         Ok(())
