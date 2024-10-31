@@ -168,35 +168,40 @@ struct opt_forwarding_decision {
     struct forwarding_decision inner;
 };
 
-// TODO: buf is not thread safe
-char buf[0xfff];
-static __always_inline int _init_parse_res(struct sk_msg_md *msg, const struct prange *pranges, struct parse_res *pres) {
+static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct prange *pranges, struct parse_res *pres) {
     char *data = (char *)(long)msg->data;
-    unsigned long val = 0;
+    char buf[64]; // a number cannot be larger than 64 bytes
 
     struct prange r0 = pranges[0];
-    __u32 r0_len = r0.len & 0xfff;
-    if (r0_len == 0) return -1;
-    if (bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx) < 0) return -1;
-    pres->backend_len = r0_len;
+    __u32 r0_len = r0.len & 31;
+    if (r0_len > 0 && bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx) == 0) {
+        pres->backend_len = r0_len;
+    }
+    else {
+        pres->backend_len = 0;
+    }
 
     struct prange r1 = pranges[1];
-    __u32 r1_len = r1.len & 0xfff;
-    if (r1_len == 0) return -1;
-    if (bpf_probe_read_kernel(buf, r1_len, data + r1.idx) < 0) return -1;
-    val = 0;
-    bpf_strtoul(buf, r1_len, 10, &val);
-    pres->content_length = (__u32)val;
+    __u32 r1_len = r1.len & 31;
+    if (r1_len > 0 && bpf_probe_read_kernel(buf, r1_len, data + r1.idx) == 0) {
+        unsigned long val = 0;
+        bpf_strtoul(buf, r1_len, 10, &val);
+        pres->content_length = val;
+    }
+    else {
+        pres->content_length = 0;
+    }
 
     struct prange r2 = pranges[2];
-    __u32 r2_len = r2.len & 0xfff;
-    if (r2_len == 0) return -1;
-    if (bpf_probe_read_kernel(buf, r2_len, data + r2.idx) < 0) return -1;
-    val = 0;
-    bpf_strtoul(buf, r2_len, 10, &val);
-    pres->conn_id = (__u32)val;
-
-    return 0;
+    __u32 r2_len = r2.len & 31;
+    if (r2_len > 0 && bpf_probe_read_kernel(buf, r2_len, data + r2.idx) == 0) {
+        unsigned long val = 0;
+        bpf_strtoul(buf, r2_len, 10, &val);
+        pres->conn_id = val;
+    }
+    else {
+        pres->conn_id = 0;
+    }
 }
 
 // ----------------------------------------------
@@ -453,8 +458,6 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct prange *r
     return 0;
 }
 
-struct parse_res pres = { 0 };
-
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     // socket identifeir of the ingress connection
@@ -490,22 +493,21 @@ int msg_verdict(struct sk_msg_md *msg) {
 
         if (_parse(msg, pranges, pmatches) < 0) return SK_DROP;
         
-        // __u32 pres_key = 0;
-        // struct parse_res *pres = bpf_map_lookup_elem(&pres_map, &pres_key);
-        // if (pres == NULL) {
-        //     bpf_err("ERROR: Failed to init parse result");
-        //     return SK_DROP;
-        // }
-        _init_parse_res(msg, pranges, &pres);
-
+        __u32 pres_key = 0;
+        struct parse_res *pres = bpf_map_lookup_elem(&pres_map, &pres_key);
+        if (pres == NULL) {
+            bpf_err("ERROR: Failed to init parse result");
+            return SK_DROP;
+        }
+        _init_parse_res(msg, pranges, pres);
 
         if (is_downstream) {
             struct ds_conn_state state = { 0 };
-            if (update_ds_state(&ikey, &pres, &state) < 0) {
+            if (update_ds_state(&ikey, pres, &state) < 0) {
                 bpf_err("ERROR: Updating downstream connection state failed.");
             }
             
-            if (forward_ds_conn(&ikey, &state, &pres, &fd) == SK_DROP) {
+            if (forward_ds_conn(&ikey, &state, pres, &fd) == SK_DROP) {
                 bpf_log("Plugin decided to drop downstream msg");
                 return SK_DROP;
             }
@@ -513,7 +515,7 @@ int msg_verdict(struct sk_msg_md *msg) {
             // at this point we have to ask the plugin how it wants to route
             // this request back to the client
             struct forwarding_decision fd_inv = { 0 };
-            if (set_ds_forwarding_decision(&ikey, &state, &pres, &fd_inv) == SK_DROP) {
+            if (set_ds_forwarding_decision(&ikey, &state, pres, &fd_inv) == SK_DROP) {
                 bpf_log("Did not find inverse forwarding decision. Dropping.");
                 return SK_DROP;
             }
@@ -527,11 +529,11 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
         else {
             struct us_conn_state state = { 0 };
-            if (update_us_state(&ikey, &pres, &state) < 0) {
+            if (update_us_state(&ikey, pres, &state) < 0) {
                 bpf_err("ERROR: Updating upstream connection state failed.");
             }
 
-            if (forward_us_conn(&ikey, &state, &pres, &fd) == SK_DROP) {
+            if (forward_us_conn(&ikey, &state, pres, &fd) == SK_DROP) {
                 bpf_log("Plugin decided to drop upstream msg");
                 return SK_DROP;
             }

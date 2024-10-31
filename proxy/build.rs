@@ -20,6 +20,7 @@ fn main() {
     } else {
         "1"
     };
+    println!("cargo:rerun-if-env-changed=PROFILE");
 
     SkeletonBuilder::new()
         .source(SRC)
