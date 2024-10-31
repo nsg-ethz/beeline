@@ -95,7 +95,7 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, add_remote: bool) -> Result<()> {
+fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, fd: Option<forwarding_decision>) -> Result<()> {
     let addr = addr.to_socket_addrs()?
         .next()
         .expect("Failed to resolve address");
@@ -105,7 +105,12 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, add_
         port: addr.port() as u32,
     };
     let akey = unsafe { akey.as_bytes() };
-    let val = (add_remote as u8).to_ne_bytes();
+
+    let val = opt_forwarding_decision {
+        is_some: fd.is_some() as u8,
+        inner: fd.unwrap_or_default()
+    };
+    let val = unsafe { val.as_bytes() };
 
     map.update(akey, &val, MapFlags::ANY)?;
 
@@ -268,7 +273,7 @@ impl<'obj> Proxy<'obj> {
 
     async fn accept(&self, listener: &TcpListener, port_range: std::ops::Range<u16>) -> Result<()> {
         let sock_wait_list = self.get_sock_wait_list()?;
-        add_socket_to_wait_list(&sock_wait_list, &self.address, false)?;
+        add_socket_to_wait_list(&sock_wait_list, &self.address, None)?;
 
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
@@ -284,7 +289,6 @@ impl<'obj> Proxy<'obj> {
     async fn handle_downstream(&self, downstream: TcpStream, port_range: std::ops::Range<u16>) -> Result<()> {
         let addr = self.address.clone();
         let forward_wait_list = self.get_forward_wait_list()?;
-        let forward_map = self.get_forward_map()?;
         let sock_wait_list = self.get_sock_wait_list()?;
         let config = self.config.clone();
         let upstreams = self.upstreams.clone();
@@ -328,14 +332,8 @@ impl<'obj> Proxy<'obj> {
                             let us_local_addr = us_sock.local_addr().unwrap();
 
                             add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
-                            add_socket_to_wait_list(&sock_wait_list, &us_local_addr, true).unwrap();
-
-                            let ds_fd = unsafe { fd.as_bytes() };
-                            let ds_skey = sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap();
-                            let ds_skey = unsafe { ds_skey.as_bytes() };
-                            forward_map.update(ds_fd, &ds_skey, MapFlags::ANY).unwrap();
-
-                            add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, true).unwrap();
+                            add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd)).unwrap();
+                            add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None).unwrap();
 
                             // TODO: This should also handle the case where the req doesn't fit into one buffer
                             debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
@@ -364,11 +362,6 @@ impl<'obj> Proxy<'obj> {
 
     fn get_sock_wait_list(&self) -> Result<MapHandle> {
         let id = self.skel.maps.sock_wait_list.info()?.info.id;
-        Ok(MapHandle::from_map_id(id)?)
-    }
-
-    fn get_forward_map(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.forward_map.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 

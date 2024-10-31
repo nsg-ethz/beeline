@@ -31,13 +31,13 @@
     #define bpf_err(...) (0)
 #endif
 
-char LICENSE[] SEC("license") = "GPL";
-
 // these restrictions are needed to make the verifier happy
 #define MAX_BYTES 0xFFFE
 #define MAX_MATCHES 16
 #define MAX_MATCH_MASK 15
 #define MAX_MOD_LEN 0xFF
+
+char LICENSE[] SEC("license") = "GPL";
 
 struct addr_key {
     __u32 ip4;
@@ -85,8 +85,29 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
     __type(key, struct addr_key);
-    __type(value, bool);
+    __type(value, struct opt_forwarding_decision);
 } sock_wait_list SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, struct parse_res);
+} pres_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct sock_key);
+    __type(value, struct ds_conn_state);
+} ds_conns SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct addr_key);
+    __type(value, struct us_conn_state);
+} us_conns SEC(".maps");
 
 const __u32 a_mask = 0xFFFF0000;
 const __u16 a_match = 1 << 15;
@@ -115,13 +136,12 @@ volatile const struct modification mods[MAX_MATCHES] = { 0 };
 // ----------------------------------------------
 // compiler generated
 
-// TOOD: pres is not thread safe this way
 struct parse_res {
     char backend[4096];
     __u32 backend_len;
     __u32 content_length;
     __u32 conn_id;
-} pres;
+};
 
 enum fd_direction {
     PR_DOWNSTREAM = 1,
@@ -143,31 +163,22 @@ struct forwarding_decision {
     __u8 num_bytes_min;
 };
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
-    __type(key, struct sock_key);
-    __type(value, struct ds_conn_state);
-} ds_conns SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
-    __type(key, struct addr_key);
-    __type(value, struct us_conn_state);
-} us_conns SEC(".maps");
+struct opt_forwarding_decision {
+    __u8 is_some;
+    struct forwarding_decision inner;
+};
 
 // TODO: buf is not thread safe
 char buf[0xfff];
-static __always_inline int _init_parse_res(struct sk_msg_md *msg, const struct prange *pranges) {
+static __always_inline int _init_parse_res(struct sk_msg_md *msg, const struct prange *pranges, struct parse_res *pres) {
     char *data = (char *)(long)msg->data;
     unsigned long val = 0;
 
     struct prange r0 = pranges[0];
     __u32 r0_len = r0.len & 0xfff;
     if (r0_len == 0) return -1;
-    if (bpf_probe_read_kernel(pres.backend, r0_len, data + r0.idx) < 0) return -1;
-    pres.backend_len = r0_len;
+    if (bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx) < 0) return -1;
+    pres->backend_len = r0_len;
 
     struct prange r1 = pranges[1];
     __u32 r1_len = r1.len & 0xfff;
@@ -175,7 +186,7 @@ static __always_inline int _init_parse_res(struct sk_msg_md *msg, const struct p
     if (bpf_probe_read_kernel(buf, r1_len, data + r1.idx) < 0) return -1;
     val = 0;
     bpf_strtoul(buf, r1_len, 10, &val);
-    pres.content_length = (__u32)val;
+    pres->content_length = (__u32)val;
 
     struct prange r2 = pranges[2];
     __u32 r2_len = r2.len & 0xfff;
@@ -183,7 +194,7 @@ static __always_inline int _init_parse_res(struct sk_msg_md *msg, const struct p
     if (bpf_probe_read_kernel(buf, r2_len, data + r2.idx) < 0) return -1;
     val = 0;
     bpf_strtoul(buf, r2_len, 10, &val);
-    pres.conn_id = (__u32)val;
+    pres->conn_id = (__u32)val;
 
     return 0;
 }
@@ -442,6 +453,8 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct prange *r
     return 0;
 }
 
+struct parse_res pres = { 0 };
+
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     // socket identifeir of the ingress connection
@@ -476,7 +489,15 @@ int msg_verdict(struct sk_msg_md *msg) {
         bool pmatches[MAX_MATCHES] = { 0 };
 
         if (_parse(msg, pranges, pmatches) < 0) return SK_DROP;
-        _init_parse_res(msg, pranges);
+        
+        // __u32 pres_key = 0;
+        // struct parse_res *pres = bpf_map_lookup_elem(&pres_map, &pres_key);
+        // if (pres == NULL) {
+        //     bpf_err("ERROR: Failed to init parse result");
+        //     return SK_DROP;
+        // }
+        _init_parse_res(msg, pranges, &pres);
+
 
         if (is_downstream) {
             struct ds_conn_state state = { 0 };
@@ -600,14 +621,24 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             }
         };
 
-        bool *token = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
-        if (token != NULL) {
+        struct opt_forwarding_decision *fd = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
+        if (fd != NULL) {
             if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
 
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+
+            // add the socket before the forwarding decision to avoid a race condition
+            if (fd->is_some) {
+                if (bpf_map_update_elem(&forward_map, &fd->inner, &skey, BPF_ANY) < 0) {
+                    bpf_err("ERROR: Failed to set forwarding decision");
+                }
+                else {
+                    bpf_log("Set forwarding decision [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+                }
+            }
         }
     }
 
