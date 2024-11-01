@@ -7,7 +7,7 @@ use crate::{
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
 use log::{debug, error, info, log_enabled};
-use std::{collections::HashMap, mem::{size_of, MaybeUninit}, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
+use std::{collections::{HashMap, HashSet}, mem::{size_of, MaybeUninit}, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpSocket, TcpStream}, task, time};
 
 mod bpf {
@@ -99,7 +99,7 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, fd: Option<forwarding_decision>) -> Result<()> {
+fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, fd: Option<forwarding_decision>, flags: MapFlags) -> Result<()> {
     let addr = addr.to_socket_addrs()?
         .next()
         .expect("Failed to resolve address");
@@ -116,7 +116,7 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, fd: 
     };
     let val = unsafe { val.as_bytes() };
 
-    map.update(akey, &val, MapFlags::ANY)?;
+    map.update(akey, &val, flags)?;
 
     Ok(())
 }
@@ -167,7 +167,7 @@ fn get_configured_dest_addr(config: &Config, fd: &forwarding_decision) -> Result
     Ok(addr)
 }
 
-fn get_new_bound_socket(dest: &SocketAddr, port_range: std::ops::Range<u16>) -> Result<TcpSocket> {
+fn get_new_bound_socket(dest: &SocketAddr) -> Result<TcpSocket> {
     let ip = if dest.ip().is_loopback() {
         dest.ip()
     }
@@ -180,7 +180,7 @@ fn get_new_bound_socket(dest: &SocketAddr, port_range: std::ops::Range<u16>) -> 
     };
 
     let socket = TcpSocket::new_v4()?;
-    for port in port_range {
+    for port in 12345..u16::max_value() {
         let addr = SocketAddr::new(ip, port);
 
         if let Ok(()) = socket.bind(addr.into()) {
@@ -272,30 +272,27 @@ impl<'obj> Proxy<'obj> {
 
         self.update_forward_list()?;
 
-        // TODO: this breaks if we get to many incoming connections
-        let mut port_range = 12345..13345;
         let listener = TcpListener::bind(&addr).await?;
         loop {
-            self.accept(&listener, port_range.clone()).await?;
-            port_range = port_range.end..(port_range.end + 1000);
+            self.accept(&listener).await?;
         }
     }
 
-    async fn accept(&self, listener: &TcpListener, port_range: std::ops::Range<u16>) -> Result<()> {
+    async fn accept(&self, listener: &TcpListener) -> Result<()> {
         let sock_wait_list = self.get_sock_wait_list()?;
-        add_socket_to_wait_list(&sock_wait_list, &self.address, None)?;
+        add_socket_to_wait_list(&sock_wait_list, &self.address, None, MapFlags::ANY)?;
 
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        if let Err(e) = self.handle_downstream(downstream, port_range).await {
+        if let Err(e) = self.handle_downstream(downstream).await {
             error!("Error handling downstream connection: {:?}", e);
         }
 
         Ok(())
     }
 
-    async fn handle_downstream(&self, downstream: TcpStream, port_range: std::ops::Range<u16>) -> Result<()> {
+    async fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
         let addr = self.address.clone();
         let forward_wait_list = self.get_forward_wait_list()?;
         let sock_wait_list = self.get_sock_wait_list()?;
@@ -336,12 +333,12 @@ impl<'obj> Proxy<'obj> {
                             let fd = body[0];
 
                             let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
-                            let us_sock = get_new_bound_socket(&us_remote_addr, port_range.clone()).unwrap();
+                            let us_sock = get_new_bound_socket(&us_remote_addr).unwrap();
                             let us_local_addr = us_sock.local_addr().unwrap();
 
                             add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
-                            add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd)).unwrap();
-                            add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None).unwrap();
+                            add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd), MapFlags::NO_EXIST).unwrap();
+                            add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY).unwrap();
 
                             // TODO: This should also handle the case where the req doesn't fit into one buffer
                             debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
@@ -356,7 +353,7 @@ impl<'obj> Proxy<'obj> {
                                 .unwrap()
                                 .entry(cache_key)
                                 .or_insert_with(Vec::new)
-                                .push(upstream);
+                                .push(upstream);                           
                         }
                     }
                 }
