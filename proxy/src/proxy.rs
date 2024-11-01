@@ -7,8 +7,8 @@ use crate::{
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
 use log::{debug, error, info, log_enabled};
-use std::{mem::MaybeUninit, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}};
-use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpSocket, TcpStream}};
+use std::{collections::HashMap, mem::{size_of, MaybeUninit}, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
+use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpSocket, TcpStream}, task, time};
 
 mod bpf {
     include!(concat!(
@@ -36,23 +36,27 @@ impl TryIntoRawOctets for SocketAddr {
 
 }
 
+impl TryFrom<&SocketAddr> for addr_key {
+
+    type Error = anyhow::Error;
+
+    fn try_from(addr: &SocketAddr) -> Result<Self> {
+        Ok(addr_key {
+            ip4: addr.try_into_ne_octets()?,
+            port: addr.port() as u32,
+        })
+    }
+
+}
+
 impl TryFrom<(&SocketAddr, &SocketAddr)> for sock_key {
     
     type Error = anyhow::Error;
 
-    fn try_from((local, remote): (&SocketAddr, &SocketAddr)) -> Result<Self> {
-        let local_ip4 = local.try_into_ne_octets()?;
-        let remote_ip4 = remote.try_into_ne_octets()?;
-        
+    fn try_from((local, remote): (&SocketAddr, &SocketAddr)) -> Result<Self> {        
         Ok(sock_key {
-            local: addr_key {
-                ip4: local_ip4,
-                port: local.port() as u32,
-            },
-            remote: addr_key {
-                ip4: remote_ip4,
-                port: remote.port() as u32,
-            }
+            local: addr_key::try_from(local)?,
+            remote: addr_key::try_from(remote)?,
         })
     }
 
@@ -187,6 +191,9 @@ fn get_new_bound_socket(dest: &SocketAddr, port_range: std::ops::Range<u16>) -> 
     bail!("Failed to bind socket")
 }
 
+type CacheKey = [u8; size_of::<forwarding_decision>()];
+type UpstreamCache = HashMap<CacheKey, Vec<TcpStream>>;
+
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub config: Config,
@@ -194,7 +201,7 @@ pub struct Proxy<'obj> {
 
     #[allow(dead_code)]
     sockops: Link,
-    upstreams: Arc<Mutex<Vec<TcpStream>>>
+    upstreams: Arc<Mutex<UpstreamCache>>
 }
 
 impl<'obj> Proxy<'obj> {
@@ -255,7 +262,7 @@ impl<'obj> Proxy<'obj> {
             config,
             skel: skel,
             sockops: sockops,
-            upstreams: Arc::new(Mutex::new(Vec::new())),
+            upstreams: Arc::new(Mutex::new(UpstreamCache::new())),
         })
     }
 
@@ -263,6 +270,9 @@ impl<'obj> Proxy<'obj> {
         let addr = self.address;
         info!("Listening on {}", addr);
 
+        self.update_forward_list()?;
+
+        // TODO: this breaks if we get to many incoming connections
         let mut port_range = 12345..13345;
         let listener = TcpListener::bind(&addr).await?;
         loop {
@@ -297,7 +307,6 @@ impl<'obj> Proxy<'obj> {
                 .unwrap();
             let dkey = unsafe { dkey.as_bytes() };
             let mut buf = [0u8; 8192];
-            let mut new_upstreams = Vec::new();
 
             let res = loop {
                 // wait until the downstream connection is readable
@@ -339,7 +348,15 @@ impl<'obj> Proxy<'obj> {
                             let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
                             upstream.write(&buf[..len]).await.unwrap();
 
-                            new_upstreams.push(upstream);
+                            // upstream connections are automatically reused by the eBPF program
+                            // adding them to this shared vector allows us to keep them alive
+                            // and monitor them
+                            let cache_key = val.try_into().unwrap();
+                            upstreams.lock()
+                                .unwrap()
+                                .entry(cache_key)
+                                .or_insert_with(Vec::new)
+                                .push(upstream);
                         }
                     }
                 }
@@ -348,12 +365,61 @@ impl<'obj> Proxy<'obj> {
             if let Err(e) = res {
                 error!("Error handling downstream connection: {:?}", e);
             }
+        });
 
-            // upstream connections are automatically reused by the eBPF program
-            // we just have to keep them alive here
-            upstreams.lock()
-                .unwrap()
-                .extend(new_upstreams.into_iter());
+        Ok(())
+    }
+
+    fn update_forward_list(&self) -> Result<()> {
+        let us_conn_map = self.get_us_conn_map()?;
+        let forward_map = self.get_forward_map()?;
+        let upstreams = self.upstreams.clone();
+
+        task::spawn(async move {
+            let mut interval = time::interval(Duration::from_micros(500));
+    
+            loop {
+                interval.tick().await;
+                let socks = upstreams.lock().unwrap();
+
+                for (fd, socks) in socks.iter() {
+                    let mut min_bytes = u32::max_value();
+                    let mut min_bytes_key = None;
+
+                    for sock in socks.iter() {
+                        let key = addr_key::try_from(&sock.local_addr().unwrap())
+                            .expect("Failed to create addr_key");
+                        let key = unsafe { key.as_bytes() };
+                        let val = us_conn_map.lookup(&key, MapFlags::ANY)
+                            .ok()
+                            .flatten();
+
+                        if let Some(val) = val {
+                            let (head, body, _tail) = unsafe {
+                                val.align_to::<us_conn_state>()
+                            };
+                            if !head.is_empty() || body.len() != 1 {
+                                error!("Invalid value size");
+                                continue;
+                            }
+
+                            if body[0].num_bytes < min_bytes {
+                                min_bytes = body[0].num_bytes;
+                                min_bytes_key = Some(sock);
+                            }
+                        }
+                    }
+
+                    if let Some(key) = min_bytes_key {
+                        let key = sock_key::try_from((&key.peer_addr().unwrap(), &key.local_addr().unwrap()))
+                            .expect("Failed to create sock_key");
+                        let key = unsafe { key.as_bytes() };
+
+                        forward_map.update(fd, key, MapFlags::ANY)
+                            .expect("Failed to update forward map");
+                    }
+                }
+            }
         });
 
         Ok(())
@@ -366,6 +432,16 @@ impl<'obj> Proxy<'obj> {
 
     fn get_forward_wait_list(&self) -> Result<MapHandle> {
         let id = self.skel.maps.forward_wait_list.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_us_conn_map(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.us_conns.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_forward_map(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.forward_map.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 
