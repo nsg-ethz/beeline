@@ -3,64 +3,18 @@ use as_bytes::AsBytes;
 use crate::{
     bpf::{*, types::*},
     config::Config,
+    net::{SocketBinder, TryIntoRawOctets},
     parse::{http::HttpParser, Action}
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
 use log::{debug, error, info, log_enabled};
-use std::{collections::{HashMap, HashSet}, mem::{size_of, MaybeUninit}, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
-use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpSocket, TcpStream}, task, time};
+use std::{collections::HashMap, mem::{size_of, MaybeUninit}, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
+use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, task, time};
 
-mod bpf {
-    include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/bpf/proxy.skel.rs"
-    ));
-}
+pub mod bpf;
 pub mod config;
 pub mod parse;
-
-trait TryIntoRawOctets {
-
-    fn try_into_ne_octets(&self) -> Result<u32>;
-
-}
-
-impl TryIntoRawOctets for SocketAddr {
-
-    fn try_into_ne_octets(&self) -> Result<u32> {
-        match self.ip() {
-            IpAddr::V4(ip) => Ok(u32::from_ne_bytes(ip.octets())),
-            _ => bail!("RouteKey only supports IPv4 addresses")
-        }
-    }
-
-}
-
-impl TryFrom<&SocketAddr> for addr_key {
-
-    type Error = anyhow::Error;
-
-    fn try_from(addr: &SocketAddr) -> Result<Self> {
-        Ok(addr_key {
-            ip4: addr.try_into_ne_octets()?,
-            port: addr.port() as u32,
-        })
-    }
-
-}
-
-impl TryFrom<(&SocketAddr, &SocketAddr)> for sock_key {
-    
-    type Error = anyhow::Error;
-
-    fn try_from((local, remote): (&SocketAddr, &SocketAddr)) -> Result<Self> {        
-        Ok(sock_key {
-            local: addr_key::try_from(local)?,
-            remote: addr_key::try_from(remote)?,
-        })
-    }
-
-}
+pub mod net;
 
 fn state_action_to_raw(state: u16, action: Action, rodata: &rodata) -> u32 {
     let action = match action {
@@ -167,40 +121,18 @@ fn get_configured_dest_addr(config: &Config, fd: &forwarding_decision) -> Result
     Ok(addr)
 }
 
-fn get_new_bound_socket(dest: &SocketAddr) -> Result<TcpSocket> {
-    let ip = if dest.ip().is_loopback() {
-        dest.ip()
-    }
-    else {
-        let octets = match dest.ip() {
-            IpAddr::V4(ip) => ip.octets(),
-            _ => bail!("IPv6 is not supported")
-        };
-        IpAddr::V4(Ipv4Addr::new(octets[0], octets[1], octets[2], 254))
-    };
-
-    let socket = TcpSocket::new_v4()?;
-    for port in 12345..u16::max_value() {
-        let addr = SocketAddr::new(ip, port);
-
-        if let Ok(()) = socket.bind(addr.into()) {
-            return Ok(socket);
-        }
-    }
-
-    bail!("Failed to bind socket")
-}
-
 type CacheKey = [u8; size_of::<forwarding_decision>()];
 type UpstreamCache = HashMap<CacheKey, Vec<TcpStream>>;
 
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub config: Config,
-    skel: ProxySkel<'obj>,
 
+    skel: ProxySkel<'obj>,
     #[allow(dead_code)]
     sockops: Link,
+
+    binder: Arc<SocketBinder>,
     upstreams: Arc<Mutex<UpstreamCache>>
 }
 
@@ -228,12 +160,7 @@ impl<'obj> Proxy<'obj> {
 
         inject_parser(parser, &mut open_skel)?;
 
-        if let IpAddr::V4(ip) = address.ip() {
-            open_skel.maps.rodata_data.ip4 = u32::from_ne_bytes(ip.octets());
-        }
-        else {
-            bail!("IPv6 is not supported");
-        }
+        open_skel.maps.rodata_data.ip4 = address.try_into_ne_octets()?;
         open_skel.maps.rodata_data.port = address.port() as u32;
 
         let skel = open_skel.load()?;
@@ -257,11 +184,17 @@ impl<'obj> Proxy<'obj> {
             .msg_verdict
             .attach_sockmap(sock_map_fd)?;
 
+        let dests = config.hosts.iter()
+            .map(|h| Ipv4Addr::from_str(&h.address))
+            .collect::<Result<Vec<_>, AddrParseError>>()?;
+        let binder = SocketBinder::new(12345, dests)?;
+
         Ok(Self {
             address,
             config,
             skel: skel,
             sockops: sockops,
+            binder: Arc::new(binder),
             upstreams: Arc::new(Mutex::new(UpstreamCache::new())),
         })
     }
@@ -297,6 +230,7 @@ impl<'obj> Proxy<'obj> {
         let forward_wait_list = self.get_forward_wait_list()?;
         let sock_wait_list = self.get_sock_wait_list()?;
         let config = self.config.clone();
+        let binder = self.binder.clone();
         let upstreams = self.upstreams.clone();
 
         tokio::spawn(async move {
@@ -333,11 +267,16 @@ impl<'obj> Proxy<'obj> {
                             let fd = body[0];
 
                             let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
-                            let us_sock = get_new_bound_socket(&us_remote_addr).unwrap();
+                            let us_sock = binder.bind(us_remote_addr).unwrap();
                             let us_local_addr = us_sock.local_addr().unwrap();
 
+                            info!("Bound to socket: {}", us_local_addr);
+
                             add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
-                            add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd), MapFlags::NO_EXIST).unwrap();
+                            if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd), MapFlags::NO_EXIST) {
+                                error!("Failed to add socket [{:?}->{:?}] to wait list: {:?}", us_local_addr, us_remote_addr, e);
+                                break Err(e);
+                            }
                             add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY).unwrap();
 
                             // TODO: This should also handle the case where the req doesn't fit into one buffer
