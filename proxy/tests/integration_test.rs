@@ -1,3 +1,4 @@
+use anyhow::Result;
 use proxy::Proxy;
 use proxy::config::Config;
 use rand::{distributions::Alphanumeric, Rng};
@@ -75,34 +76,63 @@ async fn setup() -> (TcpStream, TcpListener, TcpListener) {
         }
     };
 
-    println!("Setup complete");
-
     (client, server1, server2)
+}
+
+fn req_header_to(backend: u8) -> String {
+    format!(
+        "POST / HTTP/1.1\r\n\
+         Host: 127.0.0.1\r\n\
+         backend: server{}\r\n\
+         \r\n\r\n", backend).to_string()
+}
+
+async fn write_read(client: &mut TcpStream, server: &mut TcpStream, headers: String) -> Result<(String, String)> {
+    let req_sent = [headers.as_bytes(), random_payload(128).as_slice()].concat();
+    client.write_all(&req_sent).await?;
+
+    let mut req_recv = vec![0; req_sent.len()];
+    server.read(&mut req_recv).await?;
+
+    let req_sent = String::from_utf8(req_sent.to_vec()).unwrap();
+    let req_recv = String::from_utf8(req_recv).unwrap();
+    Ok((req_sent, req_recv))
+}
+
+async fn write_accept_read(client: &mut TcpStream, server: TcpListener, headers: String) -> Result<(TcpStream, String, String)> {
+    let req_sent = [headers.as_bytes(), random_payload(128).as_slice()].concat();
+    client.write_all(&req_sent).await?;
+
+    let mut server = server.accept().await.unwrap().0;
+
+    let mut req_recv = vec![0; req_sent.len()];
+    server.read(&mut req_recv).await?;
+
+    let req_sent = String::from_utf8(req_sent.to_vec()).unwrap();
+    let req_recv = String::from_utf8(req_recv).unwrap();
+    Ok((server, req_sent, req_recv))
 }
 
 #[tokio::test]
 async fn it_routes_to_correct_destination() {
     let (mut client, server1, server2) = setup().await;
+    let hdrs = req_header_to(1);
 
-    let req_sent = b"POST / HTTP/1.1\r\n\
-                     Host: 127.0.0.1\r\n\
-                     backend: server1\r\n\
-                     \r\n\r\n";
-    let req_sent = [req_sent, random_payload(128).as_slice()].concat();
-
-    client.write_all(req_sent.as_slice()).await.unwrap();
-
-    let mut server1 = server1.accept().await.unwrap().0;
-
-    let mut req_recv = vec![0; req_sent.len()];
-    server1.read(&mut req_recv).await.unwrap();
-
-    println!("Received request");
-
-    let req_sent = String::from_utf8(req_sent).unwrap();
-    let req_recv = String::from_utf8(req_recv).unwrap();
+    let (_, req_sent, req_recv) = write_accept_read(&mut client, server1, hdrs).await.unwrap();
     assert_eq!(req_sent, req_recv);
 
     let server2_req_recv = timeout(Duration::from_millis(10), server2.accept()).await;
     assert!(server2_req_recv.is_err());
 }
+
+// #[tokio::test]
+// async fn it_updates_metrics_correctly() {
+//     let (mut client, server1, server2) = setup().await;
+//     let hdrs = req_header_to(1);
+
+//     let (_, req_sent, req_recv) = write_accept_read(&mut client, server1, hdrs).await.unwrap();
+//     assert_eq!(req_sent, req_recv);
+
+//     let server2_req_recv = timeout(Duration::from_millis(10), server2.accept()).await;
+//     assert!(server2_req_recv.is_err());
+// }
