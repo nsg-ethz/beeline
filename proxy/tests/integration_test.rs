@@ -1,131 +1,108 @@
-// use proxy::Proxy;
-// use proxy::config::{Config, Host, Route, Destination, Spec};
-// use rand::{distributions::Alphanumeric, Rng};
-// use core::str;
-// use std::{collections::HashMap, io::{Read, Write}, mem::MaybeUninit, net::{TcpListener, TcpStream}, thread};
+use proxy::Proxy;
+use proxy::config::Config;
+use rand::{distributions::Alphanumeric, Rng};
+use std::{mem::MaybeUninit, ops::{Deref, DerefMut}, path::PathBuf};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::*};
 
-static LOCAL_HOST: &str = "127.0.0.1";
-static SERVER1_PORT: u16 = 8001;
-static SERVER2_PORT: u16 = 8002;
+struct OpenObject {
+    inner: MaybeUninit<libbpf_rs::OpenObject>
+}
 
-// fn test_config() -> (Config, TcpListener, TcpListener) {
-//     let server1 = TcpListener::bind(format!("{}:{}", LOCAL_HOST, SERVER1_PORT)).unwrap();
-//     let server2 = TcpListener::bind(format!("{}:{}", LOCAL_HOST, SERVER2_PORT)).unwrap();
-    
-//     let hosts = vec![
-//         Host {
-//             name: "server1".to_string(),
-//             address: LOCAL_HOST.to_string()
-//         },
-//         Host {
-//             name: "server2".to_string(),
-//             address: LOCAL_HOST.to_string()
-//         }
-//     ];
+impl OpenObject {
 
-//     let routes = vec![
-//         Route {
-//             destination: Destination {
-//                 host: "server1".to_string(),
-//                 port: server1.local_addr().unwrap().port()
-//             }
-//         },
-//         Route {
-//             destination: Destination {
-//                 host: "server2".to_string(),
-//                 port: server2.local_addr().unwrap().port()
-//             }
-//         }
-//     ];
+    pub fn new() -> Self {
+        Self {
+            inner: MaybeUninit::uninit()
+        }
+    }
 
-//     let filters = vec![
-//         Filter {
-//             patterns: HashMap::from([
-//                 ("backend".to_string(), "server1".to_string()),
-//             ]),
-//             route: vec![routes[0].clone()],
-//             mods: None
-//         },
-//         Filter {
-//             patterns: HashMap::from([
-//                 ("backend".to_string(), "server2".to_string()),
-//             ]),
-//             route: vec![routes[1].clone()],
-//             mods: None
-//         },
-//     ];
+}
 
-//     let config = Config {
-//         hosts,
-//         spec: Spec {
-//             http: filters
-//         }
-//     };
+impl Deref for OpenObject {
 
-//     (config, server1, server2)
-// }
+    type Target = MaybeUninit<libbpf_rs::OpenObject>;
 
-// fn random_payload(len: usize) -> Vec<u8> {
-//     rand::thread_rng()
-//         .sample_iter(&Alphanumeric)
-//         .take(len)
-//         .collect()
-// }
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 
-// fn setup() -> (TcpStream, TcpStream, TcpStream) {
-//     env_logger::init();
-//     let (config, socket1, socket2) = test_config();
-//     let proxy_addr = format!("{}:3000", LOCAL_HOST);
+}
 
-//     let server1 = thread::spawn(move || {
-//         socket1.accept().unwrap().0
-//     });
+impl DerefMut for OpenObject {
 
-//     let server2 = thread::spawn(move || {
-//         socket2.accept().unwrap().0
-//     });
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
 
-//     let addr = proxy_addr.clone();
-//     thread::spawn(move || {
-//         let mut open_obj = MaybeUninit::uninit();
-//         let mut proxy = Proxy::new(&addr, config).unwrap();
-//         proxy.attach(&mut open_obj).unwrap();
-//         _ = proxy.listen();
-//     });
+}
 
-//     let server1 = server1.join().unwrap();
-//     let server2 = server2.join().unwrap();
+unsafe impl Send for OpenObject {}
 
-//     let client = loop {
-//         match TcpStream::connect(&proxy_addr) {
-//             Ok(client) => break client,
-//             Err(_) => continue
-//         }
-//     };
+async fn test_config() -> (Config, TcpListener, TcpListener) {    
+    let mut config = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    config.push("../config/debug.yaml");
+    let config = std::fs::File::open(config).unwrap();
+    let config: Config = serde_yaml::from_reader(config).unwrap();
 
-//     (client, server1, server2)
-// }
+    let server1 = TcpListener::bind("127.0.0.1:8001").await.unwrap();
+    let server2 = TcpListener::bind("127.0.0.1:8002").await.unwrap();
 
-// #[test]
-// fn it_routes_to_correct_destination() {
-//     let (mut client, mut server1, mut server2) = setup();
+    (config, server1, server2)
+}
 
-//     let req_sent = b"POST / HTTP/1.1\r\n\
-//                      Host: 127.0.0.1\r\n\
-//                      backend: server1\r\n\
-//                      \r\n\r\n";
-//     let req_sent = [req_sent, random_payload(128).as_slice()].concat();
+fn random_payload(len: usize) -> Vec<u8> {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .collect()
+}
 
-//     client.write_all(req_sent.as_slice()).unwrap();
+async fn setup() -> (TcpStream, TcpListener, TcpListener) {
+    env_logger::init();
+    let (config, server1, server2) = test_config().await;
+    let proxy_addr = "127.0.0.1:3000";
 
-//     let mut req_recv = vec![0; req_sent.len()];
-//     server1.read(&mut req_recv).unwrap();
+    tokio::spawn(async move {
+        let mut open_obj = OpenObject::new();
+        let proxy = Proxy::attach(&proxy_addr, config, &mut open_obj).unwrap();
+        proxy.listen().await
+    });
 
-//     let req_sent = String::from_utf8(req_sent).unwrap();
-//     let req_recv = String::from_utf8(req_recv).unwrap();
-//     assert_eq!(req_sent, req_recv);
+    let client = loop {
+        match TcpStream::connect(&proxy_addr).await {
+            Ok(client) => break client,
+            Err(_) => continue
+        }
+    };
 
-//     let mut req_recv = vec![0; req_sent.len()];
-//     let len = server2.read(&mut req_recv).unwrap();
-//     assert_eq!(len, 0);
-// }
+    println!("Setup complete");
+
+    (client, server1, server2)
+}
+
+#[tokio::test]
+async fn it_routes_to_correct_destination() {
+    let (mut client, server1, server2) = setup().await;
+
+    let req_sent = b"POST / HTTP/1.1\r\n\
+                     Host: 127.0.0.1\r\n\
+                     backend: server1\r\n\
+                     \r\n\r\n";
+    let req_sent = [req_sent, random_payload(128).as_slice()].concat();
+
+    client.write_all(req_sent.as_slice()).await.unwrap();
+
+    let mut server1 = server1.accept().await.unwrap().0;
+
+    let mut req_recv = vec![0; req_sent.len()];
+    server1.read(&mut req_recv).await.unwrap();
+
+    println!("Received request");
+
+    let req_sent = String::from_utf8(req_sent).unwrap();
+    let req_recv = String::from_utf8(req_recv).unwrap();
+    assert_eq!(req_sent, req_recv);
+
+    let server2_req_recv = timeout(Duration::from_millis(10), server2.accept()).await;
+    assert!(server2_req_recv.is_err());
+}
