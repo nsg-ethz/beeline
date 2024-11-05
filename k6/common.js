@@ -25,22 +25,26 @@ export function requestTo(server) {
   var url = null;
   const direct = (__ENV.DIRECT || "0") == "1";
   if (direct) {
-    url = `http://10.0.${server}.1:8000/${signature}`;
+    url = `http://10.0.${server}.1:8000`;
   }
   else {
-    url = `http://10.0.5.1:3000/${signature}`;
+    url = `http://127.0.0.1:3000`;
   }
 
   backends[server-1].add(1);
 
   const id = exec.scenario.iterationInInstance.toString();
   const payload = data.substring(0, payloadSize-id.length) + id;
+  const headers = {
+    "backend": signature,
+    "conn-id": exec.vu.idInTest
+  };
 
-  const res = http.post(url, payload);
+  const res = http.post(url, payload, { headers: headers });
   let passed = check(res, {
     "status is 200": (r) => r.status === 200,
     "processed by correct backend": (r) => r.headers["Signature"] == signature,
-    "benchmark is performance": (r) => r.headers["Benchmark"] === "performance",
+    // "benchmark is performance": (r) => r.headers["Benchmark"] === "performance",
     "body is the same": (r) => r.body === payload,
   });
 

@@ -49,12 +49,12 @@ stop_experiment
 
 echo -e "${COLOR_GREEN}Preparing environment${COLOR_OFF}"
 
-pod 1 ${ECHO_BIN} -a 10.0.1.1:8000 -H "signature: server1" -H "benchmark: test"
-pod 2 ${ECHO_BIN} -a 10.0.2.1:8000 -H "signature: server2" -H "benchmark: test"
-pod 3 ${ECHO_BIN} -a 10.0.3.1:8000 -H "signature: server3" -H "benchmark: test"
-pod 4 ${ECHO_BIN} -a 10.0.4.1:8000 -H "signature: server4" -H "benchmark: test"
+pod 1 ${ECHO_BIN} -a 10.0.1.1:8000 -H "signature: server1" -e "conn-id"
+pod 2 ${ECHO_BIN} -a 10.0.2.1:8000 -H "signature: server2" -e "conn-id"
+pod 3 ${ECHO_BIN} -a 10.0.3.1:8000 -H "signature: server3" -e "conn-id"
+pod 4 ${ECHO_BIN} -a 10.0.4.1:8000 -H "signature: server4" -e "conn-id"
 
-pod 5 ${PROXY_BIN} -a 10.0.5.1:3000 -c ${ROOT}/../config/bench.yaml
+sudo -b -E systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -c ${ROOT}/../config/bench.yaml
 echo -e "${COLOR_GREEN}Launched exp-pod5-proxy in pod5.${COLOR_OFF}"
 
 sleep 0.25
@@ -95,9 +95,9 @@ for SIZE in ${SIZE_LIST}; do
         SUM_OPT="--summary-export=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B.json"
     fi
 
-    BENCH_CMD="k6 run -e VUS=${VUS} -e BACKEND=1 -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
+    BENCH_CMD="k6 run -e VUS=${VUS} -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
     echo ${BENCH_CMD}
-    sudo -E ip netns exec ns5 ${BENCH_CMD}
+    eval ${BENCH_CMD}
     RET=$?
 
     sudo chown -R ${USER}:"domain users" ${SUMMARY_DIR}
