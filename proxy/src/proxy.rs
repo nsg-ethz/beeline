@@ -136,6 +136,10 @@ pub struct Proxy<'obj> {
     upstreams: Arc<Mutex<UpstreamCache>>
 }
 
+unsafe impl<'obj> Send for Proxy<'obj> {}
+
+unsafe impl<'obj> Sync for Proxy<'obj> {}
+
 impl<'obj> Proxy<'obj> {
 
     pub fn attach<A: ToSocketAddrs>(address: A, config: Config, open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>) -> Result<Self> {
@@ -203,7 +207,7 @@ impl<'obj> Proxy<'obj> {
         let addr = self.address;
         info!("Listening on {}", addr);
 
-        self.update_forward_list()?;
+        self.update_forward_map()?;
 
         let listener = TcpListener::bind(&addr).await?;
         loop {
@@ -236,7 +240,6 @@ impl<'obj> Proxy<'obj> {
         tokio::spawn(async move {
             let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr))
                 .unwrap();
-            let dkey = unsafe { dkey.as_bytes() };
             let mut buf = [0u8; 8192];
 
             let res = loop {
@@ -261,7 +264,7 @@ impl<'obj> Proxy<'obj> {
                             let us_sock = binder.bind(us_remote_addr).unwrap();
                             let us_local_addr = us_sock.local_addr().unwrap();
 
-                            info!("Bound to socket: {}", us_local_addr);
+                            debug!("Bound to socket: {}", us_local_addr);
 
                             add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
                             if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd), MapFlags::NO_EXIST) {
@@ -278,7 +281,13 @@ impl<'obj> Proxy<'obj> {
                             // upstream connections are automatically reused by the eBPF program
                             // adding them to this shared vector allows us to keep them alive
                             // and monitor them
-                            let cache_key = unsafe { fd.as_bytes() }.try_into().unwrap();
+
+                            // TODO: remove compile-time metric flags here
+                            let cache_key = forwarding_decision {
+                                num_bytes_min: 0,
+                                ..fd
+                            };
+                            let cache_key = unsafe { cache_key.as_bytes() }.try_into().unwrap();
 
                             upstreams.lock()
                                 .unwrap()
@@ -298,7 +307,7 @@ impl<'obj> Proxy<'obj> {
         Ok(())
     }
 
-    fn update_forward_list(&self) -> Result<()> {
+    fn update_forward_map(&self) -> Result<()> {
         let us_conn_map = self.get_us_conn_map()?;
         let forward_map = self.get_forward_map()?;
         let upstreams = self.upstreams.clone();
@@ -333,6 +342,13 @@ impl<'obj> Proxy<'obj> {
                     }
 
                     if let Some(key) = min_bytes_key {
+                        // TODO: add metric flags here
+                        let fd = align_val_to::<forwarding_decision>(fd).unwrap();
+                        let fd = forwarding_decision {
+                            num_bytes_min: 1,
+                            ..fd
+                        };
+
                         let key = sock_key::try_from((&key.peer_addr().unwrap(), &key.local_addr().unwrap()))
                             .expect("Failed to create sock_key");
 

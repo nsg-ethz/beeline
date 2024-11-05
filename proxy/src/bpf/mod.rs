@@ -73,7 +73,7 @@ impl<M> TypedLookUp for M where M: MapCore {
 
 }
 
-fn align_val_to<V: Copy>(val: &[u8]) -> Option<V> {
+pub fn align_val_to<V: Copy>(val: &[u8]) -> Option<V> {
     let (head, body, _tail) = unsafe {
         val.align_to::<V>()
     };
