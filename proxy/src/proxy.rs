@@ -329,6 +329,7 @@ impl<'obj> Proxy<'obj> {
                         let key = addr_key::try_from(&sock.local_addr().unwrap())
                             .expect("Failed to create addr_key");
 
+                        // TODO: use batch lookup here
                         let val: Option<us_conn_state> = us_conn_map.lookup_as(&key, MapFlags::ANY)
                             .ok()
                             .flatten();
