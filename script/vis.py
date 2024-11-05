@@ -93,7 +93,7 @@ def _save_to_path(name, dst):
     name = name.replace("(", "")
     name = name.replace(")", "")
 
-    plt.tight_layout()
+    # plt.tight_layout()
     path = os.path.join(dst, name)
     if os.path.splitext(path)[1] == "":
         path += ".png"
@@ -195,13 +195,14 @@ def bar_graph(name, metric, agg, dst):
     # g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
     # g.set_xbound(lower=sizes[0], upper=sizes[-1])
 
-    min_y = df[agg].min()
+    print(df[agg])
+
     max_y = df[agg].max()
-    g.set(yticks=np.linspace(min_y, max_y, 5))
+    g.set(yticks=np.linspace(0, max_y, 5))
     for ax in g.axes.flat:
         ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
-    sns.move_legend(g, "upper center")
+    # sns.move_legend(g, "upper center")
 
     if REWRITE_LEGEND:
         _rename_legend_labels(g)

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
 use crate::{
-    bpf::{*, types::*},
+    bpf::{*, types::*, TypedLookUp},
     config::Config,
     net::{SocketBinder, TryIntoRawOctets},
     parse::{http::HttpParser, Action}
@@ -253,19 +253,10 @@ impl<'obj> Proxy<'obj> {
                     Ok(0) => break Ok(()),
                     Ok(len) => {
                         // if it is, it means that the proxy needs userspace to open a new connection
-                        let val = forward_wait_list.lookup_and_delete(&dkey)
+                        let fd: Option<forwarding_decision> = forward_wait_list.lookup_and_delete_as(&dkey)
                             .expect("No forwarding decision in wait list");
 
-                        if let Some(val) = val {
-                            let (head, body, _tail) = unsafe {
-                                val.align_to::<forwarding_decision>()
-                            };
-                            if !head.is_empty() || body.len() != 1 {
-                                break Err(anyhow!("Invalid value size"));
-                            }
-
-                            let fd = body[0];
-
+                        if let Some(fd) = fd {
                             let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
                             let us_sock = binder.bind(us_remote_addr).unwrap();
                             let us_local_addr = us_sock.local_addr().unwrap();
@@ -287,7 +278,8 @@ impl<'obj> Proxy<'obj> {
                             // upstream connections are automatically reused by the eBPF program
                             // adding them to this shared vector allows us to keep them alive
                             // and monitor them
-                            let cache_key = val.try_into().unwrap();
+                            let cache_key = unsafe { fd.as_bytes() }.try_into().unwrap();
+
                             upstreams.lock()
                                 .unwrap()
                                 .entry(cache_key)
@@ -318,6 +310,8 @@ impl<'obj> Proxy<'obj> {
                 interval.tick().await;
                 let socks = upstreams.lock().unwrap();
 
+                let mut keys = Vec::new();
+                let mut vals = Vec::new();
                 for (fd, socks) in socks.iter() {
                     let mut min_bytes = u32::max_value();
                     let mut min_bytes_key = None;
@@ -325,22 +319,14 @@ impl<'obj> Proxy<'obj> {
                     for sock in socks.iter() {
                         let key = addr_key::try_from(&sock.local_addr().unwrap())
                             .expect("Failed to create addr_key");
-                        let key = unsafe { key.as_bytes() };
-                        let val = us_conn_map.lookup(&key, MapFlags::ANY)
+
+                        let val: Option<us_conn_state> = us_conn_map.lookup_as(&key, MapFlags::ANY)
                             .ok()
                             .flatten();
 
                         if let Some(val) = val {
-                            let (head, body, _tail) = unsafe {
-                                val.align_to::<us_conn_state>()
-                            };
-                            if !head.is_empty() || body.len() != 1 {
-                                error!("Invalid value size");
-                                continue;
-                            }
-
-                            if body[0].num_bytes < min_bytes {
-                                min_bytes = body[0].num_bytes;
+                            if val.num_bytes < min_bytes {
+                                min_bytes = val.num_bytes;
                                 min_bytes_key = Some(sock);
                             }
                         }
@@ -349,11 +335,31 @@ impl<'obj> Proxy<'obj> {
                     if let Some(key) = min_bytes_key {
                         let key = sock_key::try_from((&key.peer_addr().unwrap(), &key.local_addr().unwrap()))
                             .expect("Failed to create sock_key");
-                        let key = unsafe { key.as_bytes() };
 
-                        forward_map.update(fd, key, MapFlags::ANY)
-                            .expect("Failed to update forward map");
+                        keys.push(fd);
+                        vals.push(key);
                     }
+                }
+
+                let len = keys.len() as u32;
+                if len > 0 {
+                    let mut keys_raw = Vec::new();
+                    for key in keys.iter() {
+                        let key = unsafe { key.as_bytes() };
+                        keys_raw.extend_from_slice(key);
+                    }
+
+                    let keys = keys_raw.as_slice();
+
+                    let mut vals_raw = Vec::new();
+                    for val in vals.iter() {
+                        let val = unsafe { val.as_bytes() };
+                        vals_raw.extend_from_slice(val);
+                    }
+                    let vals = vals_raw.as_slice();
+
+                    forward_map.update_batch(keys, vals, len, MapFlags::ANY, MapFlags::ANY)
+                        .expect("Failed to update forward map");
                 }
             }
         });

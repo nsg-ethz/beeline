@@ -83,7 +83,7 @@ mod tests {
         let ip = Ipv4Addr::from_str("127.0.0.1").unwrap();
         let addr = SocketAddr::new(IpAddr::V4(ip), 0);
         let hosts = vec![ip];
-        let binder = Arc::new(SocketBinder::new(hosts.into_iter()).unwrap());
+        let binder = Arc::new(SocketBinder::new(12345, hosts.into_iter()).unwrap());
 
         loop {
             let b1 = binder.clone();
