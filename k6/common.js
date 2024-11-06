@@ -39,8 +39,12 @@ export function requestTo(server) {
     "backend": signature,
     "conn-id": exec.vu.idInTest
   };
+  const params = {
+    headers: headers,
+    timeout: "1s"
+  };
 
-  const res = http.post(url, payload, { headers: headers });
+  const res = http.post(url, payload, params);
   let passed = check(res, {
     "status is 200": (r) => r.status === 200,
     "processed by correct backend": (r) => r.headers["Signature"] == signature,
