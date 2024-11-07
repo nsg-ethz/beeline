@@ -16,7 +16,7 @@ path = "src/main.rs"
 anyhow = "1.0.86"
 clap = { version = "4.5.17", features = ["derive"] }
 env_logger = "0.11.5"
-libbpf-rs = { version = "0.24", features = ["vendored"] }
+libbpf-rs = { version = "0.24", features = ["vendored"], path = "../../libbpf-rs/libbpf-rs" }
 libbpf-sys = "1.4.5"
 libc = "0.2.155"
 log = "0.4.22"
@@ -24,6 +24,7 @@ serde_yaml = "0.9.34"
 as-bytes = "0.2.0"
 serde = { version = "1.0.213", features = ["derive"] }
 tokio = { version = "1.41.0", features = ["full"] }
+httparse = "1.9.5"
 
 [build-dependencies]
 libbpf-cargo = "0.24"

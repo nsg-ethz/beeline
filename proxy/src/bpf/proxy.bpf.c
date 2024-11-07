@@ -62,28 +62,28 @@ struct modification {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, 16384);
     __type(key, struct sock_key);
     __type(value, struct forwarding_decision);
 } forward_wait_list SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, 16384);
     __type(key, struct forwarding_decision);
     __type(value, struct sock_key);
 } forward_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, 16384);
     __type(key, struct sock_key);
     __type(value, int);
 } sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, 16384);
     __type(key, struct addr_key);
     __type(value, struct opt_forwarding_decision);
 } sock_wait_list SEC(".maps");
@@ -97,14 +97,14 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, 16384);
     __type(key, struct sock_key);
     __type(value, struct ds_conn_state);
 } ds_conns SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, 16384);
     __type(key, struct addr_key);
     __type(value, struct us_conn_state);
 } us_conns SEC(".maps");
@@ -172,35 +172,33 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
     char *data = (char *)(long)msg->data;
     char buf[64]; // a number cannot be larger than 64 bytes
 
+    pres->backend_len = 0;
+    pres->content_length = 0;
+    pres->conn_id = 0;
+
     struct prange r0 = pranges[0];
     __u32 r0_len = r0.len & 63;
-    if (r0_len > 0 && bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx) == 0) {
+    if (r0_len > 0) {
+        bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx);
         pres->backend_len = r0_len;
-    }
-    else {
-        pres->backend_len = 0;
     }
 
     struct prange r1 = pranges[1];
     __u32 r1_len = r1.len & 63;
-    if (r1_len > 0 && bpf_probe_read_kernel(buf, r1_len, data + r1.idx) == 0) {
+    if (r1_len > 0) {
+        bpf_probe_read_kernel(buf, r1_len, data + r1.idx);
         unsigned long val = 0;
         bpf_strtoul(buf, r1_len, 10, &val);
         pres->content_length = val;
     }
-    else {
-        pres->content_length = 0;
-    }
 
     struct prange r2 = pranges[2];
     __u32 r2_len = r2.len & 63;
-    if (r2_len > 0 && bpf_probe_read_kernel(buf, r2_len, data + r2.idx) == 0) {
+    if (r2_len > 0) {
+        bpf_probe_read_kernel(buf, r2_len, data + r2.idx);
         unsigned long val = 0;
         bpf_strtoul(buf, r2_len, 10, &val);
         pres->conn_id = val;
-    }
-    else {
-        pres->conn_id = 0;
     }
 }
 
@@ -290,7 +288,8 @@ int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *sta
     if (backend_is_server4) fd->backend = PR_SERVER4;
 
     fd->direction = PR_UPSTREAM;
-    fd->num_bytes_min = true;
+    fd->conn_id = res->conn_id;
+    // fd->num_bytes_min = true;
     
     return SK_PASS;
 }
@@ -330,16 +329,14 @@ static __always_inline void _next(__u16 state, __u32 input, __u16 *next_state, _
     *action = (sa & a_mask) >> 16;
 }
 
-static __always_inline int _parse(const struct sk_msg_md *msg, struct prange *pranges, bool *pmatches) {
+static __always_inline int _parse_from(const struct sk_msg_md *msg, __u32 start, struct prange *pranges, bool *pmatches, __u32* cidx) {
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
-    __u32 len = (data_end - data) & MAX_BYTES;
+    __u32 len = ((__u32)(data_end - data) - start) & MAX_BYTES;
 
     if (len == 0) {
         return 0;
     }
-
-    __u32 cidx[MAX_MATCHES] = { 0 };
 
     __u16 s = s_init;
     __u32 i;
@@ -385,9 +382,23 @@ static __always_inline int _parse(const struct sk_msg_md *msg, struct prange *pr
         }
     }
 
-    bpf_log("WARN: Parsed entire payload (%dB)", len);
+    return -1;
+}
 
-    return 0;
+static __always_inline int _parse(const struct sk_msg_md *msg, struct prange *pranges, bool *pmatches) {
+    __u32 cidx[MAX_MATCHES] = { 0 };
+    int res = _parse_from(msg, 0, pranges, pmatches, cidx);
+
+    // TODO: Ideally, we would do this in a loop until we have consumed the whole header
+    if (res < 0) {
+        __u32 old_end = (long)msg->data_end - (long)msg->data;
+        __u32 new_end = 4096 > msg->size ? msg->size : 4096;
+
+        bpf_msg_pull_data(msg, 0, new_end, 0);
+        res = _parse_from(msg, old_end, pranges, pmatches, cidx);
+    }
+
+    return res;
 }
 
 static __always_inline int _log_msg_range(struct sk_msg_md *msg, __u16 idx, __u16 len) {
@@ -491,7 +502,10 @@ int msg_verdict(struct sk_msg_md *msg) {
         struct prange pranges[MAX_MATCHES] = { 0 };
         bool pmatches[MAX_MATCHES] = { 0 };
 
-        if (_parse(msg, pranges, pmatches) < 0) return SK_DROP;
+        if (_parse(msg, pranges, pmatches) < 0) {
+            bpf_err("ERROR: Failed to parse message");
+            return SK_PASS;
+        }
         
         __u32 pres_key = 0;
         struct parse_res *pres = bpf_map_lookup_elem(&pres_map, &pres_key);
@@ -541,31 +555,22 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
 
     struct sock_key *ekey = bpf_map_lookup_elem(&forward_map, &fd);
-    bool redirected = false;
-
     if (ekey != NULL) {
-        if (bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS) == SK_DROP) {
-            bpf_log("WARN: Redirection from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u] failed", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
-        }
-        else {
+        if (bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS) == SK_PASS) {
             bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
-            redirected = true;
+            return SK_PASS;
         }
     }
 
-    if (!redirected) {
-        if (is_retry) {
-            bpf_err("ERROR: Failed to find socket for retry");
-            return SK_DROP;
-        }
-        
-        bpf_log("Add forwarding decision to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        if (bpf_map_update_elem(&forward_wait_list, &ikey, &fd, BPF_ANY) < 0) {
-            bpf_err("ERROR: Failed to add forwarding decision to wait list");
-        }
-        return SK_PASS;
+    if (is_retry) {
+        bpf_err("ERROR: Failed to find socket for retry");
+        return SK_DROP;
     }
-
+    
+    bpf_log("Add forwarding decision to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+    if (bpf_map_update_elem(&forward_wait_list, &ikey, &fd, BPF_ANY) < 0) {
+        bpf_err("ERROR: Failed to add forwarding decision to wait list");
+    }
 
     // we have a match, apply the filter's actions
     // if (fid > 0) {

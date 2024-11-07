@@ -4,13 +4,30 @@ use anyhow::{bail, Result};
 use as_bytes::AsBytes;
 use libbpf_rs::{MapCore, MapFlags};
 use crate::net::TryIntoRawOctets;
-use std::{mem::size_of, net::SocketAddr};
+use std::{hash::{Hash, Hasher}, mem::size_of, net::SocketAddr};
 use types::*;
 
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/src/bpf/proxy.skel.rs"
 ));
+
+impl Eq for addr_key {}
+impl PartialEq for addr_key {
+
+    fn eq(&self, other: &Self) -> bool {
+        self.ip4 == other.ip4 && self.port == other.port
+    }
+
+}
+impl Hash for addr_key {
+
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.ip4.hash(state);
+        self.port.hash(state);
+    }
+
+}
 
 impl TryFrom<&SocketAddr> for addr_key {
 

@@ -8,7 +8,7 @@ use crate::{
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
 use log::{debug, error, info, log_enabled};
-use std::{collections::HashMap, mem::{size_of, MaybeUninit}, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
+use std::{collections::HashMap, io::Cursor, mem::{size_of, MaybeUninit}, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, task, time};
 
 pub mod bpf;
@@ -240,7 +240,7 @@ impl<'obj> Proxy<'obj> {
         tokio::spawn(async move {
             let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr))
                 .unwrap();
-            let mut buf = [0u8; 8192];
+            let mut buf = Vec::with_capacity(8192);
 
             let res = loop {
                 // wait until the downstream connection is readable
@@ -250,53 +250,79 @@ impl<'obj> Proxy<'obj> {
                     Ok(()) => {}
                 }
 
-                match downstream.try_read(&mut buf) {
+                let buf_len = match downstream.try_read_buf(&mut buf) {
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
                     Ok(0) => break Ok(()),
-                    Ok(len) => {
-                        // if it is, it means that the proxy needs userspace to open a new connection
-                        let fd: Option<forwarding_decision> = forward_wait_list.lookup_and_delete_as(&dkey)
-                            .expect("No forwarding decision in wait list");
+                    Ok(len) => len,
+                };
 
-                        if let Some(fd) = fd {
-                            let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
-                            let us_sock = binder.bind(us_remote_addr).unwrap();
-                            let us_local_addr = us_sock.local_addr().unwrap();
-
-                            debug!("Bound to socket: {}", us_local_addr);
-
-                            add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
-                            if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd), MapFlags::NO_EXIST) {
-                                error!("Failed to add socket [{:?}->{:?}] to wait list: {:?}", us_local_addr, us_remote_addr, e);
-                                break Err(e);
-                            }
-                            add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY).unwrap();
-
-                            // TODO: This should also handle the case where the req doesn't fit into one buffer
-                            debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
-                            let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
-                            upstream.write(&buf[..len]).await.unwrap();
-
-                            // upstream connections are automatically reused by the eBPF program
-                            // adding them to this shared vector allows us to keep them alive
-                            // and monitor them
-
-                            // TODO: remove compile-time metric flags here
-                            let cache_key = forwarding_decision {
-                                num_bytes_min: 0,
-                                ..fd
-                            };
-                            let cache_key = unsafe { cache_key.as_bytes() }.try_into().unwrap();
-
-                            upstreams.lock()
-                                .unwrap()
-                                .entry(cache_key)
-                                .or_insert_with(Vec::new)
-                                .push(upstream);                           
-                        }
-                    }
+                let mut headers = [httparse::EMPTY_HEADER; 8192];
+                let mut req = httparse::Request::new(&mut headers);
+                let hdr_len = req.parse(&buf);
+                if let Err(e) = hdr_len {
+                    break Err(anyhow!(e));
                 }
+
+                let con_len = req.headers.iter()
+                    .find(|h| h.name.eq_ignore_ascii_case("content-length"))
+                    .and_then(|h|  std::str::from_utf8(h.value).ok())
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(0);
+
+                let hdr_len = match hdr_len.unwrap() {
+                    httparse::Status::Complete(len) => len,
+                    httparse::Status::Partial => continue,
+                };
+
+                let req_len = hdr_len + con_len;
+                if buf_len < req_len {
+                    debug!("Request not fully read: {buf_len}/{req_len}");
+                    continue;
+                }
+
+                // if it is, it means that the proxy needs userspace to open a new connection
+                let fd: Option<forwarding_decision> = forward_wait_list.lookup_and_delete_as(&dkey)
+                    .expect("No forwarding decision in wait list");
+
+                if let Some(fd) = fd {
+                    let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
+                    let us_sock = binder.bind(us_remote_addr).unwrap();
+                    let us_local_addr = us_sock.local_addr().unwrap();
+
+                    debug!("Bound to socket: {}", us_local_addr);
+
+                    add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
+                    if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd), MapFlags::NO_EXIST) {
+                        error!("Failed to add socket [{:?}->{:?}] to wait list: {:?}", us_local_addr, us_remote_addr, e);
+                        break Err(e);
+                    }
+                    add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY).unwrap();
+
+                    debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
+                    let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
+                    let mut buf = Cursor::new(&buf[..req_len]);
+                    upstream.write_all_buf(&mut buf).await.unwrap();
+
+                    // upstream connections are automatically reused by the eBPF program
+                    // adding them to this shared vector allows us to keep them alive
+                    // and monitor them
+
+                    // TODO: remove compile-time metric flags here
+                    let cache_key = forwarding_decision {
+                        num_bytes_min: 0,
+                        ..fd
+                    };
+                    let cache_key = unsafe { cache_key.as_bytes() }.try_into().unwrap();
+
+                    upstreams.lock()
+                        .unwrap()
+                        .entry(cache_key)
+                        .or_insert_with(Vec::new)
+                        .push(upstream);                           
+                }
+
+                buf.clear();
             };
 
             if let Err(e) = res {
@@ -314,26 +340,58 @@ impl<'obj> Proxy<'obj> {
 
         task::spawn(async move {
             let mut interval = time::interval(Duration::from_micros(500));
+            // let mut states = HashMap::new();
     
             loop {
                 interval.tick().await;
-                let socks = upstreams.lock().unwrap();
+
+                // states.clear();
+                let upstreams = match upstreams.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                let socks = upstreams.iter()
+                    .map(|(k, vs)| {
+                        let vs = vs.into_iter()
+                            .filter_map(|v| sock_key::try_from((&v.local_addr().unwrap(), &v.peer_addr().unwrap())).ok())
+                            .collect::<Vec<_>>();
+
+                        (k.clone(), vs)
+                    })
+                    .collect::<Vec<_>>();
+                
+                // release lock early so that we can accept connections quickly
+                drop(upstreams);
+
+                // let iter = us_conn_map.lookup_batch(50, MapFlags::ANY, MapFlags::ANY)
+                //     .expect("Failed to lookup us_conn_map");
+
+                // for (ks, vs) in iter {
+                //     let ks: Vec<_> = ks.iter()
+                //         .map(|k| align_val_to::<addr_key>(k.as_slice()).unwrap())
+                //         .collect();
+
+                //     let vs: Vec<_> = vs.iter()
+                //         .map(|v| align_val_to::<us_conn_state>(v.as_slice()).unwrap())
+                //         .collect();
+                    
+                //     for (k, v) in ks.into_iter().zip(vs.into_iter()) {
+                //         states.insert(k, v);
+                //     }
+                // }
 
                 let mut keys = Vec::new();
                 let mut vals = Vec::new();
-                for (fd, socks) in socks.iter() {
+                for (fd, fd_socks) in socks.into_iter() {
                     let mut min_bytes = u32::max_value();
                     let mut min_bytes_key = None;
 
-                    for sock in socks.iter() {
-                        let key = addr_key::try_from(&sock.local_addr().unwrap())
-                            .expect("Failed to create addr_key");
-
-                        // TODO: use batch lookup here
-                        let val: Option<us_conn_state> = us_conn_map.lookup_as(&key, MapFlags::ANY)
-                            .ok()
-                            .flatten();
-
+                    for sock in fd_socks.into_iter() {
+                        let val: Option<us_conn_state> = us_conn_map.lookup_as(&sock.local, MapFlags::ANY)
+                            .expect("Failed to lookup us_conn_map");
+                    
+                        // the state for this specific key might not exist because no request
+                        // has been forwarded to this upstream connection yet
                         if let Some(val) = val {
                             if val.num_bytes < min_bytes {
                                 min_bytes = val.num_bytes;
@@ -342,19 +400,16 @@ impl<'obj> Proxy<'obj> {
                         }
                     }
 
-                    if let Some(key) = min_bytes_key {
+                    if let Some(sock) = min_bytes_key {
                         // TODO: add metric flags here
-                        let fd = align_val_to::<forwarding_decision>(fd).unwrap();
+                        let fd = align_val_to::<forwarding_decision>(&fd).unwrap();
                         let fd = forwarding_decision {
                             num_bytes_min: 1,
                             ..fd
                         };
 
-                        let key = sock_key::try_from((&key.peer_addr().unwrap(), &key.local_addr().unwrap()))
-                            .expect("Failed to create sock_key");
-
                         keys.push(fd);
-                        vals.push(key);
+                        vals.push(sock);
                     }
                 }
 
