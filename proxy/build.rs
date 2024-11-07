@@ -14,13 +14,13 @@ fn main() {
         .join("bpf")
         .join("proxy.skel.rs");
 
-    let profile = std::env::var("PROFILE").unwrap();
-    let log_level = if profile == "debug" {
+    let log_level = std::env::var("RUST_LOG").unwrap_or("error".to_string());
+    let log_level = if log_level == "debug" {
         "2"
     } else {
         "1"
     };
-    println!("cargo:rerun-if-env-changed=PROFILE");
+    println!("cargo:rerun-if-env-changed=RUST_LOG");
 
     SkeletonBuilder::new()
         .source(SRC)
