@@ -1,4 +1,4 @@
-use std::mem::MaybeUninit;
+use std::{mem::MaybeUninit, time::Duration};
 
 use anyhow::Result;
 use clap::Parser;
@@ -17,6 +17,9 @@ struct Args {
 
     #[arg(short, long, default_value="config/debug.yaml")]
     config: String,
+
+    #[arg(short, long, default_value="0.5")]
+    update_freq: f32,
 }
 
 fn print(level: PrintLevel, msg: String) {
@@ -39,7 +42,10 @@ async fn main() -> Result<()> {
     let config = std::fs::File::open(args.config)?;
     let config: Config = serde_yaml::from_reader(config)?;
 
+    let freq = (args.update_freq * 1000.0) as u64;
+    let freq = if freq < 1 { None } else { Some(Duration::from_micros(freq)) };
+
     let mut open_obj = MaybeUninit::uninit();
     let proxy = Proxy::attach(&args.address, config, &mut open_obj)?;
-    proxy.listen().await
+    proxy.listen(freq).await
 }

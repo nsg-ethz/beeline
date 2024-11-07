@@ -66,7 +66,7 @@ echo -e "${COLOR_YELLOW}Enable CPU performance governor${COLOR_OFF}"
 sudo cpupower frequency-set --governor performance
 
 echo -e "${COLOR_YELLOW}Shield CPU1 and CPU2 from the OS scheduler${COLOR_OFF}"
-CPU_ALLOWED="0,6-47"
+CPU_ALLOWED="0,9-47"
 
 echo -e "${COLOR_YELLOW}System may now only use CPU: ${CPU_ALLOWED}${COLOR_OFF}"
 sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
@@ -76,7 +76,7 @@ sudo systemctl set-property --runtime pod1.slice AllowedCPUs=1
 sudo systemctl set-property --runtime pod2.slice AllowedCPUs=2
 sudo systemctl set-property --runtime pod3.slice AllowedCPUs=3
 sudo systemctl set-property --runtime pod4.slice AllowedCPUs=4
-sudo systemctl set-property --runtime pod5.slice AllowedCPUs=5
+sudo systemctl set-property --runtime pod5.slice AllowedCPUs=5-8
 
 echo -e "${COLOR_GREEN}CPUs prepared for performance testing...\n${COLOR_OFF}"
 

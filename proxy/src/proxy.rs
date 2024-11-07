@@ -203,11 +203,18 @@ impl<'obj> Proxy<'obj> {
         })
     }
 
-    pub async fn listen(self) -> Result<()> {
+    pub async fn listen(self, update_freq: Option<Duration>) -> Result<()> {
         let addr = self.address;
         info!("Listening on {}", addr);
 
-        self.update_forward_map()?;
+        if let Some(update_freq) = update_freq {
+            let freq_ms = update_freq.as_micros() as f32 / 1000.0;
+            info!("Will update the forwarding map every {}ms", freq_ms);
+            self.update_forward_map(update_freq)?;
+        }
+        else {
+            info!("Will not update the forwarding map");
+        }
 
         let listener = TcpListener::bind(&addr).await?;
         loop {
@@ -333,19 +340,18 @@ impl<'obj> Proxy<'obj> {
         Ok(())
     }
 
-    fn update_forward_map(&self) -> Result<()> {
+    fn update_forward_map(&self, update_freq: Duration) -> Result<()> {
         let us_conn_map = self.get_us_conn_map()?;
         let forward_map = self.get_forward_map()?;
         let upstreams = self.upstreams.clone();
 
         task::spawn(async move {
-            let mut interval = time::interval(Duration::from_micros(500));
-            // let mut states = HashMap::new();
+            let mut interval = time::interval(update_freq);
+            let mut states = HashMap::new();
     
             loop {
                 interval.tick().await;
 
-                // states.clear();
                 let upstreams = match upstreams.lock() {
                     Ok(guard) => guard,
                     Err(poisoned) => poisoned.into_inner(),
@@ -363,22 +369,23 @@ impl<'obj> Proxy<'obj> {
                 // release lock early so that we can accept connections quickly
                 drop(upstreams);
 
-                // let iter = us_conn_map.lookup_batch(50, MapFlags::ANY, MapFlags::ANY)
-                //     .expect("Failed to lookup us_conn_map");
+                let iter = us_conn_map.lookup_batch(50, MapFlags::ANY, MapFlags::ANY)
+                    .expect("Failed to lookup us_conn_map");
 
-                // for (ks, vs) in iter {
-                //     let ks: Vec<_> = ks.iter()
-                //         .map(|k| align_val_to::<addr_key>(k.as_slice()).unwrap())
-                //         .collect();
+                states.clear();
+                for (ks, vs) in iter {
+                    let ks: Vec<_> = ks.iter()
+                        .map(|k| align_val_to::<addr_key>(k.as_slice()).unwrap())
+                        .collect();
 
-                //     let vs: Vec<_> = vs.iter()
-                //         .map(|v| align_val_to::<us_conn_state>(v.as_slice()).unwrap())
-                //         .collect();
+                    let vs: Vec<_> = vs.iter()
+                        .map(|v| align_val_to::<us_conn_state>(v.as_slice()).unwrap())
+                        .collect();
                     
-                //     for (k, v) in ks.into_iter().zip(vs.into_iter()) {
-                //         states.insert(k, v);
-                //     }
-                // }
+                    for (k, v) in ks.into_iter().zip(vs.into_iter()) {
+                        states.insert(k, v);
+                    }
+                }
 
                 let mut keys = Vec::new();
                 let mut vals = Vec::new();
@@ -386,13 +393,10 @@ impl<'obj> Proxy<'obj> {
                     let mut min_bytes = u32::max_value();
                     let mut min_bytes_key = None;
 
-                    for sock in fd_socks.into_iter() {
-                        let val: Option<us_conn_state> = us_conn_map.lookup_as(&sock.local, MapFlags::ANY)
-                            .expect("Failed to lookup us_conn_map");
-                    
+                    for sock in fd_socks.into_iter() {                    
                         // the state for this specific key might not exist because no request
                         // has been forwarded to this upstream connection yet
-                        if let Some(val) = val {
+                        if let Some(val) = states.get(&sock.local) {
                             if val.num_bytes < min_bytes {
                                 min_bytes = val.num_bytes;
                                 min_bytes_key = Some(sock);
