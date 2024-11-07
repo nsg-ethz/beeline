@@ -6,11 +6,9 @@ const vus = __ENV.VUS || 3000;
 export const options = {
   scenarios: {
     rps: {
-      executor: "ramping-arrival-rate",
-      stages: [
-        { duration: "5s", target: rate },
-        { duration: "55s", target: rate },
-      ],
+      executor: "constant-arrival-rate",
+      duration: "1m",
+      rate: rate,
       preAllocatedVUs: vus,
     }
   }
