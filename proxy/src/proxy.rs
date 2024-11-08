@@ -352,6 +352,8 @@ impl<'obj> Proxy<'obj> {
             loop {
                 interval.tick().await;
 
+                // TODO: This is currently a bit inefficient because we're copying upstream as well as us_conn_map
+                // Batching will probably be faster without copying
                 let upstreams = match upstreams.lock() {
                     Ok(guard) => guard,
                     Err(poisoned) => poisoned.into_inner(),
