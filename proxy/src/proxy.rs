@@ -369,23 +369,14 @@ impl<'obj> Proxy<'obj> {
                 // release lock early so that we can accept connections quickly
                 drop(upstreams);
 
-                let iter = us_conn_map.lookup_batch(50, MapFlags::ANY, MapFlags::ANY)
-                    .expect("Failed to lookup us_conn_map");
-
                 states.clear();
-                for (ks, vs) in iter {
-                    let ks: Vec<_> = ks.iter()
-                        .map(|k| align_val_to::<addr_key>(k.as_slice()).unwrap())
-                        .collect();
-
-                    let vs: Vec<_> = vs.iter()
-                        .map(|v| align_val_to::<us_conn_state>(v.as_slice()).unwrap())
-                        .collect();
-                    
-                    for (k, v) in ks.into_iter().zip(vs.into_iter()) {
+                us_conn_map.lookup_batch(50, MapFlags::ANY, MapFlags::ANY)
+                    .expect("Failed to lookup us_conn_map")
+                    .for_each(|(k, v)| {
+                        let k = align_val_to::<addr_key>(k.as_slice()).unwrap();
+                        let v = align_val_to::<us_conn_state>(v.as_slice()).unwrap();
                         states.insert(k, v);
-                    }
-                }
+                    });
 
                 let mut keys = Vec::new();
                 let mut vals = Vec::new();
