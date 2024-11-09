@@ -1,23 +1,22 @@
-# L7 Offload
+# L7 Switch
 
-A load balancing experiment forked from [ebpf-http-offload](https://github.com/sebymiano/ebpf-http-offload).
+This project has the aim of bringing L7 switching to the kernel, using eBPF.
+
+## Testing
+
+```
+cargo test
+```
 
 ## Benchmarking
 
 ```
 ./start-env.sh
 
-cd ebpf
-./start-proxy.sh
-
-script/bench -n new_benchmark -p ebpf -s "1024 2048 4096"
+script/bench.sh -u 1000 -s 1024 vu
 
 ./clean-env.sh
 ```
-
-## Resources
-
-* [What are best practices for benchmarking Envoy?](https://www.envoyproxy.io/docs/envoy/latest/faq/performance/how_to_benchmark_envoy)
 
 
 ## Requirements
