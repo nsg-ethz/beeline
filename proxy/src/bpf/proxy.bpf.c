@@ -40,8 +40,8 @@
 char LICENSE[] SEC("license") = "GPL";
 
 struct addr_key {
-    __u32 ip4;
-    __u32 port;
+    u32 ip4;
+    u32 port;
 };
 
 struct sock_key {
@@ -50,12 +50,12 @@ struct sock_key {
 };
 
 struct prange {
-    __u16 idx;
-    __u16 len;
+    u16 idx;
+    u16 len;
 };
 
 struct modification {
-    __u8 len;
+    u8 len;
     char str[MAX_MOD_LEN];
     __u8 tail;
 };
@@ -91,7 +91,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
-    __type(key, __u32);
+    __type(key, u32);
     __type(value, struct parse_res);
 } pres_map SEC(".maps");
 
@@ -109,28 +109,28 @@ struct {
     __type(value, struct us_conn_state);
 } us_conns SEC(".maps");
 
-const __u32 a_mask = 0xFFFF0000;
-const __u16 a_match = 1 << 15;
-const __u16 a_done = 1 << 14;
-const __u16 a_start_capture = 1 << 13;
-const __u16 a_end_capture = 1 << 12;
+const u32 a_mask = 0xFFFF0000;
+const u16 a_match = 1 << 15;
+const u16 a_done = 1 << 14;
+const u16 a_start_capture = 1 << 13;
+const u16 a_end_capture = 1 << 12;
 // if a_match -> then this represents the fid
 // if a_done -> then this is 0
 // if a_start_capture -> then this is the cid
 // if a_end_capture -> then this is cid | mid
-const __u16 a_id_mask = 0x0FFF;
-const __u16 a_id_1_mask = 0x0FC0;
-const __u16 a_id_2_mask = 0x003F;
+const u16 a_id_mask = 0x0FFF;
+const u16 a_id_1_mask = 0x0FC0;
+const u16 a_id_2_mask = 0x003F;
 
-const __u32 s_mask = 0x0000FFFF;
-const __u16 s_init = 0;
-const __u16 s_any = 1;
+const u32 s_mask = 0x0000FFFF;
+const u16 s_init = 0;
+const u16 s_any = 1;
 
-volatile const __u32 ip4;
-volatile const __u32 port;
-const __u32 local_port = 12345;
-const __u32 local_gw = 254;
-volatile const __u32 s2ts[128][256];
+volatile const u32 ip4;
+volatile const u32 port;
+const u32 local_port = 12345;
+const u32 local_gw = 254;
+volatile const u32 s2ts[128][256];
 volatile const struct modification mods[MAX_MATCHES] = { 0 };
 
 // ----------------------------------------------
@@ -138,9 +138,9 @@ volatile const struct modification mods[MAX_MATCHES] = { 0 };
 
 struct parse_res {
     char backend[4096];
-    __u32 backend_len;
-    __u32 content_length;
-    __u32 conn_id;
+    u32 backend_len;
+    u32 content_length;
+    u32 conn_id;
 };
 
 enum fd_direction {
@@ -157,7 +157,7 @@ enum fd_backend {
 
 // TODO: this needs special care to get aligned
 struct forwarding_decision {
-    __u32 conn_id;
+    u32 conn_id;
     __u8 direction;
     __u8 backend;
     __u8 num_bytes_min;
@@ -177,14 +177,14 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
     pres->conn_id = 0;
 
     struct prange r0 = pranges[0];
-    __u32 r0_len = r0.len & 63;
+    u32 r0_len = r0.len & 63;
     if (r0_len > 0) {
         bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx);
         pres->backend_len = r0_len;
     }
 
     struct prange r1 = pranges[1];
-    __u32 r1_len = r1.len & 63;
+    u32 r1_len = r1.len & 63;
     if (r1_len > 0) {
         bpf_probe_read_kernel(buf, r1_len, data + r1.idx);
         unsigned long val = 0;
@@ -193,7 +193,7 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
     }
 
     struct prange r2 = pranges[2];
-    __u32 r2_len = r2.len & 63;
+    u32 r2_len = r2.len & 63;
     if (r2_len > 0) {
         bpf_probe_read_kernel(buf, r2_len, data + r2.idx);
         unsigned long val = 0;
@@ -206,15 +206,15 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
 // user provided
 
 struct ds_conn_state {
-    __u32 num_bytes;
-    __u32 num_reqs;
-    __u64 last_req_ts;
-    __u64 this_req_ts;
+    u32 num_bytes;
+    u32 num_reqs;
+    u64 last_req_ts;
+    u64 this_req_ts;
 };
 
 struct us_conn_state {
-    __u32 num_bytes;
-    __u32 num_reqs;
+    u32 num_bytes;
+    u32 num_reqs;
 };
 
 int update_ds_state(const struct sock_key *dkey, const struct parse_res *res, struct ds_conn_state *state) {
@@ -264,7 +264,7 @@ int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *sta
     }
 
     // rate limit connection if it's sent a request less than 1ms ago
-    // __u64 req_interval = state->this_req_ts - state->last_req_ts;
+    // u64 req_interval = state->this_req_ts - state->last_req_ts;
     // if (req_interval < 10000000) {
     //     return SK_DROP;
     // }
@@ -310,11 +310,11 @@ int forward_us_conn(const struct sock_key *ukey, const struct us_conn_state *sta
 
 // ----------------------------------------------
 
-static __always_inline void _next(__u16 state, __u32 input, __u16 *next_state, __u16 *action) {
+static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *action) {
     state &= 0x7F;
     input &= 0xFF;
 
-    __u32 sa = s2ts[state][input];
+    u32 sa = s2ts[state][input];
     if (sa == 0) {
         sa = s2ts[state]['*'];
         bpf_clamp_uminmax(sa, 0, 0xFFFFFFFF);
@@ -329,34 +329,34 @@ static __always_inline void _next(__u16 state, __u32 input, __u16 *next_state, _
     *action = (sa & a_mask) >> 16;
 }
 
-static __always_inline int _parse_from(const struct sk_msg_md *msg, __u32 start, struct prange *pranges, bool *pmatches, __u32* cidx) {
+static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, struct prange *pranges, bool *pmatches, u32* cidx) {
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
-    __u32 len = ((__u32)(data_end - data) - start) & MAX_BYTES;
+    u32 len = ((u32)(data_end - data) - start) & MAX_BYTES;
 
     if (len == 0) {
         return 0;
     }
 
-    __u16 s = s_init;
-    __u32 i;
+    u16 s = s_init;
+    u32 i;
     bpf_for(i, 0, len) {
         if (data + i + 1 > data_end) return -1;
         char c = data[i];
 
-        __u16 a = 0;
+        u16 a = 0;
         _next(s, c, &s, &a);
 
         // it should never happen that any of these cases are true simultaneously
         // but it makes the verifier happy when we don't use else if here
         if ((a & a_start_capture) != 0) {
-            __u16 cid = a & a_id_mask & MAX_MATCH_MASK;
+            u16 cid = a & a_id_mask & MAX_MATCH_MASK;
             bpf_log("Start capture range (%d, ?) in [%d, ...]", cid, i);
             cidx[cid] = i;
         }
         if ((a & a_end_capture) != 0) {
-            __u16 cid = ((a & a_id_1_mask) >> 6) & MAX_MATCH_MASK;
-            __u16 rid = a & a_id_2_mask & MAX_MATCH_MASK;
+            u16 cid = ((a & a_id_1_mask) >> 6) & MAX_MATCH_MASK;
+            u16 rid = a & a_id_2_mask & MAX_MATCH_MASK;
             bpf_log("End capture range (%d, %d) in [%d, %d]", cid, rid, cidx[cid], i - cidx[cid] + 1);
 
             pranges[rid] = (struct prange) {
@@ -366,7 +366,7 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, __u32 start,
             cidx[cid] = 0;
         }
         if ((a & a_match) != 0) {
-            __u16 mid = a & a_id_mask & MAX_MATCH_MASK;
+            u16 mid = a & a_id_mask & MAX_MATCH_MASK;
             bpf_err("Match %d at %d", mid, i);
             pmatches[mid] = true;
         }
@@ -386,13 +386,13 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, __u32 start,
 }
 
 static __always_inline int _parse(const struct sk_msg_md *msg, struct prange *pranges, bool *pmatches) {
-    __u32 cidx[MAX_MATCHES] = { 0 };
+    u32 cidx[MAX_MATCHES] = { 0 };
     int res = _parse_from(msg, 0, pranges, pmatches, cidx);
 
     // TODO: Ideally, we would do this in a loop until we have consumed the whole header
     if (res < 0) {
-        __u32 old_end = (long)msg->data_end - (long)msg->data;
-        __u32 new_end = 4096 > msg->size ? msg->size : 4096;
+        u32 old_end = (long)msg->data_end - (long)msg->data;
+        u32 new_end = 4096 > msg->size ? msg->size : 4096;
 
         bpf_msg_pull_data(msg, 0, new_end, 0);
         res = _parse_from(msg, old_end, pranges, pmatches, cidx);
@@ -401,13 +401,13 @@ static __always_inline int _parse(const struct sk_msg_md *msg, struct prange *pr
     return res;
 }
 
-static __always_inline int _log_msg_range(struct sk_msg_md *msg, __u16 idx, __u16 len) {
+static __always_inline int _log_msg_range(struct sk_msg_md *msg, u16 idx, u16 len) {
     if (bpf_msg_pull_data(msg, idx, idx+len, 0) < 0) return -1;
 
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
 
-    __u16 j;
+    u16 j;
     bpf_for(j, 0, len) {
         if (data + j + 1 > data_end) return -1;
         bpf_log("data[%d]=%c", idx+j, data[j]);
@@ -421,8 +421,8 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct prange *r
     if (diff == NULL) return -1;
     *diff = 0;
 
-    __u16 len = r->len;
-    __u16 idx = r->idx;
+    u16 len = r->len;
+    u16 idx = r->idx;
 
     if (len > MAX_BYTES) return -1;
     len &= 0xFF;
@@ -460,7 +460,7 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct prange *r
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
     
-    __u16 i;
+    u16 i;
     bpf_for(i, 0, m->len) {
         if (data + i + 1 > data_end) return -1;
         data[i] = m->str[i];
@@ -507,7 +507,7 @@ int msg_verdict(struct sk_msg_md *msg) {
             return SK_PASS;
         }
         
-        __u32 pres_key = 0;
+        u32 pres_key = 0;
         struct parse_res *pres = bpf_map_lookup_elem(&pres_map, &pres_key);
         if (pres == NULL) {
             bpf_err("ERROR: Failed to init parse result");
@@ -581,7 +581,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     //     __u8 i, j;
     //     bpf_for(i, 0, filters[fid].num_modifications) {
     //         __s16 mid = -1;
-    //         __u16 idx_min = 0xFFFF;
+    //         u16 idx_min = 0xFFFF;
 
     //         // find the first detected range
     //         // this is necessary because modify needs to be called in linear order
