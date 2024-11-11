@@ -57,7 +57,7 @@ struct prange {
 struct modification {
     u8 len;
     char str[MAX_MOD_LEN];
-    __u8 tail;
+    u8 tail;
 };
 
 struct {
@@ -158,13 +158,13 @@ enum fd_backend {
 // TODO: this needs special care to get aligned
 struct forwarding_decision {
     u32 conn_id;
-    __u8 direction;
-    __u8 backend;
-    __u8 num_bytes_min;
+    u8 direction;
+    u8 backend;
+    u8 num_bytes_min;
 };
 
 struct opt_forwarding_decision {
-    __u8 is_some;
+    u8 is_some;
     struct forwarding_decision inner;
 };
 
@@ -578,7 +578,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     //     bpf_log("Apply filter %d (matches: %d, modifications: %d)", fid, filters[fid].num_patterns, filters[fid].num_modifications);
         
     //     __s16 off = 0;
-    //     __u8 i, j;
+    //     u8 i, j;
     //     bpf_for(i, 0, filters[fid].num_modifications) {
     //         __s16 mid = -1;
     //         u16 idx_min = 0xFFFF;
