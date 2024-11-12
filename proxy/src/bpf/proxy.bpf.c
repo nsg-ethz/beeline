@@ -184,43 +184,31 @@ enum ft_backend {
 static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct prange *pranges, struct parse_res *pres) {
     char *data = (char *)(long)msg->data;
     char buf[64]; // a number cannot be larger than 64 bytes
-
-    pres->backend_len = 0;
-    pres->authorization_len = 0;
-    pres->content_length = 0;
-    pres->conn_id = 0;
+    unsigned long tmp = 0;
 
     struct prange r0 = pranges[0];
     u32 r0_len = r0.len & 4095;
-    if (r0_len > 0) {
-        bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx);
-        pres->backend_len = r0_len;
-    }
+    bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx);
+    pres->backend_len = r0_len;
 
     struct prange r1 = pranges[1];
     u32 r1_len = r1.len & 4095;
-    if (r1_len > 0) {
-        bpf_probe_read_kernel(pres->authorization, r1_len, data + r1.idx);
-        pres->authorization_len = r1_len;
-    }
+    bpf_probe_read_kernel(pres->authorization, r1_len, data + r1.idx);
+    pres->authorization_len = r1_len;
 
     struct prange r2 = pranges[2];
-    u32 r2_len = r2.len & 63;
-    if (r2_len > 0) {
-        bpf_probe_read_kernel(buf, r2_len, data + r2.idx);
-        unsigned long val = 0;
-        bpf_strtoul(buf, r2_len, 10, &val);
-        pres->content_length = val;
-    }
+    u32 r2_len = r2.len & 62;
+    bpf_probe_read_kernel(buf, r2_len, data + r2.idx);
+    buf[r2_len] = '\0'; // this way, we don't need an if-clause
+    bpf_strtoul(buf, r2_len + 1, 10, &tmp);
+    pres->content_length = tmp;
 
     struct prange r3 = pranges[3];
-    u32 r3_len = r3.len & 63;
-    if (r3_len > 0) {
-        bpf_probe_read_kernel(buf, r3_len, data + r3.idx);
-        unsigned long val = 0;
-        bpf_strtoul(buf, r3_len, 10, &val);
-        pres->conn_id = val;
-    }
+    u32 r3_len = r3.len & 62;
+    bpf_probe_read_kernel(buf, r3_len, data + r3.idx);
+    buf[r3_len] = '\0'; // this way, we don't need an if-clause
+    bpf_strtoul(buf, r3_len + 1, 10, &tmp);
+    pres->conn_id = tmp;
 }
 
 // ----------------------------------------------
