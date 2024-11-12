@@ -256,8 +256,8 @@ struct opt_frwd_token {
 //     char authorization[4096];
 // };
 
-int authorize(const struct sk_msg_md* msg, const struct parse_res *res, char *at) {
-    at = &res->authorization;
+int authorize(const struct sk_msg_md* msg, const struct parse_res *res, char **at) {
+    *at = &res->authorization;
 
     return 0;
 }
@@ -561,8 +561,8 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
         _init_parse_res(msg, pranges, pres);
 
-        if (authorize(msg, pres, at) != 0) {
-            bpf_log("PLUGIN: Failed to authorize msg");
+        if (authorize(msg, pres, &at) != 0) {
+            bpf_log("PLUGIN: Drops unauthorized msg immediately");
             return SK_DROP;
         }
 
@@ -632,6 +632,7 @@ int msg_verdict(struct sk_msg_md *msg) {
             bpf_err("ERROR: Failed to add forwarding token to wait list");
         }
     }
+
     if (!frwd_map_hit) {
         bpf_log("Add forwarding token to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
         if (bpf_map_update_elem(&frwd_wait_list, &ikey, &ft, BPF_ANY) < 0) {

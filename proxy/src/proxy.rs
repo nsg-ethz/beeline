@@ -1,5 +1,8 @@
 use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
+use hmac::{Hmac, Mac};
+use jwt::VerifyWithKey;
+use sha2::Sha256;
 use crate::{
     bpf::{*, types::*, TypedLookUp},
     config::Config,
@@ -7,8 +10,8 @@ use crate::{
     parse::{http::HttpParser, Action}
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
-use log::{debug, error, info, log_enabled};
-use std::{collections::HashMap, io::Cursor, mem::{size_of, MaybeUninit}, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
+use log::{debug, error, info, log_enabled, warn};
+use std::{collections::{BTreeMap, HashMap}, io::Cursor, mem::{size_of, MaybeUninit}, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::{self, FromStr}, sync::{Arc, Mutex}, time::Duration};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, task, time};
 
 pub mod bpf;
@@ -121,6 +124,25 @@ fn get_configured_dest_addr(config: &Config, ft: &frwd_token) -> Result<SocketAd
     Ok(addr)
 }
 
+fn handle_auth_token<M: MapCore>(at: &[u8], auth_map: &M) -> Result<()> {
+    let token = str::from_utf8(at)?;
+    let token = token.strip_prefix("Bearer")
+        .expect("Invalid auth token")
+        .split("\r\n")
+        .next()
+        .expect("Invalid auth token")
+        .trim();
+
+    let key: Hmac<Sha256> = Hmac::new_from_slice(b"some-secret")?;
+    let _: BTreeMap<String, String> = token.verify_with_key(&key)?;
+
+    // this auth token has been verified, add it to the cache
+    let val = 1u8.to_ne_bytes();
+    auth_map.update(at, &val, MapFlags::ANY)?;
+    
+    Ok(())
+}
+
 type CacheKey = [u8; size_of::<frwd_token>()];
 type UpstreamCache = HashMap<CacheKey, Vec<TcpStream>>;
 
@@ -155,9 +177,9 @@ impl<'obj> Proxy<'obj> {
 
         let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
         parser.set_http_hdr("backend", "doesntmatter")?;
+        parser.set_http_hdr("authorization", "lol")?;
         parser.set_http_hdr("content-length", "whatever")?;
         parser.set_http_hdr("conn-id", "lol")?;
-        parser.set_http_hdr("authorization", "lol")?;
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
@@ -242,6 +264,7 @@ impl<'obj> Proxy<'obj> {
         let frwd_wait_list = self.get_frwd_wait_list()?;
         let sock_wait_list = self.get_sock_wait_list()?;
         let auth_wait_list = self.get_auth_wait_list()?;
+        let auth_map = self.get_auth_map()?;
         let config = self.config.clone();
         let binder = self.binder.clone();
         let upstreams = self.upstreams.clone();
@@ -291,11 +314,17 @@ impl<'obj> Proxy<'obj> {
                 }
 
                 // check if there is a auth token in the waiting list
-                let dkey = unsafe { dkey.as_bytes() };
-                let at = auth_wait_list.lookup_and_delete(&dkey)
+                let dkey_raw = unsafe { dkey.as_bytes() };
+                let at = auth_wait_list.lookup_and_delete(&dkey_raw)
                     .expect("Failed to lookup auth_wait_list");
                 if let Some(at) = at {
-                    continue;
+                    match handle_auth_token(&at, &auth_map) {
+                        Err(e) => {
+                            warn!("Failed to verify auth token: {:?}", e);
+                            continue;
+                        }
+                        Ok(()) => {}
+                    }
                 }
 
                 // check if there is a forwarding token in the waiting list

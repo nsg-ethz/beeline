@@ -756,6 +756,7 @@ dependencies = [
  "as-bytes",
  "clap",
  "env_logger",
+ "hmac",
  "httparse",
  "jwt",
  "libbpf-cargo",
@@ -766,6 +767,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_yaml",
+ "sha2",
  "tokio",
 ]
 

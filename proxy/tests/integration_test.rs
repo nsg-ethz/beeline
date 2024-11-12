@@ -1,7 +1,10 @@
 use anyhow::Result;
+use hmac::{Hmac, Mac};
+use jwt::SignWithKey;
 use proxy::Proxy;
 use proxy::config::Config;
 use rand::{distributions::Alphanumeric, Rng};
+use sha2::Sha256;
 use std::{collections::HashMap, mem::MaybeUninit, ops::{Deref, DerefMut}, path::PathBuf};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::JoinHandle, time::*};
 
@@ -75,7 +78,7 @@ async fn setup(freq: Option<Duration>) -> (JoinHandle<Result<()>>, TcpStream, Tc
     (proxy, client, server1, server2)
 }
 
-fn http_req_from(hdrs: HashMap<&str, &str>, payload_len: usize) -> String {
+fn http_req_from(hdrs: &HashMap<&str, &str>, payload_len: usize) -> String {
     let req = format!("POST / HTTP/1.1\r\n\
                        Host: 127.0.0.1\r\n\
                        Content-Length: {}\r\n", payload_len);
@@ -97,7 +100,15 @@ fn http_req_from(hdrs: HashMap<&str, &str>, payload_len: usize) -> String {
     req
 }
 
-async fn write(client: &mut TcpStream, hdrs: HashMap<&str, &str>) -> Result<String> {
+fn generate_jwt(secret: &str) -> Result<String> {
+    let key: Hmac<Sha256> = Hmac::new_from_slice(secret.as_bytes())?;
+    let mut claims = HashMap::new();
+    claims.insert("sub", "someone");
+    let token = claims.sign_with_key(&key)?;
+    Ok(token)
+}
+
+async fn write(client: &mut TcpStream, hdrs: &HashMap<&str, &str>) -> Result<String> {
     let req_sent = http_req_from(hdrs, 128);
     let write = client.write_all(req_sent.as_bytes());
     timeout(DEFAULT_TIMEOUT, write).await??;
@@ -119,7 +130,7 @@ async fn read(server: &mut TcpStream, len: usize) -> Result<String> {
     Ok(req_recv)
 }
 
-async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: HashMap<&str, &str>) -> Result<(TcpStream, String, String)> {
+async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: &HashMap<&str, &str>) -> Result<(TcpStream, String, String)> {
     let req_sent = write(client, hdrs).await?;
     let mut server = try_accept(server).await?;
     let req_recv = read(&mut server, req_sent.len()).await?;
@@ -132,10 +143,7 @@ async fn it_routes_to_correct_destination() {
     let (proxy, mut client, server1, server2) = setup(None).await;
     let hdrs = HashMap::from([("backend", "server1")]);
 
-    let res = write_accept_read(&mut client, server1, hdrs).await;
-    assert!(res.is_ok());
-
-    let (_, req_sent, req_recv) = res.unwrap();
+    let (_, req_sent, req_recv) = write_accept_read(&mut client, server1, &hdrs).await.unwrap();
     assert_eq!(req_sent, req_recv);
 
     let server2_req_recv = try_accept(server2).await;
@@ -147,12 +155,14 @@ async fn it_routes_to_correct_destination() {
 #[tokio::test]
 async fn it_drops_invalid_jwt() {
     let (proxy, mut client, server1, server2) = setup(None).await;
+    let token = generate_jwt("invalid_secret").unwrap();
+    let token = format!("Bearer {token}");
     let hdrs = HashMap::from([
         ("backend", "server1"),
-        ("Authorization", "Bearer 0993482034")
+        ("Authorization", token.as_str())
     ]);
 
-    let res = write(&mut client, hdrs).await;
+    let res = write(&mut client, &hdrs).await;
     assert!(res.is_ok());
 
     let server1_req_recv = try_accept(server1).await;
@@ -167,15 +177,19 @@ async fn it_drops_invalid_jwt() {
 #[tokio::test]
 async fn it_forwards_valid_jwt() {
     let (proxy, mut client, server1, server2) = setup(None).await;
+    let token = generate_jwt("some-secret").unwrap();
+    let token = format!("Bearer {token}");
     let hdrs = HashMap::from([
         ("backend", "server1"),
-        ("Authorization", "Bearer 0993482034")
+        ("Authorization", token.as_str())
     ]);
 
-    let res = write_accept_read(&mut client, server1, hdrs).await;
-    assert!(res.is_ok());
+    let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &hdrs).await.unwrap();
+    assert_eq!(req_sent, req_recv);
 
-    let (_, req_sent, req_recv) = res.unwrap();
+    // the second request with the same token should be handled in eBPF only
+    let req_sent = write(&mut client, &hdrs).await.unwrap();
+    let req_recv = read(&mut server1, req_sent.len()).await.unwrap();
     assert_eq!(req_sent, req_recv);
 
     let server2_req_recv = try_accept(server2).await;
