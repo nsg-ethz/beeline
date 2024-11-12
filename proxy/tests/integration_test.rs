@@ -5,6 +5,8 @@ use rand::{distributions::Alphanumeric, Rng};
 use std::{collections::HashMap, mem::MaybeUninit, ops::{Deref, DerefMut}, path::PathBuf};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::JoinHandle, time::*};
 
+const DEFAULT_TIMEOUT: Duration = Duration::from_millis(10);
+
 struct OpenObject {
     inner: MaybeUninit<libbpf_rs::OpenObject>
 }
@@ -97,14 +99,21 @@ fn http_req_from(hdrs: HashMap<&str, &str>, payload_len: usize) -> String {
 
 async fn write(client: &mut TcpStream, hdrs: HashMap<&str, &str>) -> Result<String> {
     let req_sent = http_req_from(hdrs, 128);
-    client.write_all(req_sent.as_bytes()).await?;
+    let write = client.write_all(req_sent.as_bytes());
+    timeout(DEFAULT_TIMEOUT, write).await??;
 
     Ok(req_sent)
 }
 
+async fn try_accept(server: TcpListener) -> Result<TcpStream> {
+    let (server, _) = timeout(DEFAULT_TIMEOUT, server.accept()).await??;
+    Ok(server)
+}
+
 async fn read(server: &mut TcpStream, len: usize) -> Result<String> {
     let mut req_recv = vec![0; len];
-    server.read(&mut req_recv).await?;
+    let read = server.read(&mut req_recv);
+    timeout(DEFAULT_TIMEOUT, read).await??;
 
     let req_recv = String::from_utf8(req_recv)?;
     Ok(req_recv)
@@ -112,7 +121,7 @@ async fn read(server: &mut TcpStream, len: usize) -> Result<String> {
 
 async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: HashMap<&str, &str>) -> Result<(TcpStream, String, String)> {
     let req_sent = write(client, hdrs).await?;
-    let mut server = server.accept().await.unwrap().0;
+    let mut server = try_accept(server).await?;
     let req_recv = read(&mut server, req_sent.len()).await?;
 
     Ok((server, req_sent, req_recv))
@@ -123,29 +132,53 @@ async fn it_routes_to_correct_destination() {
     let (proxy, mut client, server1, server2) = setup(None).await;
     let hdrs = HashMap::from([("backend", "server1")]);
 
-    let (_, req_sent, req_recv) = write_accept_read(&mut client, server1, hdrs).await.unwrap();
+    let res = write_accept_read(&mut client, server1, hdrs).await;
+    assert!(res.is_ok());
+
+    let (_, req_sent, req_recv) = res.unwrap();
     assert_eq!(req_sent, req_recv);
 
-    let server2_req_recv = timeout(Duration::from_millis(10), server2.accept()).await;
+    let server2_req_recv = try_accept(server2).await;
     assert!(server2_req_recv.is_err());
     
     proxy.abort();
 }
 
 #[tokio::test]
-async fn it_rejects_invalid_jwt() {
+async fn it_drops_invalid_jwt() {
     let (proxy, mut client, server1, server2) = setup(None).await;
     let hdrs = HashMap::from([
         ("backend", "server1"),
         ("Authorization", "Bearer 0993482034")
     ]);
 
-    write(&mut client, hdrs).await.unwrap();
+    let res = write(&mut client, hdrs).await;
+    assert!(res.is_ok());
 
-    let server1_req_recv = timeout(Duration::from_millis(10), server1.accept()).await;
+    let server1_req_recv = try_accept(server1).await;
     assert!(server1_req_recv.is_err());
 
-    let server2_req_recv = timeout(Duration::from_millis(10), server2.accept()).await;
+    let server2_req_recv = try_accept(server2).await;
+    assert!(server2_req_recv.is_err());
+
+    proxy.abort();
+}
+
+#[tokio::test]
+async fn it_forwards_valid_jwt() {
+    let (proxy, mut client, server1, server2) = setup(None).await;
+    let hdrs = HashMap::from([
+        ("backend", "server1"),
+        ("Authorization", "Bearer 0993482034")
+    ]);
+
+    let res = write_accept_read(&mut client, server1, hdrs).await;
+    assert!(res.is_ok());
+
+    let (_, req_sent, req_recv) = res.unwrap();
+    assert_eq!(req_sent, req_recv);
+
+    let server2_req_recv = try_accept(server2).await;
     assert!(server2_req_recv.is_err());
 
     proxy.abort();
