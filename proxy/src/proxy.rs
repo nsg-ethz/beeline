@@ -53,7 +53,7 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, fd: Option<forwarding_decision>, flags: MapFlags) -> Result<()> {
+fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, ft: Option<frwd_token>, flags: MapFlags) -> Result<()> {
     let addr = addr.to_socket_addrs()?
         .next()
         .expect("Failed to resolve address");
@@ -64,9 +64,9 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, fd: 
     };
     let akey = unsafe { akey.as_bytes() };
 
-    let val = opt_forwarding_decision {
-        is_some: fd.is_some() as u8,
-        inner: fd.unwrap_or_default()
+    let val = opt_frwd_token {
+        is_some: ft.is_some() as u8,
+        inner: ft.unwrap_or_default()
     };
     let val = unsafe { val.as_bytes() };
 
@@ -75,7 +75,7 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, fd: 
     Ok(())
 }
 
-fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_addr: &A, remote_addr: &A, fd: forwarding_decision) -> Result<()> {
+fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_addr: &A, remote_addr: &A, ft: frwd_token) -> Result<()> {
     let local_addr = local_addr.to_socket_addrs()?
         .next()
         .expect("Failed to resolve local address");
@@ -86,22 +86,22 @@ fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_ad
 
     let skey = sock_key::try_from((&local_addr, &remote_addr))?;
     let skey = unsafe { skey.as_bytes() };
-    let fd = unsafe { fd.as_bytes() };
+    let ft = unsafe { ft.as_bytes() };
 
-    map.update(skey, fd, MapFlags::ANY)?;
+    map.update(skey, ft, MapFlags::ANY)?;
 
     Ok(())
 }
 
-fn get_configured_dest_addr(config: &Config, fd: &forwarding_decision) -> Result<SocketAddr> {
-    if fd.direction != 2 {
+fn get_configured_dest_addr(config: &Config, ft: &frwd_token) -> Result<SocketAddr> {
+    if ft.direction != 2 {
         bail!("Invalid direction");
     }
 
     let dest = config.spec.routes.iter()
         .find(|route| {
             if let Some(backend) = route.predicates.get("backend").and_then(|b| b.parse::<u8>().ok()) {
-                if backend != fd.backend {
+                if backend != ft.backend {
                     return false;
                 }
             }
@@ -121,7 +121,7 @@ fn get_configured_dest_addr(config: &Config, fd: &forwarding_decision) -> Result
     Ok(addr)
 }
 
-type CacheKey = [u8; size_of::<forwarding_decision>()];
+type CacheKey = [u8; size_of::<frwd_token>()];
 type UpstreamCache = HashMap<CacheKey, Vec<TcpStream>>;
 
 pub struct Proxy<'obj> {
@@ -157,6 +157,7 @@ impl<'obj> Proxy<'obj> {
         parser.set_http_hdr("backend", "doesntmatter")?;
         parser.set_http_hdr("content-length", "whatever")?;
         parser.set_http_hdr("conn-id", "lol")?;
+        parser.set_http_hdr("authorization", "lol")?;
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
@@ -210,7 +211,7 @@ impl<'obj> Proxy<'obj> {
         if let Some(update_freq) = update_freq {
             let freq_ms = update_freq.as_micros() as f32 / 1000.0;
             info!("Will update the forwarding map every {}ms", freq_ms);
-            self.update_forward_map(update_freq)?;
+            self.update_frwd_map(update_freq)?;
         }
         else {
             info!("Will not update the forwarding map");
@@ -238,8 +239,9 @@ impl<'obj> Proxy<'obj> {
 
     async fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
         let addr = self.address.clone();
-        let forward_wait_list = self.get_forward_wait_list()?;
+        let frwd_wait_list = self.get_frwd_wait_list()?;
         let sock_wait_list = self.get_sock_wait_list()?;
+        let auth_wait_list = self.get_auth_wait_list()?;
         let config = self.config.clone();
         let binder = self.binder.clone();
         let upstreams = self.upstreams.clone();
@@ -288,19 +290,27 @@ impl<'obj> Proxy<'obj> {
                     continue;
                 }
 
-                // if it is, it means that the proxy needs userspace to open a new connection
-                let fd: Option<forwarding_decision> = forward_wait_list.lookup_and_delete_as(&dkey)
-                    .expect("No forwarding decision in wait list");
+                // check if there is a auth token in the waiting list
+                let dkey = unsafe { dkey.as_bytes() };
+                let at = auth_wait_list.lookup_and_delete(&dkey)
+                    .expect("Failed to lookup auth_wait_list");
+                if let Some(at) = at {
+                    continue;
+                }
 
-                if let Some(fd) = fd {
-                    let us_remote_addr = get_configured_dest_addr(&config, &fd).unwrap();
+                // check if there is a forwarding token in the waiting list
+                let ft: Option<frwd_token> = frwd_wait_list.lookup_and_delete_as(&dkey)
+                    .expect("Failed to lookup frwd_wait_list");
+
+                if let Some(ft) = ft {
+                    let us_remote_addr = get_configured_dest_addr(&config, &ft).unwrap();
                     let us_sock = binder.bind(us_remote_addr).unwrap();
                     let us_local_addr = us_sock.local_addr().unwrap();
 
                     debug!("Bound to socket: {}", us_local_addr);
 
-                    add_forward_rule_to_wait_list(&forward_wait_list, &us_local_addr, &us_remote_addr, fd).unwrap();
-                    if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(fd), MapFlags::NO_EXIST) {
+                    add_forward_rule_to_wait_list(&frwd_wait_list, &us_local_addr, &us_remote_addr, ft).unwrap();
+                    if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(ft), MapFlags::NO_EXIST) {
                         error!("Failed to add socket [{:?}->{:?}] to wait list: {:?}", us_local_addr, us_remote_addr, e);
                         break Err(e);
                     }
@@ -316,9 +326,9 @@ impl<'obj> Proxy<'obj> {
                     // and monitor them
 
                     // TODO: remove compile-time metric flags here
-                    let cache_key = forwarding_decision {
+                    let cache_key = frwd_token {
                         num_bytes_min: 0,
-                        ..fd
+                        ..ft
                     };
                     let cache_key = unsafe { cache_key.as_bytes() }.try_into().unwrap();
 
@@ -340,9 +350,9 @@ impl<'obj> Proxy<'obj> {
         Ok(())
     }
 
-    fn update_forward_map(&self, update_freq: Duration) -> Result<()> {
+    fn update_frwd_map(&self, update_freq: Duration) -> Result<()> {
         let us_conn_map = self.get_us_conn_map()?;
-        let forward_map = self.get_forward_map()?;
+        let frwd_map = self.get_frwd_map()?;
         let upstreams = self.upstreams.clone();
 
         task::spawn(async move {
@@ -382,11 +392,11 @@ impl<'obj> Proxy<'obj> {
 
                 let mut keys = Vec::new();
                 let mut vals = Vec::new();
-                for (fd, fd_socks) in socks.into_iter() {
+                for (ft, ft_socks) in socks.into_iter() {
                     let mut min_bytes = u32::max_value();
                     let mut min_bytes_key = None;
 
-                    for sock in fd_socks.into_iter() {                    
+                    for sock in ft_socks.into_iter() {                    
                         // the state for this specific key might not exist because no request
                         // has been forwarded to this upstream connection yet
                         if let Some(val) = states.get(&sock.local) {
@@ -399,13 +409,13 @@ impl<'obj> Proxy<'obj> {
 
                     if let Some(sock) = min_bytes_key {
                         // TODO: add metric flags here
-                        let fd = align_val_to::<forwarding_decision>(&fd).unwrap();
-                        let fd = forwarding_decision {
+                        let ft = align_val_to::<frwd_token>(&ft).unwrap();
+                        let ft = frwd_token {
                             num_bytes_min: 1,
-                            ..fd
+                            ..ft
                         };
 
-                        keys.push(fd);
+                        keys.push(ft);
                         vals.push(sock);
                     }
                 }
@@ -427,7 +437,7 @@ impl<'obj> Proxy<'obj> {
                     }
                     let vals = vals_raw.as_slice();
 
-                    forward_map.update_batch(keys, vals, len, MapFlags::ANY, MapFlags::ANY)
+                    frwd_map.update_batch(keys, vals, len, MapFlags::ANY, MapFlags::ANY)
                         .expect("Failed to update forward map");
                 }
             }
@@ -441,8 +451,13 @@ impl<'obj> Proxy<'obj> {
         Ok(MapHandle::from_map_id(id)?)
     }
 
-    fn get_forward_wait_list(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.forward_wait_list.info()?.info.id;
+    fn get_frwd_wait_list(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.frwd_wait_list.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_auth_wait_list(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.auth_wait_list.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 
@@ -451,8 +466,13 @@ impl<'obj> Proxy<'obj> {
         Ok(MapHandle::from_map_id(id)?)
     }
 
-    fn get_forward_map(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.forward_map.info()?.info.id;
+    fn get_frwd_map(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.frwd_map.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_auth_map(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.auth_map.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 

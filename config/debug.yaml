@@ -6,8 +6,9 @@ hosts:
 spec:   
   parse:
     http:
-      backend: str,
+      backend: str
       content-length: u32
+      authorization: str
   forward:
     - predicates:
         backend: 1

@@ -4,6 +4,12 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
+// used in the plugin code to specify the type of a map
+#define pr_metr_ds struct ds_conn_state
+#define pr_metr_us struct us_conn_state
+#define pr_frwd_token struct frwd_token
+#define pr_auth_token struct auth_token
+
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
     asm volatile("if %0 >= %[min] goto +2\n"                                                       \
@@ -61,18 +67,18 @@ struct modification {
 };
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 2048);
     __type(key, struct sock_key);
-    __type(value, struct forwarding_decision);
-} forward_wait_list SEC(".maps");
+    __type(value, pr_frwd_token);
+} frwd_wait_list SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16384);
-    __type(key, struct forwarding_decision);
+    __type(key, pr_frwd_token);
     __type(value, struct sock_key);
-} forward_map SEC(".maps");
+} frwd_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
@@ -85,29 +91,46 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16384);
     __type(key, struct addr_key);
-    __type(value, struct opt_forwarding_decision);
+    __type(value, struct opt_frwd_token);
 } sock_wait_list SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, u32);
-    __type(value, struct parse_res);
-} pres_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16384);
     __type(key, struct sock_key);
-    __type(value, struct ds_conn_state);
+    __type(value, pr_metr_ds);
 } ds_conns SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16384);
     __type(key, struct addr_key);
-    __type(value, struct us_conn_state);
+    __type(value, pr_metr_us);
 } us_conns SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 2048);
+    __type(key, struct sock_key);
+    __type(value, char[4096]);
+} auth_wait_list SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 16384);
+    __type(key, char[4096]);
+    __type(value, u8);
+} auth_map SEC(".maps");
+
+// TODO: These per-cpu maps are only necessary if the respective struct 
+// doesn't fit onto the stack
+// TODO: percpu maps might also be necessary for forwarding and auth tokens
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct parse_res);
+} pres_percpu SEC(".maps");
 
 const u32 a_mask = 0xFFFF0000;
 const u16 a_match = 1 << 15;
@@ -132,6 +155,7 @@ const u32 local_port = 12345;
 const u32 local_gw = 254;
 volatile const u32 s2ts[128][256];
 volatile const struct modification mods[MAX_MATCHES] = { 0 };
+const u32 percpu_key = 0;
 
 // ----------------------------------------------
 // compiler generated
@@ -139,33 +163,22 @@ volatile const struct modification mods[MAX_MATCHES] = { 0 };
 struct parse_res {
     char backend[4096];
     u32 backend_len;
+    char authorization[4096];
+    u32 authorization_len;
     u32 content_length;
     u32 conn_id;
 };
 
-enum fd_direction {
+enum ft_direction {
     PR_DOWNSTREAM = 1,
     PR_UPSTREAM
 };
 
-enum fd_backend {
+enum ft_backend {
     PR_SERVER1 = 1,
     PR_SERVER2 = 2,
     PR_SERVER3 = 3,
     PR_SERVER4 = 4
-};
-
-// TODO: this needs special care to get aligned
-struct forwarding_decision {
-    u32 conn_id;
-    u8 direction;
-    u8 backend;
-    u8 num_bytes_min;
-};
-
-struct opt_forwarding_decision {
-    u8 is_some;
-    struct forwarding_decision inner;
 };
 
 static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct prange *pranges, struct parse_res *pres) {
@@ -173,23 +186,22 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
     char buf[64]; // a number cannot be larger than 64 bytes
 
     pres->backend_len = 0;
+    pres->authorization_len = 0;
     pres->content_length = 0;
     pres->conn_id = 0;
 
     struct prange r0 = pranges[0];
-    u32 r0_len = r0.len & 63;
+    u32 r0_len = r0.len & 4095;
     if (r0_len > 0) {
         bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx);
         pres->backend_len = r0_len;
     }
 
     struct prange r1 = pranges[1];
-    u32 r1_len = r1.len & 63;
+    u32 r1_len = r1.len & 4095;
     if (r1_len > 0) {
-        bpf_probe_read_kernel(buf, r1_len, data + r1.idx);
-        unsigned long val = 0;
-        bpf_strtoul(buf, r1_len, 10, &val);
-        pres->content_length = val;
+        bpf_probe_read_kernel(pres->authorization, r1_len, data + r1.idx);
+        pres->authorization_len = r1_len;
     }
 
     struct prange r2 = pranges[2];
@@ -198,6 +210,15 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
         bpf_probe_read_kernel(buf, r2_len, data + r2.idx);
         unsigned long val = 0;
         bpf_strtoul(buf, r2_len, 10, &val);
+        pres->content_length = val;
+    }
+
+    struct prange r3 = pranges[3];
+    u32 r3_len = r3.len & 63;
+    if (r3_len > 0) {
+        bpf_probe_read_kernel(buf, r3_len, data + r3.idx);
+        unsigned long val = 0;
+        bpf_strtoul(buf, r3_len, 10, &val);
         pres->conn_id = val;
     }
 }
@@ -205,22 +226,46 @@ static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct 
 // ----------------------------------------------
 // user provided
 
-struct ds_conn_state {
+pr_metr_ds {
     u32 num_bytes;
     u32 num_reqs;
     u64 last_req_ts;
     u64 this_req_ts;
 };
 
-struct us_conn_state {
+pr_metr_us {
     u32 num_bytes;
     u32 num_reqs;
 };
 
-int update_ds_state(const struct sock_key *dkey, const struct parse_res *res, struct ds_conn_state *state) {
-    struct ds_conn_state *s = bpf_map_lookup_elem(&ds_conns, dkey);
+// TODO: this needs special care to get aligned
+pr_frwd_token {
+    u32 conn_id;
+    u8 direction;
+    u8 backend;
+    u8 num_bytes_min;
+};
+
+// compiler generated
+struct opt_frwd_token {
+    u8 is_some;
+    pr_frwd_token inner;
+};
+
+// pr_auth_token {
+//     char authorization[4096];
+// };
+
+int authorize(const struct sk_msg_md* msg, const struct parse_res *res, char *at) {
+    at = &res->authorization;
+
+    return 0;
+}
+
+int update_ds_state(const struct sock_key *dkey, const struct parse_res *res, pr_metr_ds *state) {
+    pr_metr_ds *s = bpf_map_lookup_elem(&ds_conns, dkey);
     if (s == NULL) {
-        *state = (struct ds_conn_state) {
+        *state = (pr_metr_ds) {
             .num_bytes = res->content_length,
             .num_reqs = 1,
             .last_req_ts = 0,
@@ -239,11 +284,11 @@ int update_ds_state(const struct sock_key *dkey, const struct parse_res *res, st
     return 0;
 }
 
-int update_us_state(const struct sock_key *ukey, const struct parse_res *res, struct us_conn_state *state) {
+int update_us_state(const struct sock_key *ukey, const struct parse_res *res, pr_metr_us *state) {
     const struct addr_key *rukey = &ukey->remote;
-    struct us_conn_state *s = bpf_map_lookup_elem(&us_conns, rukey);
+    pr_metr_us *s = bpf_map_lookup_elem(&us_conns, rukey);
     if (s == NULL) {
-        *state = (struct us_conn_state) {
+        *state = (pr_metr_us) {
             .num_bytes = res->content_length,
             .num_reqs = 1,
         };
@@ -258,8 +303,8 @@ int update_us_state(const struct sock_key *ukey, const struct parse_res *res, st
     return 0;
 }
 
-int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *state, const struct parse_res *res, struct forwarding_decision *fd) {
-    if (dkey == NULL || state == NULL || res == NULL || fd == NULL) {
+int forward_ds_conn(const struct sock_key *dkey, const pr_metr_ds *state, const struct parse_res *res, pr_frwd_token *ft) {
+    if (dkey == NULL || state == NULL || res == NULL || ft == NULL) {
         return SK_DROP;
     }
 
@@ -282,28 +327,28 @@ int forward_ds_conn(const struct sock_key *dkey, const struct ds_conn_state *sta
         return SK_DROP;
     }
 
-    if (backend_is_server1) fd->backend = PR_SERVER1;
-    if (backend_is_server2) fd->backend = PR_SERVER2;
-    if (backend_is_server3) fd->backend = PR_SERVER3;
-    if (backend_is_server4) fd->backend = PR_SERVER4;
+    if (backend_is_server1) ft->backend = PR_SERVER1;
+    if (backend_is_server2) ft->backend = PR_SERVER2;
+    if (backend_is_server3) ft->backend = PR_SERVER3;
+    if (backend_is_server4) ft->backend = PR_SERVER4;
 
-    fd->direction = PR_UPSTREAM;
-    fd->conn_id = res->conn_id;
-    // fd->num_bytes_min = true;
+    ft->direction = PR_UPSTREAM;
+    ft->conn_id = res->conn_id;
+    // ft->num_bytes_min = true;
     
     return SK_PASS;
 }
 
-int set_ds_forwarding_decision(const struct sock_key *dkey, const struct ds_conn_state *state, const struct parse_res *res, struct forwarding_decision *fd) {
-    fd->direction = PR_DOWNSTREAM;
-    fd->conn_id = res->conn_id;
+int set_ds_forwarding_token(const struct sock_key *dkey, const pr_metr_ds *state, const struct parse_res *res, pr_frwd_token *ft) {
+    ft->direction = PR_DOWNSTREAM;
+    ft->conn_id = res->conn_id;
 
     return SK_PASS;
 }
 
-int forward_us_conn(const struct sock_key *ukey, const struct us_conn_state *state, const struct parse_res *res, struct forwarding_decision *fd) {
-    fd->direction = PR_DOWNSTREAM;
-    fd->conn_id = res->conn_id;
+int forward_us_conn(const struct sock_key *ukey, const pr_metr_us *state, const struct parse_res *res, pr_frwd_token *ft) {
+    ft->direction = PR_DOWNSTREAM;
+    ft->conn_id = res->conn_id;
 
     return SK_PASS;
 }
@@ -385,7 +430,7 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
     return -1;
 }
 
-static __always_inline int _parse(const struct sk_msg_md *msg, struct prange *pranges, bool *pmatches) {
+static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges, bool *pmatches) {
     u32 cidx[MAX_MATCHES] = { 0 };
     int res = _parse_from(msg, 0, pranges, pmatches, cidx);
 
@@ -488,15 +533,17 @@ int msg_verdict(struct sk_msg_md *msg) {
     bool is_retry = !is_downstream && ikey.local.port >= local_port && is_local_gw;
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d, retry: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream, is_retry);
 
-    struct forwarding_decision fd = { 0 };
+    pr_frwd_token ft = { 0 };
+    char *at = NULL;
+
     if (is_retry) {
-        struct forwarding_decision *fd_cached = bpf_map_lookup_elem(&forward_wait_list, &ikey);
-        if (fd_cached == NULL) {
-            bpf_err("ERROR: Failed to find forwarding decision for retry");
+        pr_frwd_token *ft_cached = bpf_map_lookup_elem(&frwd_wait_list, &ikey);
+        if (ft_cached == NULL) {
+            bpf_err("ERROR: Failed to find forwarding token for retry");
             return SK_DROP;
         }
 
-        fd = *fd_cached;
+        ft = *ft_cached;
     }
     else {
         struct prange pranges[MAX_MATCHES] = { 0 };
@@ -507,69 +554,89 @@ int msg_verdict(struct sk_msg_md *msg) {
             return SK_PASS;
         }
         
-        u32 pres_key = 0;
-        struct parse_res *pres = bpf_map_lookup_elem(&pres_map, &pres_key);
+        struct parse_res *pres = bpf_map_lookup_elem(&pres_percpu, &percpu_key);
         if (pres == NULL) {
             bpf_err("ERROR: Failed to init parse result");
             return SK_DROP;
         }
         _init_parse_res(msg, pranges, pres);
 
+        if (authorize(msg, pres, at) != 0) {
+            bpf_log("PLUGIN: Failed to authorize msg");
+            return SK_DROP;
+        }
+
         if (is_downstream) {
-            struct ds_conn_state state = { 0 };
+            pr_metr_ds state = { 0 };
             if (update_ds_state(&ikey, pres, &state) < 0) {
                 bpf_err("ERROR: Updating downstream connection state failed.");
             }
             
-            if (forward_ds_conn(&ikey, &state, pres, &fd) == SK_DROP) {
-                bpf_log("Plugin decided to drop downstream msg");
+            if (forward_ds_conn(&ikey, &state, pres, &ft) == SK_DROP) {
+                bpf_log("PLUGIN: Drop downstream msg");
                 return SK_DROP;
             }
 
             // at this point we have to ask the plugin how it wants to route
             // this request back to the client
-            struct forwarding_decision fd_inv = { 0 };
-            if (set_ds_forwarding_decision(&ikey, &state, pres, &fd_inv) == SK_DROP) {
-                bpf_log("Did not find inverse forwarding decision. Dropping.");
+            pr_frwd_token ft_inv = { 0 };
+            if (set_ds_forwarding_token(&ikey, &state, pres, &ft_inv) == SK_DROP) {
+                bpf_log("Did not find inverse forwarding token. Dropping.");
                 return SK_DROP;
             }
 
-            if (bpf_map_update_elem(&forward_map, &fd_inv, &ikey, BPF_ANY) < 0) {
-                bpf_err("ERROR: Failed to set downstream forwarding decision");
+            if (bpf_map_update_elem(&frwd_map, &ft_inv, &ikey, BPF_ANY) < 0) {
+                bpf_err("ERROR: Failed to set downstream forwarding token");
             }
             else {
-                bpf_log("Set downstream forwarding decision [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+                bpf_log("Set downstream forwarding token [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
             }
         }
         else {
-            struct us_conn_state state = { 0 };
+            pr_metr_us state = { 0 };
             if (update_us_state(&ikey, pres, &state) < 0) {
                 bpf_err("ERROR: Updating upstream connection state failed.");
             }
 
-            if (forward_us_conn(&ikey, &state, pres, &fd) == SK_DROP) {
-                bpf_log("Plugin decided to drop upstream msg");
+            if (forward_us_conn(&ikey, &state, pres, &ft) == SK_DROP) {
+                bpf_log("PLUGIN: Drop upstream msg");
                 return SK_DROP;
             }
         }
     }
 
-    struct sock_key *ekey = bpf_map_lookup_elem(&forward_map, &fd);
-    if (ekey != NULL) {
+    struct sock_key *ekey = bpf_map_lookup_elem(&frwd_map, &ft);
+    bool frwd_map_hit = ekey != NULL;
+    bool authorized = is_retry; // retries are expected to get authorized right away
+    if (at != NULL) {
+        authorized = (bpf_map_lookup_elem(&auth_map, at) != NULL);
+    }
+
+    if (authorized && frwd_map_hit) {
         if (bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS) == SK_PASS) {
             bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
             return SK_PASS;
         }
     }
 
+    // Either we didn't find an approriate socket or the message wasn't authorized
+    // In both cases we abort if it's a retry
     if (is_retry) {
         bpf_err("ERROR: Failed to find socket for retry");
         return SK_DROP;
     }
-    
-    bpf_log("Add forwarding decision to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-    if (bpf_map_update_elem(&forward_wait_list, &ikey, &fd, BPF_ANY) < 0) {
-        bpf_err("ERROR: Failed to add forwarding decision to wait list");
+
+    if (!authorized && at != NULL) {
+        bpf_log("Add authorization token to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        if (bpf_map_update_elem(&auth_wait_list, &ikey, at, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add forwarding token to wait list");
+        }
+    }
+    if (!frwd_map_hit) {
+        bpf_log("Add forwarding token to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        if (bpf_map_update_elem(&frwd_wait_list, &ikey, &ft, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add forwarding token to wait list");
+        }
     }
 
     // we have a match, apply the filter's actions
@@ -633,8 +700,8 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             }
         };
 
-        struct opt_forwarding_decision *fd = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
-        if (fd != NULL) {
+        struct opt_frwd_token *ft = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
+        if (ft != NULL) {
             if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
@@ -642,13 +709,13 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
 
-            // add the socket before the forwarding decision to avoid a race condition
-            if (fd->is_some) {
-                if (bpf_map_update_elem(&forward_map, &fd->inner, &skey, BPF_ANY) < 0) {
-                    bpf_err("ERROR: Failed to set forwarding decision");
+            // add the socket before the forwarding token to avoid a race condition
+            if (ft->is_some) {
+                if (bpf_map_update_elem(&frwd_map, &ft->inner, &skey, BPF_ANY) < 0) {
+                    bpf_err("ERROR: Failed to set forwarding token");
                 }
                 else {
-                    bpf_log("Set forwarding decision [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+                    bpf_log("Set forwarding token [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 }
             }
         }
