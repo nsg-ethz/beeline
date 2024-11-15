@@ -2,6 +2,8 @@ use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
 use hmac::{Hmac, Mac};
 use jwt::VerifyWithKey;
+use ma::Timer;
+use plugin::UpdateForwardMap;
 use sha2::Sha256;
 use crate::{
     bpf::{*, types::*, TypedLookUp},
@@ -11,13 +13,15 @@ use crate::{
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
 use log::{debug, error, info, log_enabled, warn};
-use std::{collections::{BTreeMap, HashMap}, io::Cursor, mem::{size_of, MaybeUninit}, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::{self, FromStr}, sync::{Arc, Mutex}, time::Duration};
+use std::{collections::{BTreeMap, HashMap}, io::Cursor, mem::MaybeUninit, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::{self, FromStr}, sync::{Arc, Mutex}, time::Duration};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, task, time};
 
 pub mod bpf;
 pub mod config;
 pub mod parse;
 pub mod net;
+pub mod ma;
+pub mod plugin;
 
 fn state_action_to_raw(state: u16, action: Action, rodata: &rodata) -> u32 {
     let action = match action {
@@ -143,9 +147,6 @@ fn handle_auth_token<M: MapCore>(at: &[u8], auth_map: &M) -> Result<()> {
     Ok(())
 }
 
-type CacheKey = [u8; size_of::<frwd_token>()];
-type UpstreamCache = HashMap<CacheKey, Vec<TcpStream>>;
-
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub config: Config,
@@ -155,7 +156,8 @@ pub struct Proxy<'obj> {
     sockops: Link,
 
     binder: Arc<SocketBinder>,
-    upstreams: Arc<Mutex<UpstreamCache>>
+    timers: Arc<Vec<Mutex<Box<dyn Timer>>>>,
+    upstreams: Arc<Mutex<Vec<TcpStream>>>
 }
 
 unsafe impl<'obj> Send for Proxy<'obj> {}
@@ -216,28 +218,25 @@ impl<'obj> Proxy<'obj> {
             .collect::<Result<Vec<_>, AddrParseError>>()?;
         let binder = SocketBinder::new(12345, dests)?;
 
+        let update_frwd_map = UpdateForwardMap::new();
+        let timers = vec![Mutex::new(Box::new(update_frwd_map) as Box<dyn Timer>)];
+
         Ok(Self {
             address,
             config,
             skel: skel,
             sockops: sockops,
             binder: Arc::new(binder),
-            upstreams: Arc::new(Mutex::new(UpstreamCache::new())),
+            timers: Arc::new(timers),
+            upstreams: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
-    pub async fn listen(self, update_freq: Option<Duration>) -> Result<()> {
+    pub async fn listen(self) -> Result<()> {
         let addr = self.address;
         info!("Listening on {}", addr);
 
-        if let Some(update_freq) = update_freq {
-            let freq_ms = update_freq.as_micros() as f32 / 1000.0;
-            info!("Will update the forwarding map every {}ms", freq_ms);
-            self.update_frwd_map(update_freq)?;
-        }
-        else {
-            info!("Will not update the forwarding map");
-        }
+        self.trigger_timers()?;
 
         let listener = TcpListener::bind(&addr).await?;
         loop {
@@ -268,6 +267,7 @@ impl<'obj> Proxy<'obj> {
         let config = self.config.clone();
         let binder = self.binder.clone();
         let upstreams = self.upstreams.clone();
+        let timers = self.timers.clone();
 
         tokio::spawn(async move {
             let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr))
@@ -352,20 +352,15 @@ impl<'obj> Proxy<'obj> {
 
                     // upstream connections are automatically reused by the eBPF program
                     // adding them to this shared vector allows us to keep them alive
-                    // and monitor them
-
-                    // TODO: remove compile-time metric flags here
-                    let cache_key = frwd_token {
-                        num_bytes_min: 0,
-                        ..ft
-                    };
-                    let cache_key = unsafe { cache_key.as_bytes() }.try_into().unwrap();
-
                     upstreams.lock()
                         .unwrap()
-                        .entry(cache_key)
-                        .or_insert_with(Vec::new)
-                        .push(upstream);                           
+                        .push(upstream);   
+
+                    timers.iter()
+                        .for_each(|t| {
+                            let mut t = t.lock().unwrap();
+                            t.monitor_upstream(&dkey, &ft);
+                        });                    
                 }
 
                 buf.clear();
@@ -379,96 +374,24 @@ impl<'obj> Proxy<'obj> {
         Ok(())
     }
 
-    fn update_frwd_map(&self, update_freq: Duration) -> Result<()> {
+    fn trigger_timers(&self) -> Result<()> {
         let us_conn_map = self.get_us_conn_map()?;
         let frwd_map = self.get_frwd_map()?;
-        let upstreams = self.upstreams.clone();
+        let timers = self.timers.clone();
+
+        let update_freq = Duration::from_micros(500);
+        let update_frwd_map_rd = HashMap::from([(String::from("us_conn_map"), us_conn_map)]);
+        let update_frwd_map_wr = HashMap::from([(String::from("frwd_map"), frwd_map)]);
 
         task::spawn(async move {
             let mut interval = time::interval(update_freq);
-            let mut states = HashMap::new();
     
             loop {
                 interval.tick().await;
 
-                // TODO: This is currently a bit inefficient because we're copying upstream as well as us_conn_map
-                // Batching will probably be faster without copying
-                let upstreams = match upstreams.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                let socks = upstreams.iter()
-                    .map(|(k, vs)| {
-                        let vs = vs.into_iter()
-                            .filter_map(|v| sock_key::try_from((&v.local_addr().unwrap(), &v.peer_addr().unwrap())).ok())
-                            .collect::<Vec<_>>();
-
-                        (k.clone(), vs)
-                    })
-                    .collect::<Vec<_>>();
-                
-                // release lock early so that we can accept connections quickly
-                drop(upstreams);
-
-                states.clear();
-                us_conn_map.lookup_batch(50, MapFlags::ANY, MapFlags::ANY)
-                    .expect("Failed to lookup us_conn_map")
-                    .for_each(|(k, v)| {
-                        let k = align_val_to::<addr_key>(k.as_slice()).unwrap();
-                        let v = align_val_to::<us_conn_state>(v.as_slice()).unwrap();
-                        states.insert(k, v);
-                    });
-
-                let mut keys = Vec::new();
-                let mut vals = Vec::new();
-                for (ft, ft_socks) in socks.into_iter() {
-                    let mut min_bytes = u32::max_value();
-                    let mut min_bytes_key = None;
-
-                    for sock in ft_socks.into_iter() {                    
-                        // the state for this specific key might not exist because no request
-                        // has been forwarded to this upstream connection yet
-                        if let Some(val) = states.get(&sock.local) {
-                            if val.num_bytes < min_bytes {
-                                min_bytes = val.num_bytes;
-                                min_bytes_key = Some(sock);
-                            }
-                        }
-                    }
-
-                    if let Some(sock) = min_bytes_key {
-                        // TODO: add metric flags here
-                        let ft = align_val_to::<frwd_token>(&ft).unwrap();
-                        let ft = frwd_token {
-                            num_bytes_min: 1,
-                            ..ft
-                        };
-
-                        keys.push(ft);
-                        vals.push(sock);
-                    }
-                }
-
-                let len = keys.len() as u32;
-                if len > 0 {
-                    let mut keys_raw = Vec::new();
-                    for key in keys.iter() {
-                        let key = unsafe { key.as_bytes() };
-                        keys_raw.extend_from_slice(key);
-                    }
-
-                    let keys = keys_raw.as_slice();
-
-                    let mut vals_raw = Vec::new();
-                    for val in vals.iter() {
-                        let val = unsafe { val.as_bytes() };
-                        vals_raw.extend_from_slice(val);
-                    }
-                    let vals = vals_raw.as_slice();
-
-                    frwd_map.update_batch(keys, vals, len, MapFlags::ANY, MapFlags::ANY)
-                        .expect("Failed to update forward map");
-                }
+                timers[0].lock()
+                    .unwrap()
+                    .trigger(&update_frwd_map_rd, &update_frwd_map_wr);
             }
         });
 

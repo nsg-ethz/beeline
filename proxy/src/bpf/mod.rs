@@ -13,6 +13,7 @@ include!(concat!(
 ));
 
 impl Eq for addr_key {}
+
 impl PartialEq for addr_key {
 
     fn eq(&self, other: &Self) -> bool {
@@ -20,6 +21,7 @@ impl PartialEq for addr_key {
     }
 
 }
+
 impl Hash for addr_key {
 
     fn hash<H: Hasher>(&self, state: &mut H) {
