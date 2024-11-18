@@ -18,12 +18,12 @@ pub trait Timer: Send + Sync {
 
 pub trait Uturn: Send + Sync {
 
-    fn handle_uturn(&self, ctx: &pipeline_ctx) -> Result<Action>;
+    fn handle_uturn(&mut self, ctx: &pipeline_ctx) -> Result<Action>;
 
 }
 
 pub trait NewUpstream: Send + Sync {
 
-    fn new_upstream_connection(&self, ctx: &pipeline_ctx) -> Result<SocketAddr>;
+    fn new_upstream_connection(&mut self, ctx: &pipeline_ctx) -> Result<SocketAddr>;
 
 }

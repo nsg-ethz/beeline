@@ -109,7 +109,7 @@ pub struct Proxy<'obj> {
     upstreams: Arc<Mutex<Vec<TcpStream>>>,
 
     timers: Arc<Vec<Mutex<Box<dyn Timer>>>>,
-    uturns: Arc<Vec<Box<dyn Uturn>>>,
+    uturns: Arc<Vec<Mutex<Box<dyn Uturn>>>>,
     new_upstream: Arc<Mutex<Box<dyn NewUpstream>>>,
 }
 
@@ -185,7 +185,7 @@ impl<'obj> Proxy<'obj> {
         let timers = vec![Mutex::new(Box::new(update_frwd_map) as Box<dyn Timer>)];
 
         let authorize = Authorize::new(&maps)?;
-        let uturns = vec![Box::new(authorize) as Box<dyn Uturn>];
+        let uturns = vec![Mutex::new(Box::new(authorize) as Box<dyn Uturn>)];
 
         let connect_backend = ConnectToBackend {};
         let connect_backend = Mutex::new(Box::new(connect_backend) as Box<dyn NewUpstream>);
@@ -294,7 +294,7 @@ impl<'obj> Proxy<'obj> {
                 let ctx = ctx.unwrap();
 
                 for uturn in uturns.iter() {
-                    let act = uturn.handle_uturn(&ctx).unwrap();
+                    let act = uturn.lock().unwrap().handle_uturn(&ctx).unwrap();
                     if matches!(act, ma::Action::Drop) {
                         debug!("Uturn dropped request");
                         continue 'read_downstream;

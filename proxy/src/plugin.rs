@@ -148,7 +148,7 @@ impl Authorize {
 
 impl Uturn for Authorize {
 
-    fn handle_uturn(&self, ctx: &pipeline_ctx) -> Result<Action> {
+    fn handle_uturn(&mut self, ctx: &pipeline_ctx) -> Result<Action> {
         let auth_hdr = unsafe { ctx.authorization.as_bytes() };
         let token = str::from_utf8(auth_hdr)?;
         let token = token.strip_prefix("Bearer")
@@ -174,7 +174,7 @@ pub struct ConnectToBackend {}
 
 impl NewUpstream for ConnectToBackend {
 
-    fn new_upstream_connection(&self, ctx: &pipeline_ctx) -> Result<SocketAddr> {
+    fn new_upstream_connection(&mut self, ctx: &pipeline_ctx) -> Result<SocketAddr> {
         let ft = ctx.ft;
         if ft.direction != 2 {
             bail!("Invalid direction: {}", ft.direction);
