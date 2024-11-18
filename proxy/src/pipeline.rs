@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Ok, Result};
 use as_bytes::AsBytes;
 use hmac::{Hmac, Mac};
 use jwt::VerifyWithKey;
@@ -27,6 +27,32 @@ impl Hash for frwd_token {
         self.direction.hash(state);
         self.backend.hash(state);
         self.num_bytes_min.hash(state);
+    }
+
+}
+
+pub struct DebugPipeline {
+    maps: HashMap<String, MapHandle>
+}
+
+impl Pipeline for DebugPipeline {
+
+    fn new(maps: HashMap<String, MapHandle>) -> Result<Self> {
+        Ok(DebugPipeline {
+            maps
+        })
+    }
+
+    fn create_timers(&mut self) -> Result<Vec<Box<dyn Timer>>> {
+        Ok(vec![Box::new(UpdateForwardMap::new(&self.maps)?)])
+    }
+
+    fn create_uturns(&mut self) -> Result<Vec<Box<dyn Uturn>>> {
+        Ok(vec![Box::new(Authorize::new(&self.maps)?)])
+    }
+
+    fn create_new_upstream(&mut self) -> Result<Box<dyn NewUpstream>> {
+        Ok(Box::new(ConnectToBackend {}))
     }
 
 }

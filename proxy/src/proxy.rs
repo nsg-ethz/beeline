@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use as_bytes::AsBytes;
-use ma::{NewUpstream, Timer, Uturn};
-use plugin::{Authorize, ConnectToBackend, UpdateForwardMap};
+use ma::{NewUpstream, Pipeline, Timer, Uturn};
+use pipeline::DebugPipeline;
 use crate::{
     bpf::{*, types::*, TypedLookUp},
     config::Config,
@@ -18,7 +18,7 @@ pub mod config;
 pub mod parse;
 pub mod net;
 pub mod ma;
-pub mod plugin;
+pub mod pipeline;
 
 fn state_action_to_raw(state: u16, action: Action, rodata: &rodata) -> u32 {
     let action = match action {
@@ -181,14 +181,19 @@ impl<'obj> Proxy<'obj> {
             .map(|(k, v)| (k.to_string(), MapHandle::from_map_id(*v).unwrap()))
             .collect::<HashMap<_, _>>();
 
-        let update_frwd_map = UpdateForwardMap::new(&maps)?;
-        let timers = vec![Mutex::new(Box::new(update_frwd_map) as Box<dyn Timer>)];
+        let mut pipeline = DebugPipeline::new(maps)?;
+        let timers = pipeline.create_timers()?
+            .into_iter()
+            .map(|t| Mutex::new(t))
+            .collect();
 
-        let authorize = Authorize::new(&maps)?;
-        let uturns = vec![Mutex::new(Box::new(authorize) as Box<dyn Uturn>)];
+        let uturns = pipeline.create_uturns()?
+            .into_iter()
+            .map(|t| Mutex::new(t))
+            .collect();
 
-        let connect_backend = ConnectToBackend {};
-        let connect_backend = Mutex::new(Box::new(connect_backend) as Box<dyn NewUpstream>);
+        let new_upstream = pipeline.create_new_upstream()?;
+        let new_upstream = Mutex::new(new_upstream); 
 
         Ok(Self {
             address,
@@ -199,7 +204,7 @@ impl<'obj> Proxy<'obj> {
             upstreams: Arc::new(Mutex::new(Vec::new())),
             timers: Arc::new(timers),
             uturns: Arc::new(uturns),
-            new_upstream: Arc::new(connect_backend),
+            new_upstream: Arc::new(new_upstream),
         })
     }
 

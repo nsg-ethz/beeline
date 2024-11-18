@@ -1,10 +1,21 @@
 use anyhow::Result;
+use libbpf_rs::MapHandle;
 use crate::bpf::types::*;
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr};
 
 pub enum Action {
     Drop,
     Pass
+}
+
+pub trait Pipeline: Sized {
+
+    fn new(maps: HashMap<String, MapHandle>) -> Result<Self>;
+
+    fn create_timers(&mut self) -> Result<Vec<Box<dyn Timer>>>;
+    fn create_uturns(&mut self) -> Result<Vec<Box<dyn Uturn>>>;
+    fn create_new_upstream(&mut self) -> Result<Box<dyn NewUpstream>>;
+
 }
 
 pub trait Timer: Send + Sync {
