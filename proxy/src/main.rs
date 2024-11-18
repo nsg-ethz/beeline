@@ -1,4 +1,4 @@
-use std::{mem::MaybeUninit, time::Duration};
+use std::mem::MaybeUninit;
 
 use anyhow::Result;
 use clap::Parser;

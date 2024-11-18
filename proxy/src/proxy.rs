@@ -1,10 +1,7 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use as_bytes::AsBytes;
-use hmac::{Hmac, Mac};
-use jwt::VerifyWithKey;
-use ma::Timer;
-use plugin::UpdateForwardMap;
-use sha2::Sha256;
+use ma::{NewUpstream, Timer, Uturn};
+use plugin::{Authorize, ConnectToBackend, UpdateForwardMap};
 use crate::{
     bpf::{*, types::*, TypedLookUp},
     config::Config,
@@ -13,7 +10,7 @@ use crate::{
 };
 use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
 use log::{debug, error, info, log_enabled, warn};
-use std::{collections::{BTreeMap, HashMap}, io::Cursor, mem::MaybeUninit, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::{self, FromStr}, sync::{Arc, Mutex}, time::Duration};
+use std::{collections::HashMap, io::Cursor, mem::MaybeUninit, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, task, time};
 
 pub mod bpf;
@@ -82,7 +79,7 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, ft: 
     Ok(())
 }
 
-fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_addr: &A, remote_addr: &A, ft: frwd_token) -> Result<()> {
+fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_addr: &A, remote_addr: &A, ctx: &pipeline_ctx) -> Result<()> {
     let local_addr = local_addr.to_socket_addrs()?
         .next()
         .expect("Failed to resolve local address");
@@ -93,57 +90,10 @@ fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_ad
 
     let skey = sock_key::try_from((&local_addr, &remote_addr))?;
     let skey = unsafe { skey.as_bytes() };
-    let ft = unsafe { ft.as_bytes() };
+    let ctx = unsafe { ctx.as_bytes() };
 
-    map.update(skey, ft, MapFlags::ANY)?;
+    map.update(skey, ctx, MapFlags::ANY)?;
 
-    Ok(())
-}
-
-fn get_configured_dest_addr(config: &Config, ft: &frwd_token) -> Result<SocketAddr> {
-    if ft.direction != 2 {
-        bail!("Invalid direction");
-    }
-
-    let dest = config.spec.routes.iter()
-        .find(|route| {
-            if let Some(backend) = route.predicates.get("backend").and_then(|b| b.parse::<u8>().ok()) {
-                if backend != ft.backend {
-                    return false;
-                }
-            }
-
-            true
-        })
-        .map(|r| &r.destination)
-        .expect("No matching route found");
-
-    let host = config.hosts.iter()
-        .find(|h| h.name == dest.host)
-        .expect(format!("Host not found: {}", dest.host).as_str());
-
-    let addr = format!("{}:{}", host.address, dest.port);
-    let addr = SocketAddr::from_str(&addr)?;
-
-    Ok(addr)
-}
-
-fn handle_auth_token<M: MapCore>(at: &[u8], auth_map: &M) -> Result<()> {
-    let token = str::from_utf8(at)?;
-    let token = token.strip_prefix("Bearer")
-        .expect("Invalid auth token")
-        .split("\r\n")
-        .next()
-        .expect("Invalid auth token")
-        .trim();
-
-    let key: Hmac<Sha256> = Hmac::new_from_slice(b"some-secret")?;
-    let _: BTreeMap<String, String> = token.verify_with_key(&key)?;
-
-    // this auth token has been verified, add it to the cache
-    let val = 1u8.to_ne_bytes();
-    auth_map.update(at, &val, MapFlags::ANY)?;
-    
     Ok(())
 }
 
@@ -156,8 +106,11 @@ pub struct Proxy<'obj> {
     sockops: Link,
 
     binder: Arc<SocketBinder>,
+    upstreams: Arc<Mutex<Vec<TcpStream>>>,
+
     timers: Arc<Vec<Mutex<Box<dyn Timer>>>>,
-    upstreams: Arc<Mutex<Vec<TcpStream>>>
+    uturns: Arc<Vec<Box<dyn Uturn>>>,
+    new_upstream: Arc<Mutex<Box<dyn NewUpstream>>>,
 }
 
 unsafe impl<'obj> Send for Proxy<'obj> {}
@@ -177,6 +130,7 @@ impl<'obj> Proxy<'obj> {
             open_skel.progs.msg_verdict.set_log_level(1);
         }
 
+        // TODO: configure the parser according to the config
         let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
         parser.set_http_hdr("backend", "doesntmatter")?;
         parser.set_http_hdr("authorization", "lol")?;
@@ -218,8 +172,23 @@ impl<'obj> Proxy<'obj> {
             .collect::<Result<Vec<_>, AddrParseError>>()?;
         let binder = SocketBinder::new(12345, dests)?;
 
-        let update_frwd_map = UpdateForwardMap::new();
+        let maps = HashMap::from([
+            ("us_conn_map", skel.maps.us_conns.info()?.info.id),
+            ("frwd_map", skel.maps.frwd_map.info()?.info.id),
+            ("auth_map", skel.maps.auth_map.info()?.info.id),
+        ]);
+        let maps = maps.iter()
+            .map(|(k, v)| (k.to_string(), MapHandle::from_map_id(*v).unwrap()))
+            .collect::<HashMap<_, _>>();
+
+        let update_frwd_map = UpdateForwardMap::new(&maps)?;
         let timers = vec![Mutex::new(Box::new(update_frwd_map) as Box<dyn Timer>)];
+
+        let authorize = Authorize::new(&maps)?;
+        let uturns = vec![Box::new(authorize) as Box<dyn Uturn>];
+
+        let connect_backend = ConnectToBackend {};
+        let connect_backend = Mutex::new(Box::new(connect_backend) as Box<dyn NewUpstream>);
 
         Ok(Self {
             address,
@@ -227,8 +196,10 @@ impl<'obj> Proxy<'obj> {
             skel: skel,
             sockops: sockops,
             binder: Arc::new(binder),
-            timers: Arc::new(timers),
             upstreams: Arc::new(Mutex::new(Vec::new())),
+            timers: Arc::new(timers),
+            uturns: Arc::new(uturns),
+            new_upstream: Arc::new(connect_backend),
         })
     }
 
@@ -260,14 +231,13 @@ impl<'obj> Proxy<'obj> {
 
     async fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
         let addr = self.address.clone();
-        let frwd_wait_list = self.get_frwd_wait_list()?;
         let sock_wait_list = self.get_sock_wait_list()?;
-        let auth_wait_list = self.get_auth_wait_list()?;
-        let auth_map = self.get_auth_map()?;
-        let config = self.config.clone();
+        let utrn_wait_list = self.get_utrn_wait_list()?;
         let binder = self.binder.clone();
         let upstreams = self.upstreams.clone();
         let timers = self.timers.clone();
+        let uturns = self.uturns.clone();
+        let new_upstream = self.new_upstream.clone();
 
         tokio::spawn(async move {
             let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr))
@@ -313,55 +283,51 @@ impl<'obj> Proxy<'obj> {
                     continue;
                 }
 
-                // check if there is a auth token in the waiting list
-                let dkey_raw = unsafe { dkey.as_bytes() };
-                let at = auth_wait_list.lookup_and_delete(&dkey_raw)
-                    .expect("Failed to lookup auth_wait_list");
-                if let Some(at) = at {
-                    match handle_auth_token(&at, &auth_map) {
-                        Err(e) => {
-                            warn!("Failed to verify auth token: {:?}", e);
-                            continue;
-                        }
-                        Ok(()) => {}
-                    }
+                // check if there is a pipeline context in the waiting list
+                let ctx: Option<pipeline_ctx> = utrn_wait_list.lookup_and_delete_as(&dkey)
+                    .expect("Failed to lookup utrn_wait_list");
+
+                if ctx.is_none() {
+                    warn!("No context found in wait list for downstream connection: {:?}", dkey);
+                    continue;
+                }
+                let ctx = ctx.unwrap();
+
+                for uturn in uturns.iter() {
+                    uturn.handle_uturn(&ctx).unwrap();
                 }
 
                 // check if there is a forwarding token in the waiting list
-                let ft: Option<frwd_token> = frwd_wait_list.lookup_and_delete_as(&dkey)
-                    .expect("Failed to lookup frwd_wait_list");
+                let ft = ctx.ft;
+                let us_remote_addr = new_upstream.lock().unwrap().new_upstream_connection(&ctx).unwrap();
+                let us_sock = binder.bind(us_remote_addr.ip()).unwrap();
+                let us_local_addr = us_sock.local_addr().unwrap();
 
-                if let Some(ft) = ft {
-                    let us_remote_addr = get_configured_dest_addr(&config, &ft).unwrap();
-                    let us_sock = binder.bind(us_remote_addr).unwrap();
-                    let us_local_addr = us_sock.local_addr().unwrap();
+                debug!("Bound to socket: {}", us_local_addr);
 
-                    debug!("Bound to socket: {}", us_local_addr);
-
-                    add_forward_rule_to_wait_list(&frwd_wait_list, &us_local_addr, &us_remote_addr, ft).unwrap();
-                    if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(ft), MapFlags::NO_EXIST) {
-                        error!("Failed to add socket [{:?}->{:?}] to wait list: {:?}", us_local_addr, us_remote_addr, e);
-                        break Err(e);
-                    }
-                    add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY).unwrap();
-
-                    debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
-                    let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
-                    let mut buf = Cursor::new(&buf[..req_len]);
-                    upstream.write_all_buf(&mut buf).await.unwrap();
-
-                    // upstream connections are automatically reused by the eBPF program
-                    // adding them to this shared vector allows us to keep them alive
-                    upstreams.lock()
-                        .unwrap()
-                        .push(upstream);   
-
-                    timers.iter()
-                        .for_each(|t| {
-                            let mut t = t.lock().unwrap();
-                            t.monitor_upstream(&dkey, &ft);
-                        });                    
+                add_forward_rule_to_wait_list(&utrn_wait_list, &us_local_addr, &us_remote_addr, &ctx).unwrap();
+                if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(ft), MapFlags::NO_EXIST) {
+                    error!("Failed to add socket [{:?}->{:?}] to wait list: {:?}", us_local_addr, us_remote_addr, e);
+                    break Err(e);
                 }
+                add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY).unwrap();
+
+                debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
+                let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
+                let mut req_buf = Cursor::new(&buf[..req_len]);
+                upstream.write_all_buf(&mut req_buf).await.unwrap();
+
+                // upstream connections are automatically reused by the eBPF program
+                // adding them to this shared vector allows us to keep them alive
+                upstreams.lock()
+                    .unwrap()
+                    .push(upstream);   
+
+                timers.iter()
+                    .for_each(|t| {
+                        let mut t = t.lock().unwrap();
+                        t.monitor_upstream(&dkey, &ft);
+                    });                    
 
                 buf.clear();
             };
@@ -375,13 +341,9 @@ impl<'obj> Proxy<'obj> {
     }
 
     fn trigger_timers(&self) -> Result<()> {
-        let us_conn_map = self.get_us_conn_map()?;
-        let frwd_map = self.get_frwd_map()?;
+        // TODO: timers can have their own frequency
         let timers = self.timers.clone();
-
         let update_freq = Duration::from_micros(500);
-        let update_frwd_map_rd = HashMap::from([(String::from("us_conn_map"), us_conn_map)]);
-        let update_frwd_map_wr = HashMap::from([(String::from("frwd_map"), frwd_map)]);
 
         task::spawn(async move {
             let mut interval = time::interval(update_freq);
@@ -389,9 +351,14 @@ impl<'obj> Proxy<'obj> {
             loop {
                 interval.tick().await;
 
-                timers[0].lock()
+                let res = timers[0].lock()
                     .unwrap()
-                    .trigger(&update_frwd_map_rd, &update_frwd_map_wr);
+                    .trigger();
+
+                // TODO: report error with name of timer
+                if let Err(e) = res {
+                    error!("An error occured in timer {}: {:?}", "UpdateForwardMap", e);
+                }
             }
         });
 
@@ -403,28 +370,8 @@ impl<'obj> Proxy<'obj> {
         Ok(MapHandle::from_map_id(id)?)
     }
 
-    fn get_frwd_wait_list(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.frwd_wait_list.info()?.info.id;
-        Ok(MapHandle::from_map_id(id)?)
-    }
-
-    fn get_auth_wait_list(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.auth_wait_list.info()?.info.id;
-        Ok(MapHandle::from_map_id(id)?)
-    }
-
-    fn get_us_conn_map(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.us_conns.info()?.info.id;
-        Ok(MapHandle::from_map_id(id)?)
-    }
-
-    fn get_frwd_map(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.frwd_map.info()?.info.id;
-        Ok(MapHandle::from_map_id(id)?)
-    }
-
-    fn get_auth_map(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.auth_map.info()?.info.id;
+    fn get_utrn_wait_list(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.utrn_wait_list.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 

@@ -4,12 +4,6 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
-// used in the plugin code to specify the type of a map
-#define pr_metr_ds struct ds_conn_state
-#define pr_metr_us struct us_conn_state
-#define pr_frwd_token struct frwd_token
-#define pr_auth_token struct auth_token
-
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
     asm volatile("if %0 >= %[min] goto +2\n"                                                       \
@@ -67,20 +61,6 @@ struct modification {
 };
 
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 2048);
-    __type(key, struct sock_key);
-    __type(value, pr_frwd_token);
-} frwd_wait_list SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
-    __type(key, pr_frwd_token);
-    __type(value, struct sock_key);
-} frwd_map SEC(".maps");
-
-struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, 16384);
     __type(key, struct sock_key);
@@ -94,34 +74,6 @@ struct {
     __type(value, struct opt_frwd_token);
 } sock_wait_list SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
-    __type(key, struct sock_key);
-    __type(value, pr_metr_ds);
-} ds_conns SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
-    __type(key, struct addr_key);
-    __type(value, pr_metr_us);
-} us_conns SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 2048);
-    __type(key, struct sock_key);
-    __type(value, char[4096]);
-} auth_wait_list SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 16384);
-    __type(key, char[4096]);
-    __type(value, u8);
-} auth_map SEC(".maps");
-
 // TODO: These per-cpu maps are only necessary if the respective struct 
 // doesn't fit onto the stack
 // TODO: percpu maps might also be necessary for forwarding and auth tokens
@@ -129,8 +81,8 @@ struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, u32);
-    __type(value, struct parse_res);
-} pres_percpu SEC(".maps");
+    __type(value, struct pipeline_ctx);
+} ctx_percpu SEC(".maps");
 
 const u32 a_mask = 0xFFFF0000;
 const u16 a_match = 1 << 15;
@@ -157,16 +109,32 @@ volatile const u32 s2ts[128][256];
 volatile const struct modification mods[MAX_MATCHES] = { 0 };
 const u32 percpu_key = 0;
 
+enum pr_action {
+    PR_DROP=0,
+    PR_PASS,
+    PR_UTRN
+};
+
+// TODO: this needs special care to get aligned
+// user generated
+struct frwd_token {
+    u32 conn_id;
+    u8 direction;
+    u8 backend;
+    u8 num_bytes_min;
+};
+
 // ----------------------------------------------
 // compiler generated
 
-struct parse_res {
+struct pipeline_ctx {
     char backend[4096];
     u32 backend_len;
     char authorization[4096];
     u32 authorization_len;
     u32 content_length;
     u32 conn_id;
+    struct frwd_token ft;
 };
 
 enum ft_direction {
@@ -181,119 +149,140 @@ enum ft_backend {
     PR_SERVER4 = 4
 };
 
-static __always_inline void _init_parse_res(struct sk_msg_md *msg, const struct prange *pranges, struct parse_res *pres) {
+static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, const struct prange *pranges, struct pipeline_ctx *ctx) {
     char *data = (char *)(long)msg->data;
     char buf[64]; // a number cannot be larger than 64 bytes
     unsigned long tmp = 0;
 
     struct prange r0 = pranges[0];
     u32 r0_len = r0.len & 4095;
-    bpf_probe_read_kernel(pres->backend, r0_len, data + r0.idx);
-    pres->backend_len = r0_len;
+    bpf_probe_read_kernel(ctx->backend, r0_len, data + r0.idx);
+    ctx->backend_len = r0_len;
 
     struct prange r1 = pranges[1];
     u32 r1_len = r1.len & 4095;
-    bpf_probe_read_kernel(pres->authorization, r1_len, data + r1.idx);
-    pres->authorization_len = r1_len;
+    bpf_probe_read_kernel(ctx->authorization, r1_len, data + r1.idx);
+    ctx->authorization_len = r1_len;
 
     struct prange r2 = pranges[2];
     u32 r2_len = r2.len & 62;
     bpf_probe_read_kernel(buf, r2_len, data + r2.idx);
     buf[r2_len] = '\0'; // this way, we don't need an if-clause
     bpf_strtoul(buf, r2_len + 1, 10, &tmp);
-    pres->content_length = tmp;
+    ctx->content_length = tmp;
 
     struct prange r3 = pranges[3];
     u32 r3_len = r3.len & 62;
     bpf_probe_read_kernel(buf, r3_len, data + r3.idx);
     buf[r3_len] = '\0'; // this way, we don't need an if-clause
     bpf_strtoul(buf, r3_len + 1, 10, &tmp);
-    pres->conn_id = tmp;
+    ctx->conn_id = tmp;
 }
 
 // ----------------------------------------------
 // user provided
 
-pr_metr_ds {
+struct ds_conn_state {
     u32 num_bytes;
     u32 num_reqs;
     u64 last_req_ts;
     u64 this_req_ts;
 };
 
-pr_metr_us {
+struct us_conn_state {
     u32 num_bytes;
     u32 num_reqs;
-};
-
-// TODO: this needs special care to get aligned
-pr_frwd_token {
-    u32 conn_id;
-    u8 direction;
-    u8 backend;
-    u8 num_bytes_min;
 };
 
 // compiler generated
 struct opt_frwd_token {
     u8 is_some;
-    pr_frwd_token inner;
+    struct frwd_token inner;
 };
 
-// pr_auth_token {
-//     char authorization[4096];
-// };
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 2048);
+    __type(key, struct sock_key);
+    __type(value, struct pipeline_ctx);
+} utrn_wait_list SEC(".maps");
 
-int authorize(const struct sk_msg_md* msg, const struct parse_res *res, char **at) {
-    *at = &res->authorization;
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct sock_key);
+    __type(value, struct ds_conn_state);
+} ds_conns SEC(".maps");
 
-    return 0;
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct addr_key);
+    __type(value, struct us_conn_state);
+} us_conns SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 16384);
+    __type(key, char[4096]);
+    __type(value, u8);
+} auth_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct frwd_token);
+    __type(value, struct sock_key);
+} frwd_map SEC(".maps");
+
+enum pr_action authorize(const struct sk_msg_md* msg, struct pipeline_ctx *ctx) {
+    if (bpf_map_lookup_elem(&auth_map, ctx->authorization) != NULL) return PR_PASS;
+
+    return PR_UTRN;
 }
 
-int update_ds_state(const struct sock_key *dkey, const struct parse_res *res, pr_metr_ds *state) {
-    pr_metr_ds *s = bpf_map_lookup_elem(&ds_conns, dkey);
+enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    struct ds_conn_state *s = bpf_map_lookup_elem(&ds_conns, dkey);
     if (s == NULL) {
-        *state = (pr_metr_ds) {
-            .num_bytes = res->content_length,
+        struct ds_conn_state ns = (struct ds_conn_state) {
+            .num_bytes = ctx->content_length,
             .num_reqs = 1,
             .last_req_ts = 0,
             .this_req_ts = bpf_ktime_get_ns()
         };
-        bpf_map_update_elem(&ds_conns, dkey, state, BPF_ANY);
+        bpf_map_update_elem(&ds_conns, dkey, &ns, BPF_ANY);
     }
     else {
-        s->num_bytes += res->content_length;
+        s->num_bytes += ctx->content_length;
         s->num_reqs++;
         s->last_req_ts = s->this_req_ts;
         s->this_req_ts = bpf_ktime_get_ns();
-        state = s;
     }
 
-    return 0;
+    return PR_PASS;
 }
 
-int update_us_state(const struct sock_key *ukey, const struct parse_res *res, pr_metr_us *state) {
+enum pr_action update_us_state(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
     const struct addr_key *rukey = &ukey->remote;
-    pr_metr_us *s = bpf_map_lookup_elem(&us_conns, rukey);
+    struct us_conn_state *s = bpf_map_lookup_elem(&us_conns, rukey);
     if (s == NULL) {
-        *state = (pr_metr_us) {
-            .num_bytes = res->content_length,
+        struct us_conn_state ns = (struct us_conn_state) {
+            .num_bytes = ctx->content_length,
             .num_reqs = 1,
         };
-        bpf_map_update_elem(&us_conns, rukey, state, BPF_ANY);
+        bpf_map_update_elem(&us_conns, rukey, &ns, BPF_ANY);
     }
     else {
-        s->num_bytes += res->content_length;
+        s->num_bytes += ctx->content_length;
         s->num_reqs++;
-        state = s;
     }
 
-    return 0;
+    return PR_PASS;
 }
 
-int forward_ds_conn(const struct sock_key *dkey, const pr_metr_ds *state, const struct parse_res *res, pr_frwd_token *ft) {
-    if (dkey == NULL || state == NULL || res == NULL || ft == NULL) {
-        return SK_DROP;
+enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    if (dkey == NULL || ctx == NULL) {
+        return PR_DROP;
     }
 
     // rate limit connection if it's sent a request less than 1ms ago
@@ -303,43 +292,55 @@ int forward_ds_conn(const struct sock_key *dkey, const pr_metr_ds *state, const 
     // }
 
     const char *server1 = "server1";
-    bool backend_is_server1 = bpf_strncmp(res->backend, 7, server1) == 0;
+    bool backend_is_server1 = bpf_strncmp(ctx->backend, 7, server1) == 0;
     const char *server2 = "server2";
-    bool backend_is_server2 = bpf_strncmp(res->backend, 7, server2) == 0;
+    bool backend_is_server2 = bpf_strncmp(ctx->backend, 7, server2) == 0;
     const char *server3 = "server3";
-    bool backend_is_server3 = bpf_strncmp(res->backend, 7, server3) == 0;
+    bool backend_is_server3 = bpf_strncmp(ctx->backend, 7, server3) == 0;
     const char *server4 = "server4";
-    bool backend_is_server4 = bpf_strncmp(res->backend, 7, server4) == 0;
+    bool backend_is_server4 = bpf_strncmp(ctx->backend, 7, server4) == 0;
 
     if (!backend_is_server1 && !backend_is_server2 && !backend_is_server3 && !backend_is_server4) {
-        return SK_DROP;
+        return PR_DROP;
     }
 
-    if (backend_is_server1) ft->backend = PR_SERVER1;
-    if (backend_is_server2) ft->backend = PR_SERVER2;
-    if (backend_is_server3) ft->backend = PR_SERVER3;
-    if (backend_is_server4) ft->backend = PR_SERVER4;
+    if (backend_is_server1) ctx->ft.backend = PR_SERVER1;
+    if (backend_is_server2) ctx->ft.backend = PR_SERVER2;
+    if (backend_is_server3) ctx->ft.backend = PR_SERVER3;
+    if (backend_is_server4) ctx->ft.backend = PR_SERVER4;
 
-    ft->direction = PR_UPSTREAM;
-    ft->conn_id = res->conn_id;
-    // ft->num_bytes_min = true;
+    ctx->ft.direction = PR_UPSTREAM;
+    ctx->ft.num_bytes_min = true;
+
+    // at this point we have to ask the plugin how it wants to route
+    // this request back to the client
+    struct frwd_token ft_inv = { 0 };
+    ft_inv.direction = PR_DOWNSTREAM;
+    ft_inv.conn_id = ctx->conn_id;
+
+    if (bpf_map_update_elem(&frwd_map, &ft_inv, dkey, BPF_ANY) < 0) {
+        bpf_err("ERROR: Failed to set downstream forwarding token");
+    }
+    else {
+        bpf_log("Set downstream forwarding token [%pI4:%u->%pI4:%u]", &dkey->local.ip4, dkey->local.port, &dkey->remote.ip4, dkey->remote.port);
+    }
     
-    return SK_PASS;
+    return PR_PASS;
 }
 
-int set_ds_forwarding_token(const struct sock_key *dkey, const pr_metr_ds *state, const struct parse_res *res, pr_frwd_token *ft) {
-    ft->direction = PR_DOWNSTREAM;
-    ft->conn_id = res->conn_id;
+enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    ctx->ft.direction = PR_DOWNSTREAM;
+    ctx->ft.conn_id = ctx->conn_id;
 
-    return SK_PASS;
+    return PR_PASS;
 }
 
-int forward_us_conn(const struct sock_key *ukey, const pr_metr_us *state, const struct parse_res *res, pr_frwd_token *ft) {
-    ft->direction = PR_DOWNSTREAM;
-    ft->conn_id = res->conn_id;
+enum pr_action select_sock(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key **ekey) {
+    *ekey = bpf_map_lookup_elem(&frwd_map, &ctx->ft);
+    if (*ekey == NULL) return PR_UTRN;
 
-    return SK_PASS;
-}
+    return PR_PASS;
+}   
 
 // ----------------------------------------------
 
@@ -502,6 +503,44 @@ static __always_inline int _modify(struct sk_msg_md *msg, const struct prange *r
     return 0;
 }
 
+// compile-time generated
+static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pipeline_ctx *ctx, const struct sock_key *ikey) {
+    bool is_downstream = (ikey->remote.ip4 == ip4 && ikey->remote.port == port);
+
+    enum pr_action res = authorize(msg, ctx);
+    if (res == PR_DROP) {
+        bpf_log("PLUGIN: Drop downstream msg");
+        return PR_DROP;
+    }
+
+    if (is_downstream) {
+        if (update_ds_state(ikey, ctx) != PR_PASS) {
+            bpf_err("ERROR: Updating downstream connection state failed.");
+        }
+
+        if (ctx->backend_len == 0) return PR_DROP;
+        enum pr_action res = forward_ds_conn(ikey, ctx);
+        if (res == PR_DROP) {
+            bpf_log("PLUGIN: Drop downstream msg");
+            return PR_DROP;
+        }
+    }
+    else {
+        struct us_conn_state state = { 0 };
+        if (update_us_state(ikey, ctx) != PR_PASS) {
+            bpf_err("ERROR: Updating upstream connection state failed.");
+        }
+
+        enum pr_action res = forward_us_conn(ikey, ctx);
+        if (res == PR_DROP) {
+            bpf_log("PLUGIN: Drop upstream msg");
+            return PR_DROP;
+        }
+    }
+
+    return PR_PASS;
+}
+
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     // socket identifeir of the ingress connection
@@ -521,17 +560,16 @@ int msg_verdict(struct sk_msg_md *msg) {
     bool is_retry = !is_downstream && ikey.local.port >= local_port && is_local_gw;
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d, retry: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream, is_retry);
 
-    pr_frwd_token ft = { 0 };
-    char *at = NULL;
+    struct pipeline_ctx *ctx = NULL;
+    enum pr_action res = PR_PASS;
 
     if (is_retry) {
-        pr_frwd_token *ft_cached = bpf_map_lookup_elem(&frwd_wait_list, &ikey);
-        if (ft_cached == NULL) {
-            bpf_err("ERROR: Failed to find forwarding token for retry");
+        // TODO: under a heavy load, the context could have gotten evicted from the wait list
+        ctx = bpf_map_lookup_elem(&utrn_wait_list, &ikey);
+        if (ctx == NULL) {
+            bpf_err("ERROR: Failed to find cached context for retry");
             return SK_DROP;
         }
-
-        ft = *ft_cached;
     }
     else {
         struct prange pranges[MAX_MATCHES] = { 0 };
@@ -542,91 +580,52 @@ int msg_verdict(struct sk_msg_md *msg) {
             return SK_PASS;
         }
         
-        struct parse_res *pres = bpf_map_lookup_elem(&pres_percpu, &percpu_key);
-        if (pres == NULL) {
-            bpf_err("ERROR: Failed to init parse result");
+        ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
+        if (ctx == NULL) {
+            bpf_err("ERROR: Failed to init pipeline context");
             return SK_DROP;
         }
-        _init_parse_res(msg, pranges, pres);
+        _init_pipeline_ctx(msg, pranges, ctx);
+        res = _pipeline(msg, ctx, &ikey);
+    }
 
-        if (authorize(msg, pres, &at) != 0) {
-            bpf_log("PLUGIN: Drops unauthorized msg immediately");
-            return SK_DROP;
-        }
+    struct sock_key *ekey = NULL;
+    if (res == PR_PASS) {    
+        res = select_sock(&ikey, ctx, &ekey);
+    }
 
-        if (is_downstream) {
-            pr_metr_ds state = { 0 };
-            if (update_ds_state(&ikey, pres, &state) < 0) {
-                bpf_err("ERROR: Updating downstream connection state failed.");
-            }
-            
-            if (forward_ds_conn(&ikey, &state, pres, &ft) == SK_DROP) {
-                bpf_log("PLUGIN: Drop downstream msg");
-                return SK_DROP;
-            }
+    if (res == PR_DROP) {
+        bpf_log("PLUGIN: Drop msg");
+        return SK_DROP;
+    }
 
-            // at this point we have to ask the plugin how it wants to route
-            // this request back to the client
-            pr_frwd_token ft_inv = { 0 };
-            if (set_ds_forwarding_token(&ikey, &state, pres, &ft_inv) == SK_DROP) {
-                bpf_log("Did not find inverse forwarding token. Dropping.");
-                return SK_DROP;
-            }
-
-            if (bpf_map_update_elem(&frwd_map, &ft_inv, &ikey, BPF_ANY) < 0) {
-                bpf_err("ERROR: Failed to set downstream forwarding token");
-            }
-            else {
-                bpf_log("Set downstream forwarding token [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-            }
+    if (res == PR_UTRN) {
+        if (bpf_map_update_elem(&utrn_wait_list, &ikey, ctx, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add uturn token to wait list");
         }
         else {
-            pr_metr_us state = { 0 };
-            if (update_us_state(&ikey, pres, &state) < 0) {
-                bpf_err("ERROR: Updating upstream connection state failed.");
-            }
-
-            if (forward_us_conn(&ikey, &state, pres, &ft) == SK_DROP) {
-                bpf_log("PLUGIN: Drop upstream msg");
-                return SK_DROP;
-            }
+            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
         }
+        return SK_PASS;
     }
 
-    struct sock_key *ekey = bpf_map_lookup_elem(&frwd_map, &ft);
-    bool frwd_map_hit = ekey != NULL;
-    bool authorized = is_retry; // retries are expected to get authorized right away
-    if (at != NULL) {
-        authorized = (bpf_map_lookup_elem(&auth_map, at) != NULL);
-    }
-
-    if (authorized && frwd_map_hit) {
+    if (ekey != NULL) {
         if (bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS) == SK_PASS) {
             bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
             return SK_PASS;
+        }
+        else {
+            bpf_err("ERROR: Failed to redirect msg");
+            return SK_DROP;
         }
     }
 
     // Either we didn't find an approriate socket or the message wasn't authorized
     // In both cases we abort if it's a retry
-    if (is_retry) {
-        bpf_err("ERROR: Failed to find socket for retry");
-        return SK_DROP;
-    }
-
-    if (!authorized && at != NULL) {
-        bpf_log("Add authorization token to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        if (bpf_map_update_elem(&auth_wait_list, &ikey, at, BPF_ANY) < 0) {
-            bpf_err("ERROR: Failed to add forwarding token to wait list");
-        }
-    }
-
-    if (!frwd_map_hit) {
-        bpf_log("Add forwarding token to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        if (bpf_map_update_elem(&frwd_wait_list, &ikey, &ft, BPF_ANY) < 0) {
-            bpf_err("ERROR: Failed to add forwarding token to wait list");
-        }
-    }
+    // if (is_retry) {
+    //     bpf_err("ERROR: Failed to find socket for retry");
+    //     return SK_DROP;
+    // }
 
     // we have a match, apply the filter's actions
     // if (fid > 0) {

@@ -56,7 +56,7 @@ async fn test_config() -> (Config, TcpListener, TcpListener) {
     (config, server1, server2)
 }
 
-async fn setup(freq: Option<Duration>) -> (JoinHandle<Result<()>>, TcpStream, TcpListener, TcpListener) {
+async fn setup() -> (JoinHandle<Result<()>>, TcpStream, TcpListener, TcpListener) {
     _ = env_logger::try_init();
 
     let (config, server1, server2) = test_config().await;
@@ -65,7 +65,7 @@ async fn setup(freq: Option<Duration>) -> (JoinHandle<Result<()>>, TcpStream, Tc
     let proxy = tokio::spawn(async move {
         let mut open_obj = OpenObject::new();
         let proxy = Proxy::attach(&proxy_addr, config, &mut open_obj).unwrap();
-        proxy.listen(freq).await
+        proxy.listen().await
     });
 
     let client = loop {
@@ -140,7 +140,7 @@ async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: &H
 
 #[tokio::test]
 async fn it_routes_to_correct_destination() {
-    let (proxy, mut client, server1, server2) = setup(None).await;
+    let (proxy, mut client, server1, server2) = setup().await;
     let hdrs = HashMap::from([("backend", "server1")]);
 
     let (_, req_sent, req_recv) = write_accept_read(&mut client, server1, &hdrs).await.unwrap();
@@ -154,7 +154,7 @@ async fn it_routes_to_correct_destination() {
 
 #[tokio::test]
 async fn it_drops_invalid_jwt() {
-    let (proxy, mut client, server1, server2) = setup(None).await;
+    let (proxy, mut client, server1, server2) = setup().await;
     let token = generate_jwt("invalid_secret").unwrap();
     let token = format!("Bearer {token}");
     let hdrs = HashMap::from([
@@ -176,7 +176,7 @@ async fn it_drops_invalid_jwt() {
 
 #[tokio::test]
 async fn it_forwards_valid_jwt() {
-    let (proxy, mut client, server1, server2) = setup(None).await;
+    let (proxy, mut client, server1, server2) = setup().await;
     let token = generate_jwt("some-secret").unwrap();
     let token = format!("Bearer {token}");
     let hdrs = HashMap::from([
