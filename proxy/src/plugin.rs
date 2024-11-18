@@ -148,7 +148,7 @@ impl Authorize {
 
 impl Uturn for Authorize {
 
-    fn handle_uturn(&self, ctx: &pipeline_ctx) -> Result<()> {
+    fn handle_uturn(&self, ctx: &pipeline_ctx) -> Result<Action> {
         let auth_hdr = unsafe { ctx.authorization.as_bytes() };
         let token = str::from_utf8(auth_hdr)?;
         let token = token.strip_prefix("Bearer")
@@ -159,13 +159,13 @@ impl Uturn for Authorize {
             .trim();
 
         let key: Hmac<Sha256> = Hmac::new_from_slice(b"some-secret")?;
-        let _: BTreeMap<String, String> = token.verify_with_key(&key)?;
+        let claim: Result<BTreeMap<String, String>, _> = token.verify_with_key(&key);
 
-        // this auth token has been verified, add it to the cache
-        let val = 1u8.to_ne_bytes();
+        let val = if claim.is_ok() { 1u8 } else { 0u8 };
+        let val = val.to_ne_bytes();
         self.auth_map.update(auth_hdr, &val, MapFlags::ANY)?;
 
-        Ok(())
+        Ok(if claim.is_ok() { Action::Pass } else { Action::Drop })
     }
 
 }

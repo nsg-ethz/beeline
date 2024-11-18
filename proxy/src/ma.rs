@@ -2,6 +2,11 @@ use anyhow::Result;
 use crate::bpf::types::*;
 use std::net::SocketAddr;
 
+pub enum Action {
+    Drop,
+    Pass
+}
+
 pub trait Timer: Send + Sync {
 
     fn trigger(&mut self) -> Result<()>;
@@ -13,7 +18,7 @@ pub trait Timer: Send + Sync {
 
 pub trait Uturn: Send + Sync {
 
-    fn handle_uturn(&self, ctx: &pipeline_ctx) -> Result<()>;
+    fn handle_uturn(&self, ctx: &pipeline_ctx) -> Result<Action>;
 
 }
 

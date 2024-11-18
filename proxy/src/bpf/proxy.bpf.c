@@ -236,9 +236,11 @@ struct {
 } frwd_map SEC(".maps");
 
 enum pr_action authorize(const struct sk_msg_md* msg, struct pipeline_ctx *ctx) {
-    if (bpf_map_lookup_elem(&auth_map, ctx->authorization) != NULL) return PR_PASS;
+    u8 *verified = bpf_map_lookup_elem(&auth_map, ctx->authorization);
+    if (*verified == NULL) return PR_UTRN;
+    if (*verified == 0) return PR_DROP;
 
-    return PR_UTRN;
+    return PR_PASS;
 }
 
 enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx *ctx) {

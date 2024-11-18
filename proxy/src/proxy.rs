@@ -244,7 +244,7 @@ impl<'obj> Proxy<'obj> {
                 .unwrap();
             let mut buf = Vec::with_capacity(8192);
 
-            let res = loop {
+            let res = 'read_downstream: loop {
                 // wait until the downstream connection is readable
                 match downstream.readable().await {
                     Err(ref e)if e.kind() == io::ErrorKind::WouldBlock => continue,
@@ -294,7 +294,11 @@ impl<'obj> Proxy<'obj> {
                 let ctx = ctx.unwrap();
 
                 for uturn in uturns.iter() {
-                    uturn.handle_uturn(&ctx).unwrap();
+                    let act = uturn.handle_uturn(&ctx).unwrap();
+                    if matches!(act, ma::Action::Drop) {
+                        debug!("Uturn dropped request");
+                        continue 'read_downstream;
+                    }
                 }
 
                 // check if there is a forwarding token in the waiting list
