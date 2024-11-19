@@ -47,11 +47,11 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
 
     for (mid, mo) in parser.modifications.iter() {
         let idx = *mid as usize;
-        skel.maps.rodata_data.mods[idx].len = mo.replacement.len() as u8;
-        skel.maps.rodata_data.mods[idx].tail = mo.tail;
-        for (i, c) in mo.replacement.chars().enumerate() {
-            skel.maps.rodata_data.mods[idx].str[i] = c as i8;
-        }
+        // skel.maps.rodata_data.mods[idx].len = mo.replacement.len() as u8;
+        // skel.maps.rodata_data.mods[idx].tail = mo.tail;
+        // for (i, c) in mo.replacement.chars().enumerate() {
+        //     skel.maps.rodata_data.mods[idx].str[i] = c as i8;
+        // }
     }
 
     Ok(())

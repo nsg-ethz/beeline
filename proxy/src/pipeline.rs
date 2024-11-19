@@ -175,7 +175,7 @@ impl Authorize {
 impl Uturn for Authorize {
 
     fn handle_uturn(&mut self, ctx: &pipeline_ctx) -> Result<Action> {
-        let auth_hdr = unsafe { ctx.authorization.as_bytes() };
+        let auth_hdr = unsafe { ctx.auth.as_bytes() };
         let token = str::from_utf8(auth_hdr)?;
         let token = token.strip_prefix("Bearer")
             .expect("Invalid auth token")
