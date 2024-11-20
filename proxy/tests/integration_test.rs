@@ -5,6 +5,7 @@ use proxy::Proxy;
 use proxy::config::Config;
 use rand::{distributions::Alphanumeric, Rng};
 use sha2::Sha256;
+use core::str;
 use std::{collections::HashMap, mem::MaybeUninit, ops::{Deref, DerefMut}, path::PathBuf};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::JoinHandle, time::*};
 
@@ -138,6 +139,28 @@ async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: &H
     Ok((server, req_sent, req_recv))
 }
 
+fn parse_hdr(buf: &[u8]) -> HashMap<&str, &str> {
+    let mut req_hdr = [httparse::EMPTY_HEADER; 8192];
+    let mut req = httparse::Request::new(&mut req_hdr);
+    req.parse(buf).unwrap();
+
+    req.headers.iter()
+        .map(|hdr| (hdr.name, str::from_utf8(hdr.value).unwrap()))
+        .collect()
+}
+
+fn assert_http_hdr_eq(buf: &[u8], exp_hdrs: &HashMap<&str, &str>) {
+    let mut req_hdr = [httparse::EMPTY_HEADER; 8192];
+    let mut req = httparse::Request::new(&mut req_hdr);
+    req.parse(buf).unwrap();
+
+    for hdr in req.headers.iter() {
+        let hdr_val = exp_hdrs.get(hdr.name);
+        assert!(hdr_val.is_some(), "unexpected header: {:?}", hdr.name);
+        assert_eq!(hdr.value, hdr_val.unwrap().as_bytes(), "expected {}: {}, got {}", hdr.name, hdr_val.unwrap(), str::from_utf8(hdr.value).unwrap());
+    }
+}
+
 #[tokio::test]
 async fn it_routes_to_correct_destination() {
     let (proxy, mut client, server1, server2) = setup().await;
@@ -185,12 +208,16 @@ async fn it_forwards_valid_jwt() {
     ]);
 
     let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &hdrs).await.unwrap();
-    assert_eq!(req_sent, req_recv);
+
+    let mut hdrs_sent = parse_hdr(req_sent.as_bytes());    
+    let conn_id = client.local_addr().unwrap().port().to_string();
+    hdrs_sent.insert("conn-id", &conn_id.as_str());
+    assert_http_hdr_eq(req_recv.as_bytes(), &hdrs_sent);
 
     // the second request with the same token should be handled in eBPF only
     let req_sent = write(&mut client, &hdrs).await.unwrap();
     let req_recv = read(&mut server1, req_sent.len()).await.unwrap();
-    assert_eq!(req_sent, req_recv);
+    assert_http_hdr_eq(req_recv.as_bytes(), &hdrs_sent);
 
     let server2_req_recv = try_accept(server2).await;
     assert!(server2_req_recv.is_err());

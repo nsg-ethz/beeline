@@ -21,12 +21,6 @@ pub enum Action {
     None
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Modification {
-    pub replacement: String,
-    pub tail: u8,
-}
-
 impl Action {
 
     pub fn is_some(&self) -> bool {

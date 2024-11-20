@@ -1,17 +1,11 @@
 use anyhow::{Ok, Result};
-use crate::parse::{
-    dfa::Dfa, Action, Modification
-};
-use std::collections::HashMap;
+use crate::parse::{dfa::Dfa, Action};
 
 const CRLF: &str = "\r\n";
 
 pub struct HttpParser {
     pub s_init: u16,
     pub s_any: u16,
-
-    /// the modifications that should be made for a given modification id
-    pub modifications: HashMap<u8, Modification>,
 
     dfa: Dfa,
 }
@@ -28,7 +22,6 @@ impl HttpParser {
         HttpParser {
             s_init,
             s_any,
-            modifications: HashMap::new(),
             dfa: Dfa::new(states.into_iter()),
         }
     }
@@ -78,15 +71,10 @@ impl HttpParser {
             .push_optional('*')?
             .end_caputuring_and_restart_with(CRLF)?;
 
-        self.modifications.insert(mid, Modification {
-            replacement: "".to_string(),
-            tail: 0,
-        });
-
         Ok(mid)
     }
 
-    pub fn set_http_hdr(&mut self, key: &str, val: &str) -> Result<u8> {
+    pub fn set_http_hdr(&mut self, key: &str, _: &str) -> Result<u8> {
         let mid = self.dfa.start_pattern(self.s_any)
             .push(CRLF)?
             .push(key)?
@@ -98,12 +86,6 @@ impl HttpParser {
             .start_capturing()
             .push_optional('*')?
             .end_caputuring_and_restart_with(CRLF)?;
-
-        let val = val.to_string();
-        self.modifications.insert(mid, Modification {
-            replacement: val,
-            tail: 2,
-        });
 
         Ok(mid)
     }

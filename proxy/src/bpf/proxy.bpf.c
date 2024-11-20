@@ -386,8 +386,8 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
     if (msg == NULL || dkey == NULL || ctx == NULL) return PR_DROP;
 
     struct prange r = (ctx->conn_id_range.len > 0) ? ctx->conn_id_range : (struct prange) { .idx = ctx->done_idx, .len = 0 };
-    char conn_id[16];
-    u32 len = BPF_SNPRINTF(conn_id, 16, "conn-id: %d\r\n", dkey->local.port) - 1;
+    char conn_id[20];
+    u32 len = BPF_SNPRINTF(conn_id, 20, "conn-id: %d\r\n", dkey->local.port);
     bpf_clamp_uminmax(len, 0, 16);
 
     if (_modify(msg, r, conn_id, len) < 0) return PR_UTRN;
