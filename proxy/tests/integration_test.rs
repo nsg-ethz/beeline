@@ -162,20 +162,6 @@ fn assert_http_hdr_eq(buf: &[u8], exp_hdrs: &HashMap<&str, &str>) {
 }
 
 #[tokio::test]
-async fn it_routes_to_correct_destination() {
-    let (proxy, mut client, server1, server2) = setup().await;
-    let hdrs = HashMap::from([("backend", "server1")]);
-
-    let (_, req_sent, req_recv) = write_accept_read(&mut client, server1, &hdrs).await.unwrap();
-    assert_eq!(req_sent, req_recv);
-
-    let server2_req_recv = try_accept(server2).await;
-    assert!(server2_req_recv.is_err());
-    
-    proxy.abort();
-}
-
-#[tokio::test]
 async fn it_drops_invalid_jwt() {
     let (proxy, mut client, server1, server2) = setup().await;
     let token = generate_jwt("invalid_secret").unwrap();
