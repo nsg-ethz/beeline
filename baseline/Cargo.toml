@@ -3,6 +3,14 @@ name = "baseline"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "proxy"
+path = "src/proxy.rs"
+
+[[bin]]
+name = "proxy"
+path = "src/main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -16,3 +24,6 @@ jwt = "0.16.0"
 log = "0.4.22"
 sha2 = "0.10.8"
 tokio = { version = "1.41.1", features = ["full", "io-util"] }
+
+[dev-dependencies]
+tests = { path = "../tests" }

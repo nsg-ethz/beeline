@@ -34,3 +34,4 @@ libbpf-cargo = "0.24"
 
 [dev-dependencies]
 rand = "0.8.5"
+tests = { path = "../tests" }

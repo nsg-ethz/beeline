@@ -4,6 +4,8 @@ use log::{debug, error, info};
 use std::{collections::HashMap, io::Cursor, net::{SocketAddr, ToSocketAddrs}, sync::Arc};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::RwLock};
 
+mod pipeline;
+
 type SocketHashMap = Arc<RwLock<HashMap<SocketAddr, TcpStream>>>;
 
 fn try_split(stream: TcpStream) -> Result<(TcpStream, TcpStream)> {

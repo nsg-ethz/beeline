@@ -2,9 +2,6 @@ use anyhow::Result;
 use clap::Parser;
 use proxy::Proxy;
 
-mod proxy;
-mod pipeline;
-
 #[derive(Parser)]
 struct Args {
     #[arg(short, long, default_value="127.0.0.1:3000")]

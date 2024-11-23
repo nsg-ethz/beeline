@@ -127,6 +127,7 @@ dependencies = [
  "jwt",
  "log",
  "sha2",
+ "tests",
  "tokio",
 ]
 
@@ -840,6 +841,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "sha2",
+ "tests",
  "tokio",
 ]
 
@@ -1090,6 +1092,20 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "hmac",
+ "httparse",
+ "jwt",
+ "rand",
+ "sha2",
+ "tokio",
 ]
 
 [[package]]
