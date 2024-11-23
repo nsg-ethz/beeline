@@ -1,12 +1,21 @@
 use anyhow::{anyhow, Result};
-use crate::pipeline::Pipeline;
+use crate::pipeline::{Destination, Pipeline};
 use log::{debug, error, info};
-use std::{net::{SocketAddr, ToSocketAddrs}, sync::Arc};
-use tokio::{io, net::{TcpListener, TcpStream}};
+use std::{collections::HashMap, io::Cursor, net::{SocketAddr, ToSocketAddrs}, sync::Arc};
+use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::RwLock};
+
+type SocketHashMap = Arc<RwLock<HashMap<SocketAddr, TcpStream>>>;
+
+fn try_split(stream: TcpStream) -> Result<(TcpStream, TcpStream)> {
+    let old = stream.into_std()?;
+    let new = std::net::TcpStream::try_clone(&old)?;
+    Ok((TcpStream::from_std(old)?, TcpStream::from_std(new)?))
+}
 
 pub struct Proxy {
     pub address: SocketAddr,
     pipeline: Arc<Pipeline>,
+    sockets: SocketHashMap,
 }
 
 unsafe impl Send for Proxy {}
@@ -23,6 +32,7 @@ impl Proxy {
         Ok(Proxy {
             address,
             pipeline: Arc::new(Pipeline::new()),
+            sockets: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -40,42 +50,58 @@ impl Proxy {
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        if let Err(e) = self.handle_downstream(downstream).await {
-            error!("Error handling downstream connection: {:?}", e);
+        let (rx, tx) = try_split(downstream)?;
+
+        self.sockets.write()
+            .await
+            .insert(downstream_addr, tx);
+
+        if let Err(e) = Self::start_reading(rx, true, self.pipeline.clone(), self.sockets.clone()) {
+            error!("Error handling connection: {:?}", e);
         }
 
         Ok(())
     }
 
-    async fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
-        let pipeline = self.pipeline.clone();
-
+    fn start_reading(stream: TcpStream, is_downstream: bool, pipeline: Arc<Pipeline>, sockets: SocketHashMap) -> Result<()> {
         tokio::spawn(async move {
             let mut buf = Vec::with_capacity(8192);
+            let res: Result<(), _> = loop {
 
-            let res = loop {
-                // wait until the downstream connection is readable
-                match downstream.readable().await {
+                match stream.readable().await {
                     Err(ref e)if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
                     Ok(()) => {}
                 }
 
-                let buf_len = match downstream.try_read_buf(&mut buf) {
+                let buf_len = match stream.try_read_buf(&mut buf) {
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
                     Ok(0) => break Ok(()),
                     Ok(len) => len,
                 };
 
-                let mut headers = [httparse::EMPTY_HEADER; 8192];
-                let mut req = httparse::Request::new(&mut headers);
-                let hdr_len = req.parse(&buf);
-                if let Err(e) = hdr_len {
-                    break Err(anyhow!(e));
-                }
+                let mut headers = [httparse::EMPTY_HEADER; 64];
+                let (hdr_len, hdrs) = if is_downstream {
+                    let mut req = httparse::Request::new(&mut headers);
+                    let hdr_len = req.parse(&buf);
+                    if let Err(e) = hdr_len {
+                        break Err(anyhow!(e));
+                    }
 
-                let con_len = req.headers.iter()
+                    (hdr_len, req.headers)
+                }
+                else {
+                    let mut req = httparse::Response::new(&mut headers);
+                    let hdr_len = req.parse(&buf);
+                    if let Err(e) = hdr_len {
+                        break Err(anyhow!(e));
+                    }
+
+                    (hdr_len, req.headers)
+                };
+
+                let con_len = hdrs.iter()
                     .find(|h| h.name.eq_ignore_ascii_case("content-length"))
                     .and_then(|h|  std::str::from_utf8(h.value).ok())
                     .and_then(|v| v.parse::<usize>().ok())
@@ -92,15 +118,45 @@ impl Proxy {
                     continue;
                 }
 
-                if let Err(e) = pipeline.clone().process(&buf[..req_len], downstream.peer_addr().unwrap()).await {
-                    break Err(e);
+                let origin = if is_downstream {
+                    stream.peer_addr().unwrap()
                 }
+                else {
+                    stream.local_addr().unwrap()
+                };
+                let dest = match pipeline.process(&mut buf, origin, is_downstream).await {
+                    Ok(dest) => dest,
+                    Err(e) => break Err(e)
+                };
 
-                buf.clear();
+                let addr = match dest {
+                    Destination::Exisiting(addr) => addr,
+                    Destination::New(addr) => {
+                        let upstream = TcpStream::connect(addr).await.unwrap();
+                        let addr = upstream.local_addr().unwrap();
+                        let (rx, tx) = try_split(upstream).unwrap();
+                        debug!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
+                        sockets.write()
+                            .await
+                            .insert(addr, tx);
+
+                        Self::start_reading(rx, false, pipeline.clone(), sockets.clone()).unwrap();
+
+                        addr
+                    }
+                };
+
+                let mut sockets_wr = sockets.write().await;
+                let wr_stream = sockets_wr.get_mut(&addr).unwrap();
+                let mut req_buf = Cursor::new(&buf);
+                wr_stream.write_all_buf(&mut req_buf).await.unwrap();
             };
 
             if let Err(e) = res {
-                error!("Error handling downstream connection: {:?}", e);
+                error!("Error handling connection: {:?}", e);
+            }
+            else {
+                debug!("Connection closed");
             }
         });
 

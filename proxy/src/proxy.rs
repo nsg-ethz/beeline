@@ -255,7 +255,7 @@ impl<'obj> Proxy<'obj> {
                     Ok(len) => len,
                 };
 
-                let mut headers = [httparse::EMPTY_HEADER; 8192];
+                let mut headers = [httparse::EMPTY_HEADER; 64];
                 let mut req = httparse::Request::new(&mut headers);
                 let hdr_len = req.parse(&buf);
                 if let Err(e) = hdr_len {
