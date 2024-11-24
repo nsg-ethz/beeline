@@ -39,7 +39,7 @@ pub enum Destination {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-struct ForwardingToken {
+pub struct ForwardingToken {
     conn_id: u32,
     direction: Direction,
     backend: u8,
@@ -61,7 +61,7 @@ impl Pipeline {
         }
     }
 
-    pub async fn process(self: &Arc<Self>, buf: &mut Vec<u8>, origin: SocketAddr, is_downstream: bool) -> Result<Destination> {
+    pub async fn process(self: &Arc<Self>, buf: &mut Vec<u8>, origin: SocketAddr, is_downstream: bool) -> Result<(Destination, ForwardingToken)> {
         debug!("Processing msg from {:?}", origin);
 
         let mut headers = [httparse::EMPTY_HEADER; 64];
@@ -97,7 +97,7 @@ impl Pipeline {
         let mut ctx = Context { hdrs, origin, ft: ForwardingToken::default() };
 
         if is_downstream {
-            // self.authenticate(&mut ctx).await?;
+            self.authenticate(&mut ctx).await?;
             self.update_ds_conn(&mut ctx).await?;
             self.forward_ds_conn(&mut ctx).await?;
 
@@ -109,7 +109,8 @@ impl Pipeline {
             self.forward_us_conn(&mut ctx).await?;
         }
 
-        Ok(self.select_sock(ctx).await)
+        let ft = ctx.ft.clone();
+        Ok((self.select_sock(ctx).await, ft))
     }
 
     async fn authenticate(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
@@ -221,6 +222,14 @@ impl Pipeline {
             let addr = format!("127.0.0.1:800{}", ctx.ft.backend);
             Destination::New(SocketAddr::from_str(&addr).unwrap())
         }
+    }
+
+    pub async fn add_sock(self: &Arc<Self>, ft: ForwardingToken, addr: SocketAddr) {
+        self.forwarding_decision_tree.lock()
+            .await
+            .entry(ft)
+            .or_insert_with(Vec::new)
+            .push(addr);
     }
 
 }

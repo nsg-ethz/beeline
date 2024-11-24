@@ -1,4 +1,4 @@
-use proxy::Proxy;
+use baseline::Proxy;
 use tokio::net::TcpStream;
 
 async fn setup() -> TcpStream {

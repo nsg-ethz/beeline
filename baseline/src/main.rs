@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use proxy::Proxy;
+use baseline::Proxy;
 
 #[derive(Parser)]
 struct Args {

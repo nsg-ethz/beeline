@@ -8,7 +8,7 @@ use log::{
     warn,
     info,
 };
-use proxy::{Proxy, config::Config};
+use ebpf::{Proxy, config::Config};
 
 #[derive(Parser)]
 struct Args {

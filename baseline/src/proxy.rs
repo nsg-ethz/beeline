@@ -69,7 +69,6 @@ impl Proxy {
         tokio::spawn(async move {
             let mut buf = Vec::with_capacity(8192);
             let res: Result<(), _> = loop {
-
                 match stream.readable().await {
                     Err(ref e)if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
@@ -126,21 +125,26 @@ impl Proxy {
                 else {
                     stream.local_addr().unwrap()
                 };
-                let dest = match pipeline.process(&mut buf, origin, is_downstream).await {
-                    Ok(dest) => dest,
+                let (dest, ft) = match pipeline.process(&mut buf, origin, is_downstream).await {
+                    Ok((dest, ft)) => (dest, ft),
                     Err(e) => break Err(e)
                 };
 
                 let addr = match dest {
                     Destination::Exisiting(addr) => addr,
                     Destination::New(addr) => {
-                        let upstream = TcpStream::connect(addr).await.unwrap();
+                        let upstream = match TcpStream::connect(addr).await {
+                            Ok(upstream) => upstream,
+                            Err(e) => break Err(anyhow!(e))
+                        };
                         let addr = upstream.local_addr().unwrap();
                         let (rx, tx) = try_split(upstream).unwrap();
                         debug!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
                         sockets.write()
                             .await
                             .insert(addr, tx);
+
+                        pipeline.add_sock(ft, addr).await;
 
                         Self::start_reading(rx, false, pipeline.clone(), sockets.clone()).unwrap();
 
@@ -152,6 +156,8 @@ impl Proxy {
                 let wr_stream = sockets_wr.get_mut(&addr).unwrap();
                 let mut req_buf = Cursor::new(&buf);
                 wr_stream.write_all_buf(&mut req_buf).await.unwrap();
+
+                buf.clear();
             };
 
             if let Err(e) = res {

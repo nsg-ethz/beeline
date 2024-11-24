@@ -1,10 +1,10 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use hmac::{Hmac, Mac};
 use jwt::SignWithKey;
 use rand::{distributions::Alphanumeric, Rng};
 use sha2::Sha256;
 use core::str;
-use std::collections::HashMap;
+use std::{collections::HashMap, vec};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::*};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_millis(10);
@@ -52,43 +52,83 @@ async fn try_accept(server: TcpListener) -> Result<TcpStream> {
     Ok(server)
 }
 
-async fn read(server: &mut TcpStream, len: usize) -> Result<String> {
-    let mut req_recv = vec![0; len];
-    let read = server.read(&mut req_recv);
-    timeout(DEFAULT_TIMEOUT, read).await??;
+async fn read(server: &mut TcpStream) -> Result<String> {
+    let mut req_recv = vec![0; 1024];
 
-    let req_recv = String::from_utf8(req_recv)?;
+    let mut len = 0;
+    for _ in 0..10 {
+        let readable = server.readable();
+        timeout(DEFAULT_TIMEOUT, readable).await??;
+
+        len += server.read(&mut req_recv[len..]).await?;
+
+        println!("len: {:?}", len);
+
+        match parse_http_hdrs(&req_recv) {
+            Ok(_) => break,
+            Err(_) => {}
+        }
+    }
+
+    let req_recv = String::from_utf8(req_recv[..len].to_vec())?;
     Ok(req_recv)
 }
 
 async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: &HashMap<&str, &str>) -> Result<(TcpStream, String, String)> {
     let req_sent = write(client, hdrs).await?;
     let mut server = try_accept(server).await?;
-    let req_recv = read(&mut server, req_sent.len()).await?;
+    let req_recv = read(&mut server).await?;
 
     Ok((server, req_sent, req_recv))
 }
 
-fn parse_hdr(buf: &[u8]) -> HashMap<&str, &str> {
+
+// fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<&str, &str>> {
+//     let mut req_hdr = [httparse::EMPTY_HEADER; 64];
+//     let hdrs = httparse::parse_headers(buf, &mut req_hdr)?;
+
+//     match hdrs {
+//         httparse::Status::Complete((_, hdrs)) => {
+//             let hdrs = hdrs.iter()
+//                 .map(|hdr| (hdr.name, str::from_utf8(hdr.value).unwrap()))
+//                 .collect();
+//             Ok(hdrs)
+//         },
+//         httparse::Status::Partial => Err(anyhow!("Partial headers")),
+//     }
+// }
+
+fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<&str, &str>> {
+    if buf.len() == 0 {
+        return Err(anyhow!("empty buffer"));
+    }
+
     let mut req_hdr = [httparse::EMPTY_HEADER; 8192];
     let mut req = httparse::Request::new(&mut req_hdr);
-    req.parse(buf).unwrap();
+    req.parse(buf)?;
 
-    req.headers.iter()
+    let hdrs = req.headers.iter()
         .map(|hdr| (hdr.name, str::from_utf8(hdr.value).unwrap()))
-        .collect()
+        .collect();
+
+    Ok(hdrs)
 }
 
-fn assert_http_hdr_eq(buf: &[u8], exp_hdrs: &HashMap<&str, &str>) {
-    let mut req_hdr = [httparse::EMPTY_HEADER; 8192];
-    let mut req = httparse::Request::new(&mut req_hdr);
-    req.parse(buf).unwrap();
+fn assert_http_hdr_eq(buf: &str, exp_hdrs: &HashMap<&str, &str>) {
+    let hdrs = parse_http_hdrs(buf.as_bytes());
+    assert!(hdrs.is_ok(), "failed to parse headers: {:?}", hdrs.err().unwrap());
 
-    for hdr in req.headers.iter() {
-        let hdr_val = exp_hdrs.get(hdr.name);
-        assert!(hdr_val.is_some(), "unexpected header: {:?}", hdr.name);
-        assert_eq!(hdr.value, hdr_val.unwrap().as_bytes(), "expected {}: {}, got {}", hdr.name, hdr_val.unwrap(), str::from_utf8(hdr.value).unwrap());
+    for (key, val) in hdrs.unwrap().into_iter() {
+        let hdr_val = exp_hdrs.get(key);
+        assert!(hdr_val.is_some(), "unexpected header: {:?}", key);
+        assert_eq!(val, *hdr_val.unwrap(), "expected {}: {}, got {}", key, hdr_val.unwrap(), val);
     }
+}
+
+fn assert_http_payload_eq(lhs: &str, rhs: &str) {
+    let lhs = lhs.split("\r\n\r\n").collect::<Vec<_>>();
+    let rhs = rhs.split("\r\n\r\n").collect::<Vec<_>>();
+    assert_eq!(lhs.last().unwrap(), rhs.last().unwrap());
 }
 
 async fn setup() -> (TcpListener, TcpListener) {
@@ -143,16 +183,17 @@ pub async fn it_forwards_valid_jwt(mut client: TcpStream) {
     ]);
 
     let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &hdrs).await.unwrap();
-
-    let mut hdrs_sent = parse_hdr(req_sent.as_bytes());    
+    let mut hdrs_sent = parse_http_hdrs(req_sent.as_bytes()).unwrap();    
     let conn_id = client.local_addr().unwrap().port().to_string();
     hdrs_sent.insert("conn-id", &conn_id.as_str());
-    assert_http_hdr_eq(req_recv.as_bytes(), &hdrs_sent);
+    assert_http_hdr_eq(&req_recv, &hdrs_sent);
+    assert_http_payload_eq(&req_sent, &req_recv);
 
     // the second request with the same token should be handled in eBPF only
     let req_sent = write(&mut client, &hdrs).await.unwrap();
-    let req_recv = read(&mut server1, req_sent.len()).await.unwrap();
-    assert_http_hdr_eq(req_recv.as_bytes(), &hdrs_sent);
+    let req_recv = read(&mut server1).await.unwrap();
+    assert_http_hdr_eq(&req_recv, &hdrs_sent);
+    assert_http_payload_eq(&req_sent, &req_recv);
 
     let server2_req_recv = try_accept(server2).await;
     assert!(server2_req_recv.is_err());
