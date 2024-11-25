@@ -82,22 +82,6 @@ async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: &H
     Ok((server, req_sent, req_recv))
 }
 
-
-// fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<&str, &str>> {
-//     let mut req_hdr = [httparse::EMPTY_HEADER; 64];
-//     let hdrs = httparse::parse_headers(buf, &mut req_hdr)?;
-
-//     match hdrs {
-//         httparse::Status::Complete((_, hdrs)) => {
-//             let hdrs = hdrs.iter()
-//                 .map(|hdr| (hdr.name, str::from_utf8(hdr.value).unwrap()))
-//                 .collect();
-//             Ok(hdrs)
-//         },
-//         httparse::Status::Partial => Err(anyhow!("Partial headers")),
-//     }
-// }
-
 fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<&str, &str>> {
     if buf.len() == 0 {
         return Err(anyhow!("empty buffer"));

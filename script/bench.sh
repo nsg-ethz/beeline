@@ -54,57 +54,57 @@ pod 2 ${ECHO_BIN} -a 10.0.2.1:8000 -H "signature: server2" -e "conn-id"
 pod 3 ${ECHO_BIN} -a 10.0.3.1:8000 -H "signature: server3" -e "conn-id"
 pod 4 ${ECHO_BIN} -a 10.0.4.1:8000 -H "signature: server4" -e "conn-id"
 
-# sudo -b -E systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -c ${ROOT}/../config/bench.yaml
-# echo -e "${COLOR_GREEN}Launched exp-pod5-proxy in pod5.${COLOR_OFF}"
+sudo -b -E systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -c ${ROOT}/../config/bench.yaml
+echo -e "${COLOR_GREEN}Launched exp-pod5-proxy in pod5.${COLOR_OFF}"
 
-# sleep 0.25
-# systemctl list-unit-files | grep exp-pod | awk '{print $1}'
+sleep 0.25
+systemctl list-unit-files | grep exp-pod | awk '{print $1}'
 
-# shift $(($OPTIND-1))
-# SCRIPT="$1"
+shift $(($OPTIND-1))
+SCRIPT="$1"
 
-# if [ -z "${SCRIPT}" ]; then
-#     SCRIPT="rps.js"
-# fi
-# if [[ $SCRIPT != *.js ]]; then
-#     SCRIPT="${SCRIPT}.js"
-# fi
+if [ -z "${SCRIPT}" ]; then
+    SCRIPT="rps.js"
+fi
+if [[ $SCRIPT != *.js ]]; then
+    SCRIPT="${SCRIPT}.js"
+fi
 
-# ROOT=$(dirname "$(readlink -f "$0")")
-# SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
+ROOT=$(dirname "$(readlink -f "$0")")
+SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 
-# for SIZE in ${SIZE_LIST}; do
-#     LOG_OPT=""
-#     if [ ${WRITE_LOG} -eq 1 ]; then
-#         if [ -z "${PROXY}" ]; then
-#             echo "Error: Specify the proxy name with the -p option";
-#             exit 1
-#         fi
-#         FILE=${SCRIPT%%.*}
-#         LOG_OPT="--out csv=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B-log.gz"
-#     fi
+for SIZE in ${SIZE_LIST}; do
+    LOG_OPT=""
+    if [ ${WRITE_LOG} -eq 1 ]; then
+        if [ -z "${PROXY}" ]; then
+            echo "Error: Specify the proxy name with the -p option";
+            exit 1
+        fi
+        FILE=${SCRIPT%%.*}
+        LOG_OPT="--out csv=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B-log.gz"
+    fi
 
-#     SUM_OPT=""
-#     if [ -n "${NAME}" ]; then
-#         if [ -z "${PROXY}" ]; then
-#                 echo "Error: Specify the proxy name with the -p option";
-#                 exit 1
-#         fi
-#         mkdir -p ${SUMMARY_DIR}
-#         FILE=${SCRIPT%%.*}
-#         SUM_OPT="--summary-export=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B.json"
-#     fi
+    SUM_OPT=""
+    if [ -n "${NAME}" ]; then
+        if [ -z "${PROXY}" ]; then
+                echo "Error: Specify the proxy name with the -p option";
+                exit 1
+        fi
+        mkdir -p ${SUMMARY_DIR}
+        FILE=${SCRIPT%%.*}
+        SUM_OPT="--summary-export=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B.json"
+    fi
 
-#     BENCH_CMD="k6 run -e VUS=${VUS} -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
-#     echo ${BENCH_CMD}
-#     eval ${BENCH_CMD}
-#     RET=$?
+    BENCH_CMD="k6 run -e VUS=${VUS} -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}" 
+    echo ${BENCH_CMD}
+    eval ${BENCH_CMD}
+    RET=$?
 
-#     sudo chown -R ${USER}:"domain users" ${SUMMARY_DIR}
+    sudo chown -R ${USER}:"domain users" ${SUMMARY_DIR}
 
-#     if [ ${RET} -ne 0 ]; then
-#         exit $?
-#     fi
-# done
+    if [ ${RET} -ne 0 ]; then
+        exit $?
+    fi
+done
 
-# stop_experiment
+stop_experiment
