@@ -3,9 +3,9 @@ use hmac::{Hmac, Mac};
 use futures::lock::Mutex;
 use httparse::Status;
 use jwt::VerifyWithKey;
-use log::debug;
+use log::trace;
 use sha2::Sha256;
-use std::{collections::{BTreeMap, HashMap}, net::SocketAddr, str::FromStr, sync::Arc};
+use std::{collections::{BTreeMap, HashMap, HashSet}, net::SocketAddr, str::FromStr, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DownstreamState {
@@ -48,7 +48,7 @@ pub struct ForwardingToken {
 pub struct Pipeline {
     ds_state: Arc<Mutex<HashMap<SocketAddr, DownstreamState>>>,
     us_state: Arc<Mutex<HashMap<SocketAddr, UpstreamState>>>,
-    forwarding_decision_tree: Arc<Mutex<HashMap<ForwardingToken, Vec<SocketAddr>>>>,
+    forwarding_decision_tree: Arc<Mutex<HashMap<ForwardingToken, HashSet<SocketAddr>>>>,
 }
 
 impl Pipeline {
@@ -62,7 +62,7 @@ impl Pipeline {
     }
 
     pub async fn process(self: &Arc<Self>, buf: &mut Vec<u8>, origin: SocketAddr, is_downstream: bool) -> Result<(Destination, ForwardingToken)> {
-        debug!("Processing msg from {:?}", origin);
+        trace!("Processing msg from {:?}", origin);
 
         let mut headers = [httparse::EMPTY_HEADER; 64];
         let (hdrs, len) = if is_downstream {
@@ -73,11 +73,7 @@ impl Pipeline {
                 Err(e) => return Err(anyhow!(e)),
             };
 
-            let hdrs = req.headers.iter()
-                .map(|hdr| (hdr.name.to_string(), String::from_utf8(hdr.value.to_vec()).unwrap()))
-                .collect();
-
-            (hdrs, hdr_len)
+            (req.headers, hdr_len)
         } 
         else {
             let mut res = httparse::Response::new(&mut headers);
@@ -87,12 +83,12 @@ impl Pipeline {
                 Err(e) => return Err(anyhow!(e)),
             };
 
-            let hdrs = res.headers.iter()
-                .map(|hdr| (hdr.name.to_string(), String::from_utf8(hdr.value.to_vec()).unwrap()))
-                .collect();
-
-            (hdrs, hdr_len)
+            (res.headers, hdr_len)
         };
+
+        let hdrs = hdrs.iter()
+            .map(|hdr| (hdr.name.to_string().to_lowercase(), String::from_utf8(hdr.value.to_vec()).unwrap()))
+            .collect();
 
         let mut ctx = Context { hdrs, origin, ft: ForwardingToken::default() };
 
@@ -114,7 +110,7 @@ impl Pipeline {
     }
 
     async fn authenticate(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        let token = ctx.hdrs.get("Authorization")
+        let token = ctx.hdrs.get("authorization")
             .ok_or_else(|| anyhow!("No Authorization header found"))?;
         let token = token.strip_prefix("Bearer")
             .expect("Invalid auth token")
@@ -184,8 +180,8 @@ impl Pipeline {
         self.forwarding_decision_tree.lock()
             .await
             .entry(ft_inv)
-            .or_insert_with(Vec::new)
-            .push(ctx.origin);
+            .or_insert_with(HashSet::new)
+            .insert(ctx.origin);
 
         Ok(())
     }
@@ -200,19 +196,22 @@ impl Pipeline {
 
     async fn select_sock(self: &Arc<Self>, ctx: Context) -> Destination {
         let mut fdt = self.forwarding_decision_tree.lock().await;
-        let socks = fdt.entry(ctx.ft.clone()).or_insert_with(Vec::new);
+        let socks = fdt.entry(ctx.ft.clone()).or_insert_with(HashSet::new);
         let us_state = self.us_state.lock().await;
 
-        let addr = if socks.len() > 1 {
+        let addr = if ctx.ft.direction == Direction::Upstream {
             socks.iter()
                 .min_by_key(|addr| { 
-                    let state = us_state.get(addr).unwrap();
-                    state.num_reqs
+                    // it's possible that we haven't received a response from this particular
+                    // upstream connection yet -> num_reqs will be 0
+                    us_state.get(addr)
+                        .map(|state| state.num_reqs)
+                        .unwrap_or(0)
                 })
         } else {
-            socks.first()
+            assert!(socks.len() == 1);
+            socks.iter().next()
         };
-
 
         if let Some(addr) = addr {
             Destination::Exisiting(addr.clone())
@@ -228,8 +227,8 @@ impl Pipeline {
         self.forwarding_decision_tree.lock()
             .await
             .entry(ft)
-            .or_insert_with(Vec::new)
-            .push(addr);
+            .or_insert_with(HashSet::new)
+            .insert(addr);
     }
 
 }

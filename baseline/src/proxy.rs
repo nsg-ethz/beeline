@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use crate::pipeline::{Destination, Pipeline};
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use std::{collections::HashMap, io::Cursor, net::{SocketAddr, ToSocketAddrs}, sync::Arc};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::RwLock};
 
@@ -50,7 +50,7 @@ impl Proxy {
 
     async fn accept(&self, listener: &TcpListener) -> Result<()> {
         let (downstream, downstream_addr) = listener.accept().await?;
-        debug!("Accepted connection on port {:?}", downstream_addr.port());
+        trace!("Accepted connection on port {:?}", downstream_addr.port());
 
         let (rx, tx) = try_split(downstream)?;
 
@@ -139,11 +139,11 @@ impl Proxy {
                         };
                         let addr = upstream.local_addr().unwrap();
                         let (rx, tx) = try_split(upstream).unwrap();
-                        debug!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
+
+                        trace!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
                         sockets.write()
                             .await
                             .insert(addr, tx);
-
                         pipeline.add_sock(ft, addr).await;
 
                         Self::start_reading(rx, false, pipeline.clone(), sockets.clone()).unwrap();
@@ -164,7 +164,7 @@ impl Proxy {
                 error!("Error handling connection: {:?}", e);
             }
             else {
-                debug!("Connection closed");
+                debug!("Connection closed: {}", stream.peer_addr().unwrap());
             }
         });
 

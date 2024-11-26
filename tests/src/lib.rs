@@ -87,7 +87,7 @@ fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<&str, &str>> {
         return Err(anyhow!("empty buffer"));
     }
 
-    let mut req_hdr = [httparse::EMPTY_HEADER; 8192];
+    let mut req_hdr = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut req_hdr);
     req.parse(buf)?;
 
