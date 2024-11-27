@@ -199,6 +199,8 @@ impl Pipeline {
         let socks = fdt.entry(ctx.ft.clone()).or_insert_with(HashSet::new);
         let us_state = self.us_state.lock().await;
 
+        trace!("Selecting sock for {:?}", ctx.ft);
+
         let addr = if ctx.ft.direction == Direction::Upstream {
             socks.iter()
                 .min_by_key(|addr| { 

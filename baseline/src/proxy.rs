@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use crate::pipeline::{Destination, Pipeline};
-use log::{debug, error, info, trace};
+use log::{debug, error, info};
 use std::{collections::HashMap, io::Cursor, net::{SocketAddr, ToSocketAddrs}, sync::Arc};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::RwLock};
 
@@ -9,9 +9,10 @@ mod pipeline;
 type SocketHashMap = Arc<RwLock<HashMap<SocketAddr, TcpStream>>>;
 
 fn try_split(stream: TcpStream) -> Result<(TcpStream, TcpStream)> {
-    let old = stream.into_std()?;
-    let new = std::net::TcpStream::try_clone(&old)?;
-    Ok((TcpStream::from_std(old)?, TcpStream::from_std(new)?))
+    let rx = stream.into_std()?;
+    let tx = std::net::TcpStream::try_clone(&rx)?;
+
+    Ok((TcpStream::from_std(rx)?, TcpStream::from_std(tx)?))
 }
 
 pub struct Proxy {
@@ -50,9 +51,9 @@ impl Proxy {
 
     async fn accept(&self, listener: &TcpListener) -> Result<()> {
         let (downstream, downstream_addr) = listener.accept().await?;
-        trace!("Accepted connection on port {:?}", downstream_addr.port());
+        debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        let (rx, tx) = try_split(downstream)?;
+        let (rx, tx) = try_split(downstream)?;     
 
         self.sockets.write()
             .await
@@ -125,7 +126,9 @@ impl Proxy {
                 else {
                     stream.local_addr().unwrap()
                 };
-                let (dest, ft) = match pipeline.process(&mut buf, origin, is_downstream).await {
+
+                let mut msg = buf.drain(..req_len).collect();
+                let (dest, ft) = match pipeline.process(&mut msg, origin, is_downstream).await {
                     Ok((dest, ft)) => (dest, ft),
                     Err(e) => break Err(e)
                 };
@@ -140,7 +143,8 @@ impl Proxy {
                         let addr = upstream.local_addr().unwrap();
                         let (rx, tx) = try_split(upstream).unwrap();
 
-                        trace!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
+                        debug!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
+                        
                         sockets.write()
                             .await
                             .insert(addr, tx);
@@ -154,10 +158,8 @@ impl Proxy {
 
                 let mut sockets_wr = sockets.write().await;
                 let wr_stream = sockets_wr.get_mut(&addr).unwrap();
-                let mut req_buf = Cursor::new(&buf);
+                let mut req_buf = Cursor::new(&msg);
                 wr_stream.write_all_buf(&mut req_buf).await.unwrap();
-
-                buf.clear();
             };
 
             if let Err(e) = res {
