@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
 use ma::{NewUpstream, Pipeline, Timer, Uturn};
 use pipeline::DebugPipeline;
@@ -185,6 +185,19 @@ impl<'obj> Proxy<'obj> {
 
         let new_upstream = pipeline.create_new_upstream()?;
         let new_upstream = Mutex::new(new_upstream); 
+
+        let crypto = &skel.progs.
+            crypto_setup;
+        
+        let input = libbpf_rs::ProgramInput::default();
+
+        let res = crypto.test_run(input)?;
+        if res.return_value != 0 {
+            error!("Crypto setup failed: {:?}", res);
+            bail!("Crypto setup failed");
+        }
+
+        debug!("Crypto setup successful");
 
         Ok(Self {
             address,

@@ -1,8 +1,13 @@
 #include "vmlinux.h"
+#include <errno.h>
 #include <stdbool.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
+
+struct bpf_crypto_ctx *bpf_crypto_ctx_create(const struct bpf_crypto_params *params, u32 params__sz, int *err) __ksym;
+struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym;
+void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
 
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
@@ -677,4 +682,87 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
     }
 
     return SK_PASS;
+}
+
+// struct __crypto_ctx_value {
+//     struct bpf_crypto_ctx __kptr * ctx;
+// };
+
+// struct array_map {
+//     __uint(type, BPF_MAP_TYPE_ARRAY);
+//     __type(key, int);
+//     __type(value, struct __crypto_ctx_value);
+//     __uint(max_entries, 1);
+// } __crypto_ctx_map SEC(".maps");
+
+// static inline int crypto_ctx_insert(struct bpf_crypto_ctx *ctx)
+// {
+//     struct __crypto_ctx_value local, *v;
+//     struct bpf_crypto_ctx *old;
+//     u32 key = 0;
+//     int err;
+
+//     local.ctx = NULL;
+//     err = bpf_map_update_elem(&__crypto_ctx_map, &key, &local, 0);
+//     if (err) {
+//         bpf_crypto_ctx_release(ctx);
+//         return err;
+//     }
+
+//     v = bpf_map_lookup_elem(&__crypto_ctx_map, &key);
+//     if (!v) {
+//         bpf_crypto_ctx_release(ctx);
+//         return -ENOENT;
+//     }
+
+//     old = bpf_kptr_xchg(&v->ctx, ctx);
+//     if (old) {
+//         bpf_crypto_ctx_release(old);
+//         return -EEXIST;
+//     }
+
+//     return 0;
+// }
+
+
+char cipher[] = "sha256-ni";
+u32 key_len = 16;
+u32 authsize = 0;
+u8 key[16] = "testtest12345678";
+int status;
+
+SEC("syscall")
+int crypto_setup() {
+    struct bpf_crypto_ctx *cctx;
+    struct bpf_crypto_params params = {
+        .type = "shash",
+        .algo = "sha256",
+        .key_len = key_len,
+        .authsize = authsize,
+    };
+    int err = 0;
+
+    status = 0;
+
+    if (!cipher[0] || !key_len || key_len > 256) {
+        status = -EINVAL;
+        return 1;
+    }
+
+    // __builtin_memcpy(&params.algo, cipher, sizeof(cipher));
+    __builtin_memcpy(&params.key, key, sizeof(key));
+    cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
+
+    if (!cctx) {
+        status = err;
+        return -status;
+    }
+
+    bpf_crypto_ctx_release(cctx);
+
+    // err = crypto_ctx_insert(cctx);
+    // if (err && err != -EEXIST)
+    //     status = err;
+
+    return 0;
 }
