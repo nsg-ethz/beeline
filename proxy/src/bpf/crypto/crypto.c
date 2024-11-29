@@ -3,6 +3,14 @@
 #include <linux/bpf_crypto.h>
 #include <crypto/hash.h>
 
+__bpf_kfunc_start_defs();
+
+int bpf_crypto_digest(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst) {
+	return 0;
+}
+
+__bpf_kfunc_end_defs();
+
 static void *bpf_crypto_shash_alloc_tfm(const char *algo)
 {
 	return crypto_alloc_shash(algo, 0, 0);
@@ -64,9 +72,20 @@ static const struct bpf_crypto_type bpf_crypto_shash_type = {
 	.name		= "shash",
 };
 
+BTF_SET8_START(bpf_crypto_shash_set)
+BTF_ID_FLAGS(func, bpf_crypto_digest, 0)
+BTF_SET8_END(bpf_crypto_shash_set)
+
+static const struct btf_kfunc_id_set bpf_crypto_kfunc_set = {
+        .owner = THIS_MODULE,
+        .set   = &bpf_crypto_shash_set,
+};
+
 static int __init bpf_crypto_shash_init(void)
 {
 	return bpf_crypto_register_type(&bpf_crypto_shash_type);
+	register_btf_kfunc_id_set(BPF_PROG_TYPE_SK_MSG, &bpf_crypto_kfunc_set);
+    pr_info("Load bpf_crypto_shash\n");
 }
 
 static void __exit bpf_crypto_shash_exit(void)
