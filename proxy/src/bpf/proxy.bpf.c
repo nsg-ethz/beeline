@@ -1,13 +1,15 @@
 #include "vmlinux.h"
 #include <errno.h>
-#include <stdbool.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
+char LICENSE[] SEC("license") = "GPL";
+
 struct bpf_crypto_ctx *bpf_crypto_ctx_create(const struct bpf_crypto_params *params, u32 params__sz, int *err) __ksym;
 struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym;
 void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
+int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
 
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
@@ -41,7 +43,50 @@ void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
 #define MAX_MATCHES 16
 #define MAX_MATCH_MASK 15
 
-char LICENSE[] SEC("license") = "GPL";
+struct cctx_val {
+    struct bpf_crypto_ctx __kptr *ctx;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, int);
+    __type(value, struct cctx_val);
+    __uint(max_entries, 1);
+} cctx_map SEC(".maps");
+
+static __always_inline struct cctx_val *cctx_val_lookup(void) {
+	u32 key = 0;
+	return bpf_map_lookup_elem(&cctx_map, &key);
+}
+
+
+static __always_inline int crypto_ctx_insert(struct bpf_crypto_ctx *ctx) {
+    struct cctx_val local, *v;
+    struct bpf_crypto_ctx *old;
+    u32 key = 0;
+    int err;
+
+    local.ctx = NULL;
+    err = bpf_map_update_elem(&cctx_map, &key, &local, 0);
+    if (err) {
+        bpf_crypto_ctx_release(ctx);
+        return err;
+    }
+
+    v = bpf_map_lookup_elem(&cctx_map, &key);
+    if (!v) {
+        bpf_crypto_ctx_release(ctx);
+        return -ENOENT;
+    }
+
+    old = bpf_kptr_xchg(&v->ctx, ctx);
+    if (old) {
+        bpf_crypto_ctx_release(old);
+        return -EEXIST;
+    }
+
+    return 0;
+}
 
 struct addr_key {
     u32 ip4;
@@ -563,6 +608,56 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     return PR_PASS;
 }
 
+u8 jwt[] = "testtest12345678";
+u8 dst[256] = {};
+u8 siv[256] = {};
+
+SEC("xdp")
+int crypto_test(struct xdp_md *ctx) {
+    struct cctx_val *cctx_val = cctx_val_lookup();
+    if (cctx_val == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return XDP_PASS;
+    }
+
+    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
+    if (cctx == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return XDP_PASS;
+    }
+
+    struct bpf_dynptr token;
+    struct bpf_dynptr sgn;
+    struct bpf_dynptr iv;
+    if (bpf_dynptr_from_mem(jwt, 16, 0, &token) < 0) {
+        bpf_err("ERROR: Failed to create token dynptr");
+        return XDP_PASS;
+    }
+    
+    if (bpf_dynptr_from_mem(dst, 16, 0, &sgn) < 0) {
+        bpf_err("ERROR: Failed to create signature dynptr");
+        return XDP_PASS;
+    }
+
+    bpf_log("siv len: %d", cctx->siv_len);
+    
+
+    if (bpf_dynptr_from_mem(siv, 104, 0, &iv) < 0) {
+        bpf_err("ERROR: Failed to create iv dynptr");
+        return XDP_PASS;
+    }
+
+    int status = bpf_crypto_encrypt(cctx, &token, &sgn, &iv);
+    if (status < 0) {
+        bpf_err("ERROR: Failed to encrypt data (%d)", status);
+    }
+    else {
+        bpf_log("signature: %s", dst);
+    }
+
+	return XDP_PASS;
+}
+
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     // socket identifeir of the ingress connection
@@ -684,85 +779,36 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
     return SK_PASS;
 }
 
-// struct __crypto_ctx_value {
-//     struct bpf_crypto_ctx __kptr * ctx;
-// };
-
-// struct array_map {
-//     __uint(type, BPF_MAP_TYPE_ARRAY);
-//     __type(key, int);
-//     __type(value, struct __crypto_ctx_value);
-//     __uint(max_entries, 1);
-// } __crypto_ctx_map SEC(".maps");
-
-// static inline int crypto_ctx_insert(struct bpf_crypto_ctx *ctx)
-// {
-//     struct __crypto_ctx_value local, *v;
-//     struct bpf_crypto_ctx *old;
-//     u32 key = 0;
-//     int err;
-
-//     local.ctx = NULL;
-//     err = bpf_map_update_elem(&__crypto_ctx_map, &key, &local, 0);
-//     if (err) {
-//         bpf_crypto_ctx_release(ctx);
-//         return err;
-//     }
-
-//     v = bpf_map_lookup_elem(&__crypto_ctx_map, &key);
-//     if (!v) {
-//         bpf_crypto_ctx_release(ctx);
-//         return -ENOENT;
-//     }
-
-//     old = bpf_kptr_xchg(&v->ctx, ctx);
-//     if (old) {
-//         bpf_crypto_ctx_release(old);
-//         return -EEXIST;
-//     }
-
-//     return 0;
-// }
-
-
-char cipher[] = "sha256-ni";
 u32 key_len = 16;
-u32 authsize = 0;
 u8 key[16] = "testtest12345678";
-int status;
 
 SEC("syscall")
 int crypto_setup() {
     struct bpf_crypto_ctx *cctx;
     struct bpf_crypto_params params = {
         .type = "shash",
-        .algo = "sha256",
+        .algo = "hmac(sha256)",
+        // .type = "skcipher",
+        // .algo = "ecb(aes)",
         .key_len = key_len,
-        .authsize = authsize,
+        .authsize = 0,
     };
-    int err = 0;
-
-    status = 0;
-
-    if (!cipher[0] || !key_len || key_len > 256) {
-        status = -EINVAL;
-        return 1;
+    int err = -EINVAL;
+    if (!key_len || key_len > 256) {
+        return err;
     }
 
     // __builtin_memcpy(&params.algo, cipher, sizeof(cipher));
-    __builtin_memcpy(&params.key, key, sizeof(key));
+    __builtin_memcpy(&params.key, key, 16);
     cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
 
     if (!cctx) {
-        status = err;
-        return -status;
+        return -err;
     }
 
-    bpf_crypto_ctx_release(cctx);
-
-    // err = crypto_ctx_insert(cctx);
-    // if (err && err != -EEXIST)
-    //     status = err;
+    err = crypto_ctx_insert(cctx);
+    if (err && err != -EEXIST)
+        return -err;
 
     return 0;
 }
