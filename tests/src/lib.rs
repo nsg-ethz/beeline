@@ -62,8 +62,6 @@ async fn read(server: &mut TcpStream) -> Result<String> {
 
         len += server.read(&mut req_recv[len..]).await?;
 
-        println!("len: {:?}", len);
-
         match parse_http_hdrs(&req_recv) {
             Ok(_) => break,
             Err(_) => {}
@@ -82,7 +80,7 @@ async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: &H
     Ok((server, req_sent, req_recv))
 }
 
-fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<&str, &str>> {
+fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<String, String>> {
     if buf.len() == 0 {
         return Err(anyhow!("empty buffer"));
     }
@@ -92,20 +90,26 @@ fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<&str, &str>> {
     req.parse(buf)?;
 
     let hdrs = req.headers.iter()
-        .map(|hdr| (hdr.name, str::from_utf8(hdr.value).unwrap()))
+        .map(|hdr| {
+            let key = hdr.name.to_lowercase();
+            let val = String::from_utf8(hdr.value.to_vec()).unwrap();
+            (key, val)
+        })
         .collect();
 
     Ok(hdrs)
 }
 
-fn assert_http_hdr_eq(buf: &str, exp_hdrs: &HashMap<&str, &str>) {
+fn assert_http_hdr_eq(buf: &str, exp_hdrs: &HashMap<String, String>) {
     let hdrs = parse_http_hdrs(buf.as_bytes());
     assert!(hdrs.is_ok(), "failed to parse headers: {:?}", hdrs.err().unwrap());
 
     for (key, val) in hdrs.unwrap().into_iter() {
-        let hdr_val = exp_hdrs.get(key);
+        let hdr_val = exp_hdrs.get(&key);
         assert!(hdr_val.is_some(), "unexpected header: {:?}", key);
-        assert_eq!(val, *hdr_val.unwrap(), "expected {}: {}, got {}", key, hdr_val.unwrap(), val);
+
+        let exp_val = hdr_val.unwrap();
+        assert_eq!(val, *exp_val, "expected {}: {}, got {}", key, exp_val, val);
     }
 }
 
@@ -163,17 +167,17 @@ pub async fn it_forwards_valid_jwt(mut client: TcpStream) {
     let token = format!("Bearer {token}");
     let hdrs = HashMap::from([
         ("backend", "server1"),
-        ("Authorization", token.as_str())
+        ("authorization", token.as_str())
     ]);
 
     let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &hdrs).await.unwrap();
     let mut hdrs_sent = parse_http_hdrs(req_sent.as_bytes()).unwrap();    
     let conn_id = client.local_addr().unwrap().port().to_string();
-    hdrs_sent.insert("conn-id", &conn_id.as_str());
+    hdrs_sent.insert(String::from("conn-id"), conn_id);
     assert_http_hdr_eq(&req_recv, &hdrs_sent);
     assert_http_payload_eq(&req_sent, &req_recv);
 
-    // the second request with the same token should be handled in eBPF only
+    // pipelined HTTP: writing another request without waiting for the response
     let req_sent = write(&mut client, &hdrs).await.unwrap();
     let req_recv = read(&mut server1).await.unwrap();
     assert_http_hdr_eq(&req_recv, &hdrs_sent);
