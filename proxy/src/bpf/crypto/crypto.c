@@ -3,58 +3,50 @@
 #include <linux/bpf_crypto.h>
 #include <crypto/hash.h>
 
-__bpf_kfunc_start_defs();
+// __bpf_kfunc_start_defs();
 
-int bpf_crypto_digest(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst) {
-	return 0;
-}
+// int bpf_crypto_digest(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst) {
+// 	return 0;
+// }
 
-__bpf_kfunc_end_defs();
+// __bpf_kfunc_end_defs();
 
-static void *bpf_crypto_shash_alloc_tfm(const char *algo)
-{
+static void *bpf_crypto_shash_alloc_tfm(const char *algo) {
 	return crypto_alloc_shash(algo, 0, 0);
 }
 
-static void bpf_crypto_shash_free_tfm(void *tfm)
-{
+static void bpf_crypto_shash_free_tfm(void *tfm) {
 	crypto_free_shash(tfm);
 }
 
-static int bpf_crypto_shash_has_algo(const char *algo)
-{
+static int bpf_crypto_shash_has_algo(const char *algo) {
 	return crypto_has_shash(algo, CRYPTO_ALG_TYPE_SHASH, CRYPTO_ALG_TYPE_MASK);
 }
 
-static int bpf_crypto_shash_setkey(void *tfm, const u8 *key, unsigned int keylen)
-{
+static int bpf_crypto_shash_setkey(void *tfm, const u8 *key, unsigned int keylen) {
 	return crypto_shash_setkey(tfm, key, keylen);
 }
 
-static u32 bpf_crypto_shash_get_flags(void *tfm)
-{
+static u32 bpf_crypto_shash_get_flags(void *tfm) {
 	return crypto_shash_get_flags(tfm);
 }
 
-static unsigned int bpf_crypto_shash_ivsize(void *tfm)
-{
-	return 0;
+static unsigned int bpf_crypto_shash_ivsize(void *tfm) {
+	return crypto_shash_descsize(tfm);
 }
 
-static unsigned int bpf_crypto_shash_statesize(void *tfm)
-{
+static unsigned int bpf_crypto_shash_statesize(void *tfm) {
 	return crypto_shash_statesize(tfm);
 }
 
-static int bpf_crypto_shash_encrypt(void *tfm, const u8 *src, u8 *dst,
-					unsigned int len, u8 *siv)
-{
-	return crypto_shash_digest(tfm, src, len, dst);
+static int bpf_crypto_shash_encrypt(void *tfm, const u8 *src, u8 *dst, unsigned int len, u8 *siv) {
+	struct shash_desc *desc = (struct shash_desc *)siv;
+	desc->tfm = tfm;
+
+	return crypto_shash_digest(desc, src, len, dst);
 }
 
-static int bpf_crypto_shash_decrypt(void *tfm, const u8 *src, u8 *dst,
-					unsigned int len, u8 *siv)
-{
+static int bpf_crypto_shash_decrypt(void *tfm, const u8 *src, u8 *dst, unsigned int len, u8 *siv) {
 	return crypto_shash_digest(tfm, src, len, dst);
 }
 
@@ -72,24 +64,22 @@ static const struct bpf_crypto_type bpf_crypto_shash_type = {
 	.name		= "shash",
 };
 
-BTF_SET8_START(bpf_crypto_shash_set)
-BTF_ID_FLAGS(func, bpf_crypto_digest, 0)
-BTF_SET8_END(bpf_crypto_shash_set)
+// BTF_SET8_START(bpf_crypto_shash_set)
+// BTF_ID_FLAGS(func, bpf_crypto_digest, 0)
+// BTF_SET8_END(bpf_crypto_shash_set)
 
-static const struct btf_kfunc_id_set bpf_crypto_kfunc_set = {
-        .owner = THIS_MODULE,
-        .set   = &bpf_crypto_shash_set,
-};
+// static const struct btf_kfunc_id_set bpf_crypto_kfunc_set = {
+//         .owner = THIS_MODULE,
+//         .set   = &bpf_crypto_shash_set,
+// };
 
-static int __init bpf_crypto_shash_init(void)
-{
+static int __init bpf_crypto_shash_init(void) {
+	// register_btf_kfunc_id_set(BPF_PROG_TYPE_SK_MSG, &bpf_crypto_kfunc_set);
+    // pr_info("Load bpf_crypto_shash\n");
 	return bpf_crypto_register_type(&bpf_crypto_shash_type);
-	register_btf_kfunc_id_set(BPF_PROG_TYPE_SK_MSG, &bpf_crypto_kfunc_set);
-    pr_info("Load bpf_crypto_shash\n");
 }
 
-static void __exit bpf_crypto_shash_exit(void)
-{
+static void __exit bpf_crypto_shash_exit(void) {
 	int err = bpf_crypto_unregister_type(&bpf_crypto_shash_type);
 	WARN_ON_ONCE(err);
 }

@@ -608,56 +608,6 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     return PR_PASS;
 }
 
-u8 jwt[] = "testtest12345678";
-u8 dst[256] = {};
-u8 siv[256] = {};
-
-SEC("xdp")
-int crypto_test(struct xdp_md *ctx) {
-    struct cctx_val *cctx_val = cctx_val_lookup();
-    if (cctx_val == NULL) {
-        bpf_err("ERROR: Failed to find crypto context");
-        return XDP_PASS;
-    }
-
-    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
-    if (cctx == NULL) {
-        bpf_err("ERROR: Failed to find crypto context");
-        return XDP_PASS;
-    }
-
-    struct bpf_dynptr token;
-    struct bpf_dynptr sgn;
-    struct bpf_dynptr iv;
-    if (bpf_dynptr_from_mem(jwt, 16, 0, &token) < 0) {
-        bpf_err("ERROR: Failed to create token dynptr");
-        return XDP_PASS;
-    }
-    
-    if (bpf_dynptr_from_mem(dst, 16, 0, &sgn) < 0) {
-        bpf_err("ERROR: Failed to create signature dynptr");
-        return XDP_PASS;
-    }
-
-    bpf_log("siv len: %d", cctx->siv_len);
-    
-
-    if (bpf_dynptr_from_mem(siv, 104, 0, &iv) < 0) {
-        bpf_err("ERROR: Failed to create iv dynptr");
-        return XDP_PASS;
-    }
-
-    int status = bpf_crypto_encrypt(cctx, &token, &sgn, &iv);
-    if (status < 0) {
-        bpf_err("ERROR: Failed to encrypt data (%d)", status);
-    }
-    else {
-        bpf_log("signature: %s", dst);
-    }
-
-	return XDP_PASS;
-}
-
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
     // socket identifeir of the ingress connection
@@ -811,4 +761,58 @@ int crypto_setup() {
         return -err;
 
     return 0;
+}
+
+u8 jwt[] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ";
+u8 dst[256] = {};
+u8 siv[256] = {};
+
+u8 sig[] = "hJETKGge3oUG52unFj1OaHB-ZvMSzSBN1afN-oz2ihU";
+
+SEC("xdp")
+int crypto_test(struct xdp_md *ctx) {
+    struct cctx_val *cctx_val = cctx_val_lookup();
+    if (cctx_val == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return XDP_PASS;
+    }
+
+    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
+    if (cctx == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return XDP_PASS;
+    }
+
+    struct bpf_dynptr token;
+    struct bpf_dynptr sgn;
+    struct bpf_dynptr iv;
+    if (bpf_dynptr_from_mem(jwt, 111, 0, &token) < 0) {
+        bpf_err("ERROR: Failed to create token dynptr");
+        return XDP_PASS;
+    }
+    
+    if (bpf_dynptr_from_mem(dst, 32, 0, &sgn) < 0) {
+        bpf_err("ERROR: Failed to create signature dynptr");
+        return XDP_PASS;
+    }
+
+    bpf_err("siv len: %d", cctx->siv_len);
+    
+    if (bpf_dynptr_from_mem(siv, 216, 0, &iv) < 0) {
+        bpf_err("ERROR: Failed to create iv dynptr");
+        return XDP_PASS;
+    }
+
+    int status = bpf_crypto_encrypt(cctx, &token, &sgn, &iv);
+    if (status < 0) {
+        bpf_err("ERROR: Failed to encrypt data (%d)", status);
+    }
+    else {
+        bpf_err("signature: %s", dst);
+    }
+
+    bpf_err("%02x %02x %02x %02x", dst[0], dst[1], dst[2], dst[3]);
+    bpf_err("expected: %s", sig);
+
+	return XDP_PASS;
 }
