@@ -1,15 +1,12 @@
-#include <linux/types.h>
-#include <linux/module.h>
-#include <linux/bpf_crypto.h>
 #include <crypto/hash.h>
-
-// __bpf_kfunc_start_defs();
-
-// int bpf_crypto_digest(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst) {
-// 	return 0;
-// }
-
-// __bpf_kfunc_end_defs();
+#include <linux/bpf.h>
+#include <linux/bpf_crypto.h>
+#include <linux/btf.h>
+#include <linux/btf_ids.h>
+#include <linux/errno.h>
+#include <linux/filter.h>
+#include <linux/module.h>
+#include <linux/types.h>
 
 static void *bpf_crypto_shash_alloc_tfm(const char *algo) {
 	return crypto_alloc_shash(algo, 0, 0);
@@ -40,14 +37,11 @@ static unsigned int bpf_crypto_shash_statesize(void *tfm) {
 }
 
 static int bpf_crypto_shash_encrypt(void *tfm, const u8 *src, u8 *dst, unsigned int len, u8 *siv) {
-	struct shash_desc *desc = (struct shash_desc *)siv;
-	desc->tfm = tfm;
-
-	return crypto_shash_digest(desc, src, len, dst);
+	return -ENOSYS;
 }
 
 static int bpf_crypto_shash_decrypt(void *tfm, const u8 *src, u8 *dst, unsigned int len, u8 *siv) {
-	return crypto_shash_digest(tfm, src, len, dst);
+	return -ENOSYS;
 }
 
 static const struct bpf_crypto_type bpf_crypto_shash_type = {
@@ -64,18 +58,7 @@ static const struct bpf_crypto_type bpf_crypto_shash_type = {
 	.name		= "shash",
 };
 
-// BTF_SET8_START(bpf_crypto_shash_set)
-// BTF_ID_FLAGS(func, bpf_crypto_digest, 0)
-// BTF_SET8_END(bpf_crypto_shash_set)
-
-// static const struct btf_kfunc_id_set bpf_crypto_kfunc_set = {
-//         .owner = THIS_MODULE,
-//         .set   = &bpf_crypto_shash_set,
-// };
-
 static int __init bpf_crypto_shash_init(void) {
-	// register_btf_kfunc_id_set(BPF_PROG_TYPE_SK_MSG, &bpf_crypto_kfunc_set);
-    // pr_info("Load bpf_crypto_shash\n");
 	return bpf_crypto_register_type(&bpf_crypto_shash_type);
 }
 

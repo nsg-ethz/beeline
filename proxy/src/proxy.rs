@@ -96,9 +96,6 @@ pub struct Proxy<'obj> {
     #[allow(dead_code)]
     sockops: Link,
 
-    #[allow(dead_code)]
-    crypto_test: Link,
-
     binder: Arc<SocketBinder>,
     upstreams: Arc<Mutex<Vec<TcpStream>>>,
 
@@ -203,14 +200,11 @@ impl<'obj> Proxy<'obj> {
 
         debug!("Crypto setup successful");
 
-        let crypto_test = skel.progs.crypto_test.attach_xdp(1)?;
-
         Ok(Self {
             address,
             config,
             skel,
             sockops,
-            crypto_test,
             binder: Arc::new(binder),
             upstreams: Arc::new(Mutex::new(Vec::new())),
             timers: Arc::new(timers),
