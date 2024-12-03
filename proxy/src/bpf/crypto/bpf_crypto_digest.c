@@ -135,8 +135,10 @@ int __bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
 
 	return crypto_shash_digest(desc, psrc, src_len, pdst);
 }
-
-__bpf_kfunc int bpf_crypto_digest(int lol__ign);
+__bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
+			    				  const struct bpf_dynptr *src,
+								  const struct bpf_dynptr *dst,
+								  const struct bpf_dynptr *siv);
 
 __bpf_kfunc_start_defs();
 
@@ -164,7 +166,7 @@ static const struct btf_kfunc_id_set cryto_kfunc_set = {
 
 static int bpf_crypto_digest_init(void) {
 	pr_info("bpf_crypto_digest: register kfunc\n");
-	int ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP, &cryto_kfunc_set);
+	int ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_UNSPEC, &cryto_kfunc_set);
 	if(ret) {
         pr_err("bpf_crypto_digest: failed to load kfunc (%d)\n", ret);
         return ret;

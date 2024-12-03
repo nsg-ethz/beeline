@@ -648,7 +648,7 @@ static __always_inline int _validate_jwt(struct sk_msg_md* msg) {
         return 0;
     }
 
-    int status = bpf_crypto_digest(cctx, jwt, dst, siv);
+    int status = bpf_crypto_digest(cctx, &token, &sgn, &iv);
     
     if (status < 0) {
         bpf_err("ERROR: Failed to encrypt data (%d)", status);
