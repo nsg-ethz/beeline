@@ -236,6 +236,8 @@ struct pipeline_ctx {
     u32 conn_id;
     char jwt_claims[4096];
     char jwt_sig[64];
+
+    char tmp[512];
     struct frwd_token ft;
 };
 
@@ -350,9 +352,6 @@ struct {
     __type(value, struct sock_key);
 } frwd_map SEC(".maps");
 
-u8 dst[512] = {};
-u8 dst2[512] = {};
-
 enum pr_action authorize(struct pipeline_ctx *ctx) {
     if (!ctx) return PR_DROP;
     if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
@@ -374,27 +373,26 @@ enum pr_action authorize(struct pipeline_ctx *ctx) {
 
     bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
     
-    // TODO: haaccckkk (length -1)
-    if (bpf_crypto_digest(cctx, ctx->jwt_claims, (ctx->jwt_claims_range.len -1) & 0xff, dst, 512) < 0) {
+    if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
         bpf_err("ERROR: Failed to digest msg");
         return PR_DROP;
     }
 
-    int sig_len = bpf_base64url_encode(dst, 32, dst2, 512);
+    int sig_len = bpf_base64url_encode(ctx->jwt_claims, 32, ctx->tmp, 512);
     if (sig_len < 0) {
         bpf_err("ERROR: Failed to encode signature");
         return PR_DROP;
     }
 
     if (sig_len > 50) sig_len = 50;
-    dst2[50] = '\0';
+    ctx->tmp[50] = '\0';
 
-    bpf_log("Computed signature: %s", dst2);
+    bpf_log("Computed signature: %s", ctx->tmp);
 
     u32 i;
     bpf_for(i, 0, sig_len) {
-        if (ctx->jwt_sig[i] != dst2[i]) {
-            bpf_err("ERROR: Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], dst2[i], i);
+        if (ctx->jwt_sig[i] != ctx->tmp[i]) {
+            bpf_err("ERROR: Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
             return PR_DROP;
         }
     }
@@ -570,11 +568,11 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
         if ((a & a_end_capture) != 0) {
             u16 cid = ((a & a_id_1_mask) >> 6) & MAX_MATCH_MASK;
             u16 rid = a & a_id_2_mask & MAX_MATCH_MASK;
-            bpf_log("End capture range (%d, %d) in [%d, %d]", cid, rid, cidx[cid], i - cidx[cid] + 1);
+            bpf_log("End capture range (%d, %d) in [%d, %d]", cid, rid, cidx[cid], i - cidx[cid]);
 
             pranges[rid] = (struct prange) {
                 .idx = cidx[cid],
-                .len = i - cidx[cid] + 1
+                .len = i - cidx[cid]
             };
 
             // TODO: this is a hack, for now
