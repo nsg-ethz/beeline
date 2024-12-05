@@ -1,11 +1,8 @@
 use anyhow::{anyhow, bail, Ok, Result};
 use as_bytes::AsBytes;
-use hmac::{Hmac, Mac};
-use jwt::VerifyWithKey;
 use crate::{align_val_to, ma::*, bpf::types::*};
 use libbpf_rs::{MapCore, MapFlags, MapHandle};
-use sha2::Sha256;
-use std::{collections::{BTreeMap, HashMap}, hash::{Hash, Hasher}, net::SocketAddr, str::{self, FromStr}};
+use std::{collections::HashMap, hash::{Hash, Hasher}, net::SocketAddr, str::FromStr};
 
 impl Eq for frwd_token {}
 
@@ -13,7 +10,7 @@ impl PartialEq for frwd_token {
 
     fn eq(&self, other: &Self) -> bool {
         self.conn_id == other.conn_id && 
-        self.direction == other.direction &&
+        self.direction == other.direction &&    
         self.backend == other.backend && 
         self.num_bytes_min == other.num_bytes_min
     }
@@ -48,7 +45,7 @@ impl Pipeline for DebugPipeline {
     }
 
     fn create_uturns(&mut self) -> Result<Vec<Box<dyn Uturn>>> {
-        Ok(vec![Box::new(Authorize::new(&self.maps)?)])
+        Ok(vec![])
     }
 
     fn create_new_upstream(&mut self) -> Result<Box<dyn NewUpstream>> {
@@ -153,47 +150,6 @@ impl Timer for UpdateForwardMap {
 
         Ok(())
     }
-}
-
-pub struct Authorize {
-    auth_map: MapHandle
-}
-
-impl Authorize {
-
-    pub fn new(maps: &HashMap<String, MapHandle>) -> Result<Self> {
-        let auth_map = maps.get("auth_map")
-            .ok_or(anyhow!("auth_map not found"))?;
-
-        Ok(Authorize {
-            auth_map: MapHandle::try_from(auth_map)?
-        })
-    }
-
-}
-
-impl Uturn for Authorize {
-
-    fn handle_uturn(&mut self, ctx: &pipeline_ctx) -> Result<Action> {
-        let auth_hdr = unsafe { ctx.auth.as_bytes() };
-        let token = str::from_utf8(auth_hdr)?;
-        let token = token.strip_prefix("Bearer")
-            .expect("Invalid auth token")
-            .split("\r\n")
-            .next()
-            .expect("Invalid auth token")
-            .trim();
-
-        let key: Hmac<Sha256> = Hmac::new_from_slice(b"some-secret")?;
-        let claim: Result<BTreeMap<String, String>, _> = token.verify_with_key(&key);
-
-        let val = if claim.is_ok() { 1u8 } else { 0u8 };
-        let val = val.to_ne_bytes();
-        self.auth_map.update(auth_hdr, &val, MapFlags::ANY)?;
-
-        Ok(if claim.is_ok() { Action::Pass } else { Action::Drop })
-    }
-
 }
 
 pub struct ConnectToBackend {}

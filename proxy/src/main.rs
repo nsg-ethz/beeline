@@ -1,14 +1,7 @@
-use std::mem::MaybeUninit;
-
 use anyhow::Result;
 use clap::Parser;
-use libbpf_rs::{set_print, PrintLevel};
-use log::{
-    debug,
-    warn,
-    info,
-};
 use ebpf::{Proxy, config::Config};
+use std::mem::MaybeUninit;
 
 #[derive(Parser)]
 struct Args {
@@ -19,21 +12,9 @@ struct Args {
     config: String,
 }
 
-fn print(level: PrintLevel, msg: String) {
-    let msg = msg.trim_start_matches("libbpf:")
-        .trim();
-
-    match level {
-        PrintLevel::Debug => debug!(target: "libbpf", "{}", msg),
-        PrintLevel::Info => info!(target: "libbpf", "{}", msg),
-        PrintLevel::Warn => warn!(target: "libbpf", "{}", msg),
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
-    set_print(Some((PrintLevel::Debug, print)));
 
     let args = Args::parse();
     let config = std::fs::File::open(args.config)?;

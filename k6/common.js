@@ -46,7 +46,7 @@ function generateWebToken(id, valid) {
     "sub": id,
     "name": "John Doe",
   };
-  const secret = (valid) ? "some-secret" : "invalid";
+  const secret = (valid) ? "testtest12345678" : "invalid";
 
   return encode(claim, secret);
 }
@@ -90,7 +90,6 @@ export function requestTo(server) {
   let passed = check(res, {
     "status is 200": (r) => r.status === 200,
     "processed by correct backend": (r) => r.headers["Signature"] == signature,
-    // "benchmark is performance": (r) => r.headers["Benchmark"] === "performance",
     "body is the same": (r) => r.body === payload,
   });
 

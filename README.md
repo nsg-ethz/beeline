@@ -18,17 +18,16 @@ script/bench.sh -u 1000 -s 1024 vu
 ./clean-env.sh
 ```
 
-
 ## Requirements
 
-First, install the following packets:
+This project requires kernel version 6.11.
+Install the following packets:
 
 ```
-sudo apt install llvm clang libc6-dev-i386 linux-tools-common linux-tools-`uname -r`
+sudo apt install autoreconf autpoint binutils-dev llvm
 ```
 
-For some tests, it's necessary to raise the limit for open files of the root user (since that user is running the systemd tasks).
-This can be done by following [this question](https://unix.stackexchange.com/a/443467) or by modifying `/etc/security/limits.conf`.
+Next, install [bpftool](https://github.com/libbpf/bpftool) from source.
 
 Then, generate a new vmlinux file as follows:
 ```

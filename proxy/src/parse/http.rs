@@ -42,8 +42,24 @@ impl HttpParser {
 
     //     Ok(())
     // }
+
+    pub fn match_http_hdr(&mut self, key: &str) -> Result<()> {
+        self.dfa.start_pattern(self.s_any)
+            .push(CRLF)?
+            .push(key)?
+            .push_optional('\t')?
+            .push_optional(' ')?
+            .push(":")?
+            .push_optional('\t')?
+            .push_optional(' ')?
+            .start_capturing()
+            .push_optional('*')?
+            .end_caputuring_and_restart_with(CRLF)?;
+
+        Ok(())
+    }
     
-    pub fn match_http_hdr(&mut self, key: &str, val: &str) -> Result<()> {
+    pub fn match_http_hdr_val(&mut self, key: &str, val: &str) -> Result<()> {
         self.dfa.start_pattern(self.s_any)
             .push(CRLF)?
             .push(key)?
@@ -58,36 +74,27 @@ impl HttpParser {
         Ok(())
     }
 
-    pub fn remove_http_hdr(&mut self, key: &str) -> Result<u8> {
-        let mid = self.dfa.start_pattern(self.s_any)
-            .push(CRLF)?
-            .start_capturing()
-            .push(key)?
+    pub fn match_http_hdr_auth(&mut self) -> Result<()> {
+        let mut builder = self.dfa.start_pattern(self.s_any);
+
+        builder.push(CRLF)?
+            .push("Authorization")?
             .push_optional('\t')?
             .push_optional(' ')?
             .push(":")?
             .push_optional('\t')?
             .push_optional(' ')?
-            .push_optional('*')?
-            .end_caputuring_and_restart_with(CRLF)?;
-
-        Ok(mid)
-    }
-
-    pub fn set_http_hdr(&mut self, key: &str, _: &str) -> Result<u8> {
-        let mid = self.dfa.start_pattern(self.s_any)
-            .push(CRLF)?
-            .push(key)?
-            .push_optional('\t')?
-            .push_optional(' ')?
-            .push(":")?
-            .push_optional('\t')?
-            .push_optional(' ')?
+            .push("Bearer ")?
             .start_capturing()
             .push_optional('*')?
+            .push(".")?
+            .push_optional('*')?
+            .end_capturing(".")?
+            .start_capturing() //start capturing signature
+            .push_optional('*')?
             .end_caputuring_and_restart_with(CRLF)?;
 
-        Ok(mid)
+        Ok(())
     }
 
     pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16>  {
