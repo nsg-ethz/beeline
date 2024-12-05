@@ -1,4 +1,4 @@
-use ebpf::{config::Config, Proxy};
+use beeline::{config::Config, Proxy};
 use std::{mem::MaybeUninit, ops::{Deref, DerefMut}, path::PathBuf};
 use tokio::net::TcpStream;
 

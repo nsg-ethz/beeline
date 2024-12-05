@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use ebpf::{Proxy, config::Config};
+use beeline::{Proxy, config::Config};
 use std::mem::MaybeUninit;
 
 #[derive(Parser)]

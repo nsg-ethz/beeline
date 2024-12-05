@@ -1,12 +1,37 @@
 hosts:
-- name: server1
+- name: server1_A
   address: 10.0.1.1
-- name: server2
+- name: server2_A
+  address: 10.0.1.1
+- name: server3_A
+  address: 10.0.1.1
+- name: server4_A
+  address: 10.0.1.1
+- name: server1_B
   address: 10.0.2.1
-- name: server3
+- name: server2_B
+  address: 10.0.2.1
+- name: server3_B
+  address: 10.0.2.1
+- name: server4_B
+  address: 10.0.2.1
+- name: server1_C
   address: 10.0.3.1
-- name: server4
+- name: server2_C
+  address: 10.0.3.1
+- name: server3_C
+  address: 10.0.3.1
+- name: server4_C
+  address: 10.0.3.1
+- name: server1_D
   address: 10.0.4.1
+- name: server2_D
+  address: 10.0.4.1
+- name: server3_D
+  address: 10.0.4.1
+- name: server4_D
+  address: 10.0.4.1
+
 spec:   
   parse:
     http:
