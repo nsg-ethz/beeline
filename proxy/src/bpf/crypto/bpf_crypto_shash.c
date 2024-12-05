@@ -1,3 +1,5 @@
+#define pr_fmt(fmt) "%s:%s: " fmt, KBUILD_MODNAME, __func__
+
 #include <crypto/hash.h>
 #include <linux/bpf.h>
 #include <linux/bpf_crypto.h>
@@ -11,6 +13,9 @@
 #define DYNPTR_TYPE_SHIFT	28
 #define DYNPTR_SIZE_MASK	0xFFFFFF
 #define DYNPTR_RDONLY_BIT	(UL(1) << (31))
+
+static const char base64url_table[65] =
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 // redefinition
 struct bpf_crypto_ctx {
@@ -135,28 +140,72 @@ int __bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
 
 	return crypto_shash_digest(desc, psrc, src_len, pdst);
 }
-__bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
-			    				  const struct bpf_dynptr *src,
-								  const struct bpf_dynptr *dst,
-								  const struct bpf_dynptr *siv);
 
 __bpf_kfunc_start_defs();
 
+// __bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
+// 			    				  const struct bpf_dynptr *src,
+// 								  const struct bpf_dynptr *dst,
+// 								  const struct bpf_dynptr *siv) {
+// 	return __bpf_crypto_digest(ctx, 
+// 							   (const struct bpf_dynptr_kern *)src, 
+// 							   (const struct bpf_dynptr_kern *)dst, 
+// 							   (const struct bpf_dynptr_kern *)siv);
+// }   
+
+
 __bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
-			    				  const struct bpf_dynptr *src,
-								  const struct bpf_dynptr *dst,
-								  const struct bpf_dynptr *siv) {
-	return __bpf_crypto_digest(ctx, 
-							   (const struct bpf_dynptr_kern *)src, 
-							   (const struct bpf_dynptr_kern *)dst, 
-							   (const struct bpf_dynptr_kern *)siv);
+			    				  const u8 *src,
+								  u32 src__sz,
+								  u8 *dst,
+								  u32 dst__sz)
+{
+	if (!src__sz || !dst__sz) 
+		return -EINVAL;
+
+	if (dst__sz < ctx->siv_len)
+		return -EINVAL;
+
+	struct shash_desc *desc = (struct shash_desc *)(dst + dst__sz - ctx->siv_len);
+	desc->tfm = ctx->tfm;
+
+	return crypto_shash_digest(desc, src, src__sz, dst);
+}
+
+__bpf_kfunc int bpf_base64url_encode(const u8 *src,
+								  u32 src__sz,
+								  char *dst,
+								  u32 dst__sz)
+{
+	if (dst__sz < 4*(src__sz/3))
+		return -EINVAL;
+
+	u32 ac = 0;
+	int bits = 0;
+	int i;
+	char *cp = dst;
+
+	for (i = 0; i < src__sz; i++) {
+		ac = (ac << 8) | src[i];
+		bits += 8;
+		do {
+			bits -= 6;
+			*cp++ = base64url_table[(ac >> bits) & 0x3f];
+		} while (bits >= 6);
+	}
+	if (bits) {
+		*cp++ = base64url_table[(ac << (6 - bits)) & 0x3f];
+		bits -= 6;
+	}
+	
+	return cp - dst;
 }
 
 __bpf_kfunc_end_defs();
 
 BTF_KFUNCS_START(crypto_kfunc_btf_ids)
-// BTF_ID_FLAGS(func, bpf_crypto_digest, KF_RCU)
-BTF_ID_FLAGS(func, bpf_crypto_digest)
+BTF_ID_FLAGS(func, bpf_crypto_digest, KF_RCU)
+BTF_ID_FLAGS(func, bpf_base64url_encode, KF_RCU)
 BTF_KFUNCS_END(crypto_kfunc_btf_ids)
 
 static const struct btf_kfunc_id_set cryto_kfunc_set = {
@@ -215,26 +264,26 @@ static const struct bpf_crypto_type bpf_crypto_shash_type = {
 };
 
 static int __init bpf_crypto_shash_init(void) {
-	pr_info("bpf_crypto_shash: register kfunc\n");
+	pr_info("register kfuncs\n");
 	int ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_UNSPEC, &cryto_kfunc_set);
 	if (ret) {
-        pr_err("bpf_crypto_shash: failed to load kfunc (%d)\n", ret);
+        pr_err("failed to load kfunc (%d)\n", ret);
         return ret;
     }
 
-	pr_info("bpf_crypto_shash: register algo\n");
+	pr_info("register algo\n");
 	ret = bpf_crypto_register_type(&bpf_crypto_shash_type);
 	if (ret) {
-        pr_err("bpf_crypto_shash: failed to register algo (%d)\n", ret);
+        pr_err("failed to register algo (%d)\n", ret);
         return ret;
     }
 
-	pr_info("bpf_crypto_shash: loaded\n");
+	pr_info("loaded\n");
 	return 0;
 }
 
 static void __exit bpf_crypto_shash_exit(void) {
-	pr_info("bpf_crypto_shash: unregister algo\n");
+	pr_info("unregister algo\n");
 	int err = bpf_crypto_unregister_type(&bpf_crypto_shash_type);
 	WARN_ON_ONCE(err);
 }

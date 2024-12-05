@@ -10,7 +10,8 @@ struct bpf_crypto_ctx *bpf_crypto_ctx_create(const struct bpf_crypto_params *par
 struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym;
 void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
 int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
-int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *siv) __ksym;
+int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
+int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
 
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
@@ -223,15 +224,18 @@ struct pipeline_ctx {
     // we only need this if the headers should be mutable
     u32 done_idx;
     struct prange backend_range;
-    struct prange auth_range;
     struct prange content_length_range;
     struct prange conn_id_range;
+    struct prange jwt_claims_range;
+    struct prange jwt_sig_range;
 
     // provided by the user
+    // TODO: back this by a single buffer, with pointers to the correct data path
     char backend[4096];
-    char auth[4096];
     u32 content_length;
     u32 conn_id;
+    char jwt_claims[4096];
+    char jwt_sig[64];
     struct frwd_token ft;
 };
 
@@ -251,32 +255,41 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     char *data = (char *)(long)msg->data;
     char buf[64]; // a number cannot be larger than 64 bytes
     unsigned long tmp = 0;
-
+    
     struct prange r0 = pranges[0];
-    r0.len &= 4095;
+    r0.len &= 0xfff;
     bpf_probe_read_kernel(ctx->backend, r0.len, data + r0.idx);
     ctx->backend_range = r0;
 
     struct prange r1 = pranges[1];
-    r1.len &= 4095;
-    bpf_probe_read_kernel(ctx->auth, r1.len, data + r1.idx);
-    ctx->auth_range = r1;
+    r1.len &= 0x3f;
+    bpf_probe_read_kernel(buf, r1.len, data + r1.idx);
+    buf[r1.len] = '\0'; // this way, we don't need an if-clause
+    bpf_strtoul(buf, r1.len + 1, 10, &tmp);
+    ctx->content_length = tmp;
+    ctx->content_length_range = r1;
 
     struct prange r2 = pranges[2];
-    r2.len &= 62;
+    r2.len &= 0x3f;
     bpf_probe_read_kernel(buf, r2.len, data + r2.idx);
     buf[r2.len] = '\0'; // this way, we don't need an if-clause
     bpf_strtoul(buf, r2.len + 1, 10, &tmp);
-    ctx->content_length = tmp;
-    ctx->content_length_range = r2;
-
-    struct prange r3 = pranges[3];
-    r3.len &= 62;
-    bpf_probe_read_kernel(buf, r3.len, data + r3.idx);
-    buf[r3.len] = '\0'; // this way, we don't need an if-clause
-    bpf_strtoul(buf, r3.len + 1, 10, &tmp);
     ctx->conn_id = tmp;
-    ctx->conn_id_range = r3;
+    ctx->conn_id_range = r2;
+
+    // TODO: we should not load the val if it exceeds the string length
+    struct prange r3 = pranges[3];
+    r3.len &= 0xfff;
+    bpf_probe_read_kernel(ctx->jwt_claims, r3.len, data + r3.idx);
+    ctx->jwt_claims_range = r3;
+
+    struct prange r4 = pranges[4];
+    // TODO: this is a haaackkk
+    r4.idx += 1;
+    r4.len -= 1;
+    r4.len &= 0x3f;
+    bpf_probe_read_kernel(ctx->jwt_sig, r4.len, data + r4.idx);
+    ctx->jwt_sig_range = r4;
 
     ctx->done_idx = done_idx;
 }
@@ -324,23 +337,62 @@ struct {
 } us_conns SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 16384);
-    __type(key, char[4096]);
-    __type(value, u8);
-} auth_map SEC(".maps");
-
-struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16384);
     __type(key, struct frwd_token);
     __type(value, struct sock_key);
 } frwd_map SEC(".maps");
 
+u8 dst[512] = {};
+u8 dst2[512] = {};
+
 enum pr_action authorize(struct pipeline_ctx *ctx) {
-    u8 *verified = bpf_map_lookup_elem(&auth_map, ctx->auth);
-    if (verified == NULL) return PR_UTRN;
-    if (*verified == 0) return PR_DROP;
+    if (!ctx) return PR_DROP;
+    if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
+        bpf_err("ERROR: No JWT parsed");
+        return PR_DROP;
+    }
+
+    struct cctx_val *cctx_val = cctx_val_lookup();
+    if (cctx_val == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return PR_DROP;
+    }
+
+    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
+    if (cctx == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return PR_DROP;
+    }
+
+    bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
+    
+    // TODO: haaccckkk (length -1)
+    if (bpf_crypto_digest(cctx, ctx->jwt_claims, (ctx->jwt_claims_range.len -1) & 0xff, dst, 512) < 0) {
+        bpf_err("ERROR: Failed to digest msg");
+        return PR_DROP;
+    }
+
+    int sig_len = bpf_base64url_encode(dst, 32, dst2, 512);
+    if (sig_len < 0) {
+        bpf_err("ERROR: Failed to encode signature");
+        return PR_DROP;
+    }
+
+    if (sig_len > 50) sig_len = 50;
+    dst2[50] = '\0';
+
+    bpf_log("Computed signature: %s", dst2);
+
+    u32 i;
+    bpf_for(i, 0, sig_len) {
+        if (ctx->jwt_sig[i] != dst2[i]) {
+            bpf_err("ERROR: Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], dst2[i], i);
+            return PR_DROP;
+        }
+    }
+
+    bpf_log("JWT verified successfully");
 
     return PR_PASS;
 }
@@ -514,7 +566,9 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
                 .idx = cidx[cid],
                 .len = i - cidx[cid] + 1
             };
-            cidx[cid] = 0;
+
+            // TODO: this is a hack, for now
+            cidx[cid] = i;
         }
         if ((a & a_match) != 0) {
             u16 mid = a & a_id_mask & MAX_MATCH_MASK;
@@ -570,14 +624,15 @@ static __always_inline int _log_msg_range(struct sk_msg_md *msg, u16 idx, u16 le
 // compile-time generated
 static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pipeline_ctx *ctx, const struct sock_key *ikey) {
     bool is_downstream = (ikey->remote.ip4 == ip4 && ikey->remote.port == port);
-
-    enum pr_action res = authorize(ctx);
-    if (res == PR_DROP) {
-        bpf_log("PLUGIN: Drop downstream msg");
-        return PR_DROP;
-    }
+    enum pr_action res = PR_DROP;
 
     if (is_downstream) {
+        res = authorize(ctx);
+        if (res == PR_DROP) {
+            bpf_log("PLUGIN: Drop downstream msg");
+            return PR_DROP;
+        }
+
         if (update_ds_state(ikey, ctx) != PR_PASS) {
             bpf_err("ERROR: Updating downstream connection state failed.");
         }
@@ -609,62 +664,8 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     return PR_PASS;
 }
 
-u8 jwt[] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ";
-u8 dst[256] = {};
-u8 siv[256] = {};
-
-u8 sig[] = "hJETKGge3oUG52unFj1OaHB-ZvMSzSBN1afN-oz2ihU";
-
-static __always_inline int _validate_jwt(struct sk_msg_md* msg) {
-    struct cctx_val *cctx_val = cctx_val_lookup();
-    if (cctx_val == NULL) {
-        bpf_err("ERROR: Failed to find crypto context");
-        return 0;
-    }
-
-    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
-    if (cctx == NULL) {
-        bpf_err("ERROR: Failed to find crypto context");
-        return 0;
-    }
-
-    struct bpf_dynptr token;
-    struct bpf_dynptr sgn;
-    struct bpf_dynptr iv;
-    if (bpf_dynptr_from_mem(jwt, 111, 0, &token) < 0) {
-        bpf_err("ERROR: Failed to create token dynptr");
-        return 0;
-    }
-    
-    if (bpf_dynptr_from_mem(dst, 32, 0, &sgn) < 0) {
-        bpf_err("ERROR: Failed to create signature dynptr");
-        return 0;
-    }
-
-    bpf_err("siv len: %d", cctx->siv_len);
-    
-    if (bpf_dynptr_from_mem(siv, 216, 0, &iv) < 0) {
-        bpf_err("ERROR: Failed to create iv dynptr");
-        return 0;
-    }
-
-    int status = bpf_crypto_digest(cctx, &token, &sgn, &iv);
-    
-    if (status < 0) {
-        bpf_err("ERROR: Failed to encrypt data (%d)", status);
-    }
-    else {
-        bpf_err("signature: %s", dst);
-    }
-
-    bpf_err("%02x %02x %02x %02x", dst[0], dst[1], dst[2], dst[3]);
-    bpf_err("expected: %s", sig);
-}
-
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
-    _validate_jwt(msg);
-
     // socket identifeir of the ingress connection
     struct sock_key ikey = {
         .local = {

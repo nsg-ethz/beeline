@@ -8,7 +8,7 @@ use crate::{
     net::{SocketBinder, TryIntoRawOctets},
     parse::{http::HttpParser, Action}
 };
-use libbpf_rs::{skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
+use libbpf_rs::{set_print, PrintLevel, skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
 use log::{debug, error, info, log_enabled, warn};
 use std::{collections::HashMap, io::Cursor, mem::MaybeUninit, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, task, time};
@@ -88,6 +88,17 @@ fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_ad
     Ok(())
 }
 
+fn print(level: PrintLevel, msg: String) {
+    let msg = msg.trim_start_matches("libbpf:")
+        .trim();
+
+    match level {
+        PrintLevel::Debug => debug!(target: "libbpf", "{}", msg),
+        PrintLevel::Info => info!(target: "libbpf", "{}", msg),
+        PrintLevel::Warn => warn!(target: "libbpf", "{}", msg),
+    }
+}
+
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub config: Config,
@@ -111,6 +122,8 @@ unsafe impl<'obj> Sync for Proxy<'obj> {}
 impl<'obj> Proxy<'obj> {
 
     pub fn attach<A: ToSocketAddrs>(address: A, config: Config, open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>) -> Result<Self> {
+        set_print(Some((PrintLevel::Debug, print)));
+        
         let address = address.to_socket_addrs()?
             .next()
             .expect("Failed to resolve address");
@@ -123,10 +136,10 @@ impl<'obj> Proxy<'obj> {
 
         // TODO: configure the parser according to the config
         let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
-        parser.set_http_hdr("backend", "doesntmatter")?;
-        parser.set_http_hdr("authorization", "lol")?;
-        parser.set_http_hdr("content-length", "whatever")?;
-        parser.set_http_hdr("conn-id", "lol")?;
+        parser.match_http_hdr("backend")?;
+        parser.match_http_hdr("content-length")?;
+        parser.match_http_hdr("conn-id")?;
+        parser.match_http_hdr_auth()?;
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
@@ -166,7 +179,6 @@ impl<'obj> Proxy<'obj> {
         let maps = HashMap::from([
             ("us_conn_map", skel.maps.us_conns.info()?.info.id),
             ("frwd_map", skel.maps.frwd_map.info()?.info.id),
-            ("auth_map", skel.maps.auth_map.info()?.info.id),
         ]);
         let maps = maps.iter()
             .map(|(k, v)| (k.to_string(), MapHandle::from_map_id(*v).unwrap()))
