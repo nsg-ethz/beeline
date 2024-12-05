@@ -291,7 +291,14 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     bpf_probe_read_kernel(ctx->jwt_sig, r4.len, data + r4.idx);
     ctx->jwt_sig_range = r4;
 
+    bpf_log("backend: %s", ctx->backend);
+    bpf_log("content_length: %s", ctx->content_length);
+    bpf_log("conn_id: %d", ctx->conn_id);
+    bpf_log("jwt_claims: %s", ctx->jwt_claims);
+    bpf_log("jwt_sig: %s", ctx->jwt_sig);
+
     ctx->done_idx = done_idx;
+    ctx->ft = (struct frwd_token){ 0 };
 }
 
 // ----------------------------------------------
@@ -480,7 +487,10 @@ enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx 
 
 enum pr_action select_sock(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key **ekey) {
     *ekey = bpf_map_lookup_elem(&frwd_map, &ctx->ft);
-    if (*ekey == NULL) return PR_UTRN;
+    if (*ekey == NULL) {
+        bpf_log("No socket found for {%d, %d, %d, %d}", ctx->ft.conn_id, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
+        return PR_UTRN;
+    }
 
     return PR_PASS;
 }
@@ -499,13 +509,13 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
     // this request back to the client
     struct frwd_token ft_inv = { 0 };
     ft_inv.direction = PR_DOWNSTREAM;
-    ft_inv.conn_id = ctx->conn_id;
+    ft_inv.conn_id = dkey->local.port;
 
     if (bpf_map_update_elem(&frwd_map, &ft_inv, dkey, BPF_ANY) < 0) {
         bpf_err("ERROR: Failed to set downstream forwarding token");
     }
     else {
-        bpf_log("Set downstream forwarding token [%pI4:%u->%pI4:%u]", &dkey->local.ip4, dkey->local.port, &dkey->remote.ip4, dkey->remote.port);
+        bpf_log("Set downstream forwarding token {%d, %d, %d, %d}", ft_inv.conn_id, ft_inv.direction, ft_inv.backend, ft_inv.num_bytes_min);
     }
 
     return PR_PASS;

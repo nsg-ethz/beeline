@@ -340,7 +340,9 @@ impl<'obj> Proxy<'obj> {
 
                 debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
                 let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
-                let mut req_buf = Cursor::new(&buf[..req_len]);
+
+                let msg = buf.drain(..req_len).collect::<Vec<u8>>();
+                let mut req_buf = Cursor::new(&msg);
                 upstream.write_all_buf(&mut req_buf).await.unwrap();
 
                 // upstream connections are automatically reused by the eBPF program
