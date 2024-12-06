@@ -16,14 +16,14 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.93"
 clap = { version = "4.5.21", features = ["derive"] }
+common = { path = "../common" }
 env_logger = "0.11.5"
 futures = "0.3.31"
 hmac = "0.12.1"
 httparse = "1.9.5"
 jwt = "0.16.0"
 log = "0.4.22"
+rand = "0.8.5"
+serde_yaml = "0.9.34"
 sha2 = "0.10.8"
 tokio = { version = "1.41.1", features = ["full", "io-util"] }
-
-[dev-dependencies]
-tests = { path = "../tests" }

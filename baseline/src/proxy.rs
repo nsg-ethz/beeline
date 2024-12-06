@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use common::Config;
 use crate::pipeline::{Destination, Pipeline};
 use log::{debug, error, info};
 use std::{collections::HashMap, io::Cursor, net::{SocketAddr, ToSocketAddrs}, sync::Arc};
@@ -27,14 +28,14 @@ unsafe impl Sync for Proxy {}
 
 impl Proxy {
 
-    pub fn new<A: ToSocketAddrs>(address: A) -> Result<Self> {
+    pub fn new<A: ToSocketAddrs>(address: A, config: Config) -> Result<Self> {
         let address = address.to_socket_addrs()?
             .next()
             .expect("Failed to resolve address");
 
         Ok(Proxy {
             address,
-            pipeline: Arc::new(Pipeline::new()),
+            pipeline: Arc::new(Pipeline::new(config)),
             sockets: Arc::new(RwLock::new(HashMap::new())),
         })
     }
@@ -128,22 +129,22 @@ impl Proxy {
                 };
 
                 let mut msg = buf.drain(..req_len).collect();
-                let (dest, ft) = match pipeline.process(&mut msg, origin, is_downstream).await {
-                    Ok((dest, ft)) => (dest, ft),
+                let dest = match pipeline.process(&mut msg, origin, is_downstream).await {
+                    Ok(dest) => dest,
                     Err(e) => break Err(e)
                 };
 
                 let addr = match dest {
                     Destination::Exisiting(addr) => addr,
-                    Destination::New(addr) => {
+                    Destination::New(addr, ft) => {
+                        debug!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
+                        
                         let upstream = match TcpStream::connect(addr).await {
                             Ok(upstream) => upstream,
                             Err(e) => break Err(anyhow!(e))
                         };
                         let addr = upstream.local_addr().unwrap();
                         let (rx, tx) = try_split(upstream).unwrap();
-
-                        debug!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
                         
                         sockets.write()
                             .await

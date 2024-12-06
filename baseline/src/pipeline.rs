@@ -1,11 +1,14 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
+use common::Config;
 use hmac::{Hmac, Mac};
 use futures::lock::Mutex;
 use httparse::Status;
 use jwt::VerifyWithKey;
-use log::trace;
+use log::{debug, trace};
+use rand::{self, seq::SliceRandom};
 use sha2::Sha256;
-use std::{collections::{BTreeMap, HashMap, HashSet}, net::SocketAddr, str::FromStr, sync::Arc};
+use tokio::{task, time};
+use std::{collections::{BTreeMap, HashMap, HashSet}, net::SocketAddr, sync::Arc, time::Duration, u32};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DownstreamState {
@@ -14,9 +17,14 @@ struct DownstreamState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct UpstreamState {
+struct UpstreamLoadState {
     num_bytes: u32,
     num_reqs: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UpstreamState {
+    reserved: bool
 }
 
 struct Context {
@@ -35,35 +43,125 @@ enum Direction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Destination {
     Exisiting(SocketAddr),
-    New(SocketAddr),
+    New(SocketAddr, ForwardingToken),
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum ForwardingDimension<T: PartialEq> {
+    Concrete(T),
+    Min,
+    DontCare
+}
+
+impl<T> ForwardingDimension<T> where T: PartialEq {
+
+    fn concrete_val(&self) -> Option<&T> {
+        match &self {
+            &ForwardingDimension::Concrete(val) => Some(val),
+            _ => None
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ForwardingToken {
-    conn_id: u32,
-    direction: Direction,
-    backend: u8,
+    reserved: ForwardingDimension<bool>,
+    conn_id: ForwardingDimension<u32>,
+    direction: ForwardingDimension<Direction>,
+    backend: ForwardingDimension<u8>,
+    instance: ForwardingDimension<u16>
+}
+
+impl ForwardingToken {
+
+    fn dont_care() -> ForwardingToken {
+        ForwardingToken {
+            reserved: ForwardingDimension::DontCare,
+            conn_id: ForwardingDimension::DontCare,
+            direction: ForwardingDimension::DontCare,
+            backend: ForwardingDimension::DontCare,
+            instance: ForwardingDimension::DontCare
+        }
+    }
+
 }
 
 pub struct Pipeline {
+    config: Arc<Config>,
     ds_state: Arc<Mutex<HashMap<SocketAddr, DownstreamState>>>,
     us_state: Arc<Mutex<HashMap<SocketAddr, UpstreamState>>>,
-    forwarding_decision_tree: Arc<Mutex<HashMap<ForwardingToken, HashSet<SocketAddr>>>>,
+    us_load_state: Arc<Mutex<HashMap<(u8, u16), UpstreamLoadState>>>,
+    fib: Arc<Mutex<HashMap<ForwardingToken, SocketAddr>>>,
+    min_instance: Arc<Mutex<HashMap<ForwardingToken, u16>>>,
 }
 
 impl Pipeline {
 
-    pub fn new() -> Self {
+    pub fn new(config: Config) -> Self {
         Pipeline {
+            config: Arc::new(config),
             ds_state: Arc::new(Mutex::new(HashMap::new())),
             us_state: Arc::new(Mutex::new(HashMap::new())),
-            forwarding_decision_tree: Arc::new(Mutex::new(HashMap::new())),
+            us_load_state: Arc::new(Mutex::new(HashMap::new())),
+            fib: Arc::new(Mutex::new(HashMap::new())),
+            min_instance: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub async fn process(self: &Arc<Self>, buf: &mut Vec<u8>, origin: SocketAddr, is_downstream: bool) -> Result<(Destination, ForwardingToken)> {
+    pub async fn update_fib(self, freq: Duration) {
+        let us_load_state = self.us_load_state.clone();
+        let fib = self.fib.clone();
+        let min_instance = self.min_instance.clone();
+
+        task::spawn(async move {
+            let mut interval = time::interval(freq);
+    
+            loop {
+                interval.tick().await;
+
+                let states = us_load_state.lock()
+                    .await;
+                let fib = fib.lock().await;
+                let mut min_instance = min_instance.lock().await;
+
+                // find all the possible groups over which we want to find the min instance
+                // this works by finding all unique possibilities for connections that have an instance assigned
+                let groups = fib.iter()
+                    .filter(|(ft, _)| ft.instance != ForwardingDimension::DontCare)
+                    .map(|(ft, _)| {
+                        let mut ft = ft.clone();
+                        ft.instance = ForwardingDimension::Min;
+
+                        ft
+                    })
+                    .collect::<HashSet<_>>()
+                    .clone();
+
+                // for each group, find the min instance
+                for g in groups.into_iter() {
+                    let instance = fib.iter()
+                        .filter(|(ft, _)| ft.reserved == g.reserved && ft.conn_id == g.conn_id && ft.direction == g.direction && ft.backend == g.backend) // filter for all elements in the same group
+                        .min_by_key(|(ft, _)| {
+                            let backend = *ft.backend.concrete_val().unwrap();
+                            let instance = *ft.instance.concrete_val().unwrap();
+                            states.get(&(backend, instance)).map(|s| s.num_bytes).unwrap_or(u32::MAX)
+                        })
+                        .map(|(ft, _)| ft.instance.concrete_val().unwrap().clone())
+                        .unwrap();
+
+                    debug!("Min instance for group {:?} is {}", g, instance);
+
+                    min_instance.insert(g, instance);
+                }
+            }
+        });
+    }
+
+    pub async fn process(self: &Arc<Self>, buf: &mut Vec<u8>, origin: SocketAddr, is_downstream: bool) -> Result<Destination> {
         trace!("Processing msg from {:?}", origin);
 
+        // TODO: this should only parse once to make it a fair comparison
         let mut headers = [httparse::EMPTY_HEADER; 64];
         let (hdrs, len) = if is_downstream {
             let mut req = httparse::Request::new(&mut headers);
@@ -90,7 +188,7 @@ impl Pipeline {
             .map(|hdr| (hdr.name.to_string().to_lowercase(), String::from_utf8(hdr.value.to_vec()).unwrap()))
             .collect();
 
-        let mut ctx = Context { hdrs, origin, ft: ForwardingToken::default() };
+        let mut ctx = Context { hdrs, origin, ft: ForwardingToken::dont_care() };
 
         if is_downstream {
             self.authenticate(&mut ctx).await?;
@@ -105,8 +203,13 @@ impl Pipeline {
             self.forward_us_conn(&mut ctx).await?;
         }
 
-        let ft = ctx.ft.clone();
-        Ok((self.select_sock(ctx).await, ft))
+        let dest = self.select_sock(&mut ctx).await?;
+
+        if is_downstream {
+            self.post_decision_update_us_conn(&mut ctx, &dest).await?;
+        }
+
+        Ok(dest)
     }
 
     async fn authenticate(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
@@ -119,10 +222,10 @@ impl Pipeline {
             .expect("Invalid auth token")
             .trim();
 
-        let key: Hmac<Sha256> = Hmac::new_from_slice(b"some-secret")?;
+        let key: Hmac<Sha256> = Hmac::new_from_slice(b"testtest12345678")?;
         match token.verify_with_key(&key) {
             Ok::<BTreeMap<String, String>, _>(_) => Ok(()),
-            Err(_) => Err(anyhow!("Invalid token"))
+            Err(_) => Err(anyhow!("Invalid token: {token}"))
         }
     }
 
@@ -143,16 +246,38 @@ impl Pipeline {
     }
 
     async fn update_us_conn(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        self.us_state.lock()
+        let backend = ctx.hdrs.get("Signature");
+        if backend.is_none() || backend.unwrap().len() == 0 {
+            bail!("Response without signature.")
+        }
+
+        let backend = backend.unwrap()
+            .chars()
+            .last()
+            .unwrap()
+            .to_digit(10)
+            .unwrap() as u8;
+
+        self.us_load_state.lock()
             .await
-            .entry(ctx.origin)
+            .entry((backend, ctx.origin.port()))
             .and_modify(|state| {
                 state.num_reqs += 1;
                 state.num_bytes += ctx.hdrs.len() as u32;
             })
-            .or_insert(UpstreamState {
+            .or_insert(UpstreamLoadState {
                 num_reqs: 1,
                 num_bytes: ctx.hdrs.len() as u32,
+            });
+
+        self.us_state.lock()    
+            .await
+            .entry(ctx.origin)
+            .and_modify(|state| {
+                state.reserved = false
+            })
+            .or_insert(UpstreamState {
+                reserved: false
             });
 
         Ok(())
@@ -168,69 +293,119 @@ impl Pipeline {
             _ => return Err(anyhow!("Invalid backend"))
         };
 
-        ctx.ft.direction = Direction::Upstream;
-        ctx.ft.backend = backend;
+        ctx.ft.reserved = ForwardingDimension::Concrete(false);
+        ctx.ft.direction = ForwardingDimension::Concrete(Direction::Upstream);
+        ctx.ft.backend = ForwardingDimension::Concrete(backend);
+        ctx.ft.instance = ForwardingDimension::Min;
 
         let ft_inv = ForwardingToken {
-            conn_id: ctx.origin.port() as u32,
-            direction: Direction::Downstream,
-            backend: 0,
+            reserved: ForwardingDimension::Concrete(false),
+            conn_id: ForwardingDimension::Concrete(ctx.origin.port() as u32),
+            direction: ForwardingDimension::Concrete(Direction::Downstream),
+            backend: ForwardingDimension::DontCare,
+            instance: ForwardingDimension::DontCare
         };
 
-        self.forwarding_decision_tree.lock()
+        self.fib.lock()
             .await
-            .entry(ft_inv)
-            .or_insert_with(HashSet::new)
-            .insert(ctx.origin);
+            .insert(ft_inv, ctx.origin);
 
         Ok(())
     }
 
     async fn forward_us_conn(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        let conn_id = ctx.hdrs.get("conn-id").ok_or_else(|| anyhow!("No conn-id header found"))?;
-        ctx.ft.conn_id = conn_id.parse()?;
-        ctx.ft.direction = Direction::Downstream;
+        let conn_id = ctx.hdrs.get("conn-id")
+            .ok_or_else(|| anyhow!("No conn-id header found"))?
+            .parse()?;
+        ctx.ft.conn_id = ForwardingDimension::Concrete(conn_id);
+        ctx.ft.direction = ForwardingDimension::Concrete(Direction::Downstream);
 
         Ok(())
     }
 
-    async fn select_sock(self: &Arc<Self>, ctx: Context) -> Destination {
-        let mut fdt = self.forwarding_decision_tree.lock().await;
-        let socks = fdt.entry(ctx.ft.clone()).or_insert_with(HashSet::new);
-        let us_state = self.us_state.lock().await;
-
+    async fn select_sock(self: &Arc<Self>, ctx: &mut Context) -> Result<Destination> {
         trace!("Selecting sock for {:?}", ctx.ft);
 
-        let addr = if ctx.ft.direction == Direction::Upstream {
-            socks.iter()
-                .min_by_key(|addr| { 
-                    // it's possible that we haven't received a response from this particular
-                    // upstream connection yet -> num_reqs will be 0
-                    us_state.get(addr)
-                        .map(|state| state.num_reqs)
-                        .unwrap_or(0)
-                })
-        } else {
-            assert!(socks.len() == 1);
-            socks.iter().next()
+        // check if we have to retrieve the min instance for that group
+        let ft = if ctx.ft.instance == ForwardingDimension::Min {
+            let min_instance = self.min_instance.lock().await;
+            let instance = min_instance.get(&ctx.ft);
+
+            if let Some(instance) = instance {
+                let mut ft = ctx.ft.clone();
+                ft.instance = ForwardingDimension::Concrete(instance.clone());
+                ft
+            }
+            else {
+                ctx.ft.clone()
+            }
+        }
+        else {
+            ctx.ft.clone()
         };
 
+        let fib = self.fib.lock().await;
+        let addr = fib.get(&ft);
+
         if let Some(addr) = addr {
-            Destination::Exisiting(addr.clone())
+            Ok(Destination::Exisiting(addr.clone()))
         } 
         else {
-            // let addr = format!("10.0.{}.1:8000", ctx.ft.backend);
-            let addr = format!("127.0.0.1:800{}", ctx.ft.backend);
-            Destination::New(SocketAddr::from_str(&addr).unwrap())
+            if ctx.ft.direction.concrete_val() == Some(&Direction::Downstream) {
+                bail!("No socket found for downstream connection");
+            }
+
+            let backend = ctx.ft.backend.concrete_val().unwrap();
+            let addr = self.resolve_preconfigured_instance_rand(*backend);
+            if addr.is_none() {
+                bail!("Could not resolve preconfigured address for backend {}", backend);
+            }
+            let addr = addr.unwrap();
+
+            let ft = ForwardingToken {
+                reserved: ForwardingDimension::Concrete(true),
+                conn_id: ForwardingDimension::DontCare,
+                direction: ForwardingDimension::Concrete(Direction::Upstream),
+                backend: ctx.ft.backend.clone(),
+                instance: ForwardingDimension::Concrete(addr.port())
+            };
+
+            Ok(Destination::New(addr, ft))
         }
     }
 
+    async fn post_decision_update_us_conn(self: &Arc<Self>, _ctx: &mut Context, dest: &Destination) -> Result<()> {
+        if let &Destination::Exisiting(addr) = dest {
+            self.us_state.lock()    
+                .await
+                .entry(addr)
+                .and_modify(|state| {
+                    state.reserved = true
+                })
+                .or_insert(UpstreamState {
+                    reserved: true
+                });
+        }
+
+        Ok(())
+    }
+
     pub async fn add_sock(self: &Arc<Self>, ft: ForwardingToken, addr: SocketAddr) {
-        self.forwarding_decision_tree.lock()
+        self.fib.lock()
             .await
-            .entry(ft)
-            .or_insert_with(HashSet::new)
-            .insert(addr);
+            .insert(ft, addr);
+    }
+
+    fn resolve_preconfigured_instance_rand(self: &Arc<Self>, backend: u8) -> Option<SocketAddr> {
+        let name = format!("server{}", backend);
+
+        let addr = self.config.hosts.iter()
+            .find(|host| host.name == name)
+            .and_then(|host| {
+                host.instances.choose(&mut rand::thread_rng())
+            })?;
+
+        addr.parse().ok()
     }
 
 }

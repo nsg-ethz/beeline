@@ -1,60 +1,30 @@
 hosts:
-- name: server1_A
-  address: 10.0.1.1
-- name: server2_A
-  address: 10.0.1.1
-- name: server3_A
-  address: 10.0.1.1
-- name: server4_A
-  address: 10.0.1.1
-- name: server1_B
-  address: 10.0.2.1
-- name: server2_B
-  address: 10.0.2.1
-- name: server3_B
-  address: 10.0.2.1
-- name: server4_B
-  address: 10.0.2.1
-- name: server1_C
-  address: 10.0.3.1
-- name: server2_C
-  address: 10.0.3.1
-- name: server3_C
-  address: 10.0.3.1
-- name: server4_C
-  address: 10.0.3.1
-- name: server1_D
-  address: 10.0.4.1
-- name: server2_D
-  address: 10.0.4.1
-- name: server3_D
-  address: 10.0.4.1
-- name: server4_D
-  address: 10.0.4.1
+- name: server1
+  instances:
+    - 10.0.1.1:8001
+    - 10.0.1.1:8002
+    - 10.0.1.1:8003
+    - 10.0.1.1:8004
+- name: server2
+  instances:
+    - 10.0.2.1:8001
+    - 10.0.2.1:8002
+    - 10.0.2.1:8003
+    - 10.0.2.1:8004
+- name: server3
+  instances:
+    - 10.0.3.1:8001
+    - 10.0.3.1:8002
+    - 10.0.3.1:8003
+    - 10.0.3.1:8004
+- name: server4
+  instances:
+    - 10.0.4.1:8001
+    - 10.0.4.1:8002
+    - 10.0.4.1:8003
+    - 10.0.4.1:8004
 
-spec:   
-  parse:
-    http:
-      backend: str,
-      content-length: u32
-  forward:
-    - predicates:
-        backend: 1
-      destination:
-        host: server1
-        port: 8000
-    - predicates:
-        backend: 2
-      destination:
-        host: server2
-        port: 8000
-    - predicates:
-        backend: 3
-      destination:
-        host: server3
-        port: 8000
-    - predicates:
-        backend: 4
-      destination:
-        host: server4
-        port: 8000
+parse:
+  http:
+    backend: str,
+    content-length: u32

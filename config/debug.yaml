@@ -1,22 +1,12 @@
 hosts:
 - name: server1
-  address: 127.0.0.1
+  instances:
+    - 127.0.0.1:8001
 - name: server2
-  address: 127.0.0.1
-spec:   
-  parse:
-    http:
-      backend: str
-      content-length: u32
-      authorization: str
-  forward:
-    - predicates:
-        backend: 1
-      destination:
-        host: server1
-        port: 8001
-    - predicates:
-        backend: 2
-      destination:
-        host: server2
-        port: 8002
+  instances:
+    - 127.0.0.1:8002
+
+parse:
+  http:
+    backend: str,
+    content-length: u32

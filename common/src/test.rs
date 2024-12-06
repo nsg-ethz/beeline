@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use crate::{config::Host, Config};
 use hmac::{Hmac, Mac};
 use jwt::SignWithKey;
 use rand::{distributions::Alphanumeric, Rng};
@@ -8,6 +9,22 @@ use std::{collections::HashMap, vec};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::*};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_millis(10);
+
+pub fn config() -> Config {
+    Config {
+        hosts: vec![
+            Host {
+                name: "server1".into(),
+                instances: vec!["127.0.0.1:8001".into()]
+            },
+            Host {
+                name: "server2".into(),
+                instances: vec!["127.0.0.1:8002".into()]
+            }
+        ],
+        ..Config::default()
+    }
+}
 
 fn http_req_from(hdrs: &HashMap<&str, &str>, payload_len: usize) -> String {
     let req = format!("POST / HTTP/1.1\r\n\
@@ -163,7 +180,7 @@ pub async fn it_drops_invalid_jwt(mut client: TcpStream) {
 pub async fn it_forwards_valid_jwt(mut client: TcpStream) {
     let (server1, server2) = setup().await;
 
-    let token = generate_jwt("some-secret").unwrap();
+    let token = generate_jwt("testtest12345678").unwrap();
     let token = format!("Bearer {token}");
     let hdrs = HashMap::from([
         ("backend", "server1"),
