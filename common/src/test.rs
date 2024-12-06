@@ -6,7 +6,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use sha2::Sha256;
 use core::str;
 use std::{collections::HashMap, vec};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::*};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::{self, *}};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_millis(10);
 
@@ -26,26 +26,33 @@ pub fn config() -> Config {
     }
 }
 
-fn http_req_from(hdrs: &HashMap<&str, &str>, payload_len: usize) -> String {
-    let req = format!("POST / HTTP/1.1\r\n\
-                       Host: 127.0.0.1\r\n\
-                       Content-Length: {}\r\n", payload_len);
-    let mut req = String::from(req); 
+fn http_msg_from(hdrs: &HashMap<&str, &str>, payload_len: usize, is_req: bool) -> String {
+    let msg = if is_req {
+        format!("POST / HTTP/1.1\r\n\
+                Host: 127.0.0.1\r\n\
+                Content-Length: {}\r\n", payload_len)
+    }
+    else {
+        format!("HTTP/1.1 200 OK\r\n\
+                Host: 127.0.0.1\r\n\
+                Content-Length: {}\r\n", payload_len)
+    };
+    let mut msg = String::from(msg); 
 
     for (k, v) in hdrs {
-        req.push_str(&format!("{}: {}\r\n", k, v));
+        msg.push_str(&format!("{}: {}\r\n", k, v));
     }
 
-    req.push_str("\r\n");
+    msg.push_str("\r\n");
 
     let payload = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(payload_len)
         .collect::<Vec<_>>();
     let payload = String::from_utf8(payload).unwrap();
-    req.push_str(&payload);
+    msg.push_str(&payload);
 
-    req
+    msg
 }
 
 fn generate_jwt(secret: &str) -> Result<String> {
@@ -56,12 +63,12 @@ fn generate_jwt(secret: &str) -> Result<String> {
     Ok(token)
 }
 
-async fn write(client: &mut TcpStream, hdrs: &HashMap<&str, &str>) -> Result<String> {
-    let req_sent = http_req_from(hdrs, 128);
-    let write = client.write_all(req_sent.as_bytes());
+async fn write_http_msg(client: &mut TcpStream, hdrs: &HashMap<&str, &str>, is_req: bool) -> Result<String> {
+    let msg = http_msg_from(hdrs, 128, is_req);
+    let write = client.write_all(msg.as_bytes());
     timeout(DEFAULT_TIMEOUT, write).await??;
 
-    Ok(req_sent)
+    Ok(msg)
 }
 
 async fn try_accept(server: TcpListener) -> Result<TcpStream> {
@@ -90,7 +97,7 @@ async fn read(server: &mut TcpStream) -> Result<String> {
 }
 
 async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: &HashMap<&str, &str>) -> Result<(TcpStream, String, String)> {
-    let req_sent = write(client, hdrs).await?;
+    let req_sent = write_http_msg(client, hdrs, true).await?;
     let mut server = try_accept(server).await?;
     let req_recv = read(&mut server).await?;
 
@@ -102,11 +109,19 @@ fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<String, String>> {
         return Err(anyhow!("empty buffer"));
     }
 
-    let mut req_hdr = [httparse::EMPTY_HEADER; 64];
-    let mut req = httparse::Request::new(&mut req_hdr);
-    req.parse(buf)?;
+    let mut msg_hdr = [httparse::EMPTY_HEADER; 64];
+    let mut msg = httparse::Request::new(&mut msg_hdr);
+    
+    let headers = if msg.parse(buf).is_ok() {
+        msg.headers
+    }
+    else {
+        let mut msg = httparse::Response::new(&mut msg_hdr);
+        msg.parse(buf)?;
+        msg.headers
+    };
 
-    let hdrs = req.headers.iter()
+    let hdrs = headers.iter()
         .map(|hdr| {
             let key = hdr.name.to_lowercase();
             let val = String::from_utf8(hdr.value.to_vec()).unwrap();
@@ -167,7 +182,7 @@ pub async fn it_drops_invalid_jwt(mut client: TcpStream) {
         ("Authorization", token.as_str())
     ]);
 
-    let res = write(&mut client, &hdrs).await;
+    let res = write_http_msg(&mut client, &hdrs, true).await;
     assert!(res.is_ok());
 
     let server1_req_recv = try_accept(server1).await;
@@ -182,20 +197,33 @@ pub async fn it_forwards_valid_jwt(mut client: TcpStream) {
 
     let token = generate_jwt("testtest12345678").unwrap();
     let token = format!("Bearer {token}");
-    let hdrs = HashMap::from([
+    let req_hdrs = HashMap::from([
         ("backend", "server1"),
         ("authorization", token.as_str())
     ]);
 
-    let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &hdrs).await.unwrap();
+    let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &req_hdrs).await.unwrap();
     let mut hdrs_sent = parse_http_hdrs(req_sent.as_bytes()).unwrap();    
     let conn_id = client.local_addr().unwrap().port().to_string();
-    hdrs_sent.insert(String::from("conn-id"), conn_id);
+    hdrs_sent.insert(String::from("conn-id"), conn_id.clone());
     assert_http_hdr_eq(&req_recv, &hdrs_sent);
     assert_http_payload_eq(&req_sent, &req_recv);
 
-    // pipelined HTTP: writing another request without waiting for the response
-    let req_sent = write(&mut client, &hdrs).await.unwrap();
+    let res_hdrs = HashMap::from([
+        ("signature", "server1"),
+        ("conn-id", conn_id.as_str()),
+    ]);
+
+    let res_sent = write_http_msg(&mut server1, &res_hdrs, false).await.unwrap();
+    let res_recv = read(&mut client).await.unwrap();
+    let hdrs_recv = parse_http_hdrs(res_recv.as_bytes()).unwrap();    
+    assert_http_hdr_eq(&res_recv, &hdrs_recv);
+    assert_http_payload_eq(&res_sent, &res_recv);
+
+    // give the pipeline some time to update its metrics
+    time::sleep(Duration::from_millis(10)).await;
+
+    let req_sent = write_http_msg(&mut client, &req_hdrs, true).await.unwrap();
     let req_recv = read(&mut server1).await.unwrap();
     assert_http_hdr_eq(&req_recv, &hdrs_sent);
     assert_http_payload_eq(&req_sent, &req_recv);

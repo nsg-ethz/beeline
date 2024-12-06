@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use common::Config;
 use crate::pipeline::{Destination, Pipeline};
 use log::{debug, error, info};
-use std::{collections::HashMap, io::Cursor, net::{SocketAddr, ToSocketAddrs}, sync::Arc};
+use std::{collections::HashMap, io::Cursor, net::{SocketAddr, ToSocketAddrs}, sync::Arc, time::Duration};
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::RwLock};
 
 mod pipeline;
@@ -43,6 +43,8 @@ impl Proxy {
     pub async fn listen(self) -> Result<()> {
         let addr = self.address;
         info!("Listening on {}", addr);
+
+        self.pipeline.start_updating_fib(Duration::from_millis(1));
 
         let listener = TcpListener::bind(&addr).await?;
         loop {
@@ -156,6 +158,8 @@ impl Proxy {
                         addr
                     }
                 };
+
+                debug!("Forward msg to {}", addr);
 
                 let mut sockets_wr = sockets.write().await;
                 let wr_stream = sockets_wr.get_mut(&addr).unwrap();

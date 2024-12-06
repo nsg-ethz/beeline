@@ -109,7 +109,8 @@ impl Pipeline {
         }
     }
 
-    pub async fn update_fib(self, freq: Duration) {
+    pub fn start_updating_fib(&self, freq: Duration) {
+        let us_state = self.us_state.clone();
         let us_load_state = self.us_load_state.clone();
         let fib = self.fib.clone();
         let min_instance = self.min_instance.clone();
@@ -120,8 +121,8 @@ impl Pipeline {
             loop {
                 interval.tick().await;
 
-                let states = us_load_state.lock()
-                    .await;
+                let us_load_states = us_load_state.lock().await;
+                let us_state = us_state.lock().await;
                 let fib = fib.lock().await;
                 let mut min_instance = min_instance.lock().await;
 
@@ -142,15 +143,18 @@ impl Pipeline {
                 for g in groups.into_iter() {
                     let instance = fib.iter()
                         .filter(|(ft, _)| ft.reserved == g.reserved && ft.conn_id == g.conn_id && ft.direction == g.direction && ft.backend == g.backend) // filter for all elements in the same group
+                        .filter(|(ft, _)| {
+                            if let Some(state) = us_state.get(ft) {
+                                // TODO: don't select a reserved socket as a min
+                            }
+                        }) 
                         .min_by_key(|(ft, _)| {
                             let backend = *ft.backend.concrete_val().unwrap();
                             let instance = *ft.instance.concrete_val().unwrap();
-                            states.get(&(backend, instance)).map(|s| s.num_bytes).unwrap_or(u32::MAX)
+                            us_load_states.get(&(backend, instance)).map(|s| s.num_bytes).unwrap_or(u32::MAX)
                         })
                         .map(|(ft, _)| ft.instance.concrete_val().unwrap().clone())
                         .unwrap();
-
-                    debug!("Min instance for group {:?} is {}", g, instance);
 
                     min_instance.insert(g, instance);
                 }
@@ -246,9 +250,9 @@ impl Pipeline {
     }
 
     async fn update_us_conn(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        let backend = ctx.hdrs.get("Signature");
+        let backend = ctx.hdrs.get("signature");
         if backend.is_none() || backend.unwrap().len() == 0 {
-            bail!("Response without signature.")
+            bail!("Response without signature: {:?}", ctx.hdrs.keys());
         }
 
         let backend = backend.unwrap()
@@ -317,6 +321,7 @@ impl Pipeline {
         let conn_id = ctx.hdrs.get("conn-id")
             .ok_or_else(|| anyhow!("No conn-id header found"))?
             .parse()?;
+        ctx.ft.reserved = ForwardingDimension::Concrete(false);
         ctx.ft.conn_id = ForwardingDimension::Concrete(conn_id);
         ctx.ft.direction = ForwardingDimension::Concrete(Direction::Downstream);
 
@@ -330,10 +335,13 @@ impl Pipeline {
         let ft = if ctx.ft.instance == ForwardingDimension::Min {
             let min_instance = self.min_instance.lock().await;
             let instance = min_instance.get(&ctx.ft);
+            debug!("{:?}", min_instance.keys());
 
             if let Some(instance) = instance {
                 let mut ft = ctx.ft.clone();
                 ft.instance = ForwardingDimension::Concrete(instance.clone());
+                debug!("Min instance is {}", instance);
+
                 ft
             }
             else {
@@ -352,7 +360,7 @@ impl Pipeline {
         } 
         else {
             if ctx.ft.direction.concrete_val() == Some(&Direction::Downstream) {
-                bail!("No socket found for downstream connection");
+                bail!("No socket found for downstream connection: {:?}", ctx.ft);
             }
 
             let backend = ctx.ft.backend.concrete_val().unwrap();
@@ -363,7 +371,7 @@ impl Pipeline {
             let addr = addr.unwrap();
 
             let ft = ForwardingToken {
-                reserved: ForwardingDimension::Concrete(true),
+                reserved: ForwardingDimension::Concrete(false),
                 conn_id: ForwardingDimension::DontCare,
                 direction: ForwardingDimension::Concrete(Direction::Upstream),
                 backend: ctx.ft.backend.clone(),
@@ -391,6 +399,7 @@ impl Pipeline {
     }
 
     pub async fn add_sock(self: &Arc<Self>, ft: ForwardingToken, addr: SocketAddr) {
+        trace!("Add {:?} to FIB", ft);
         self.fib.lock()
             .await
             .insert(ft, addr);
