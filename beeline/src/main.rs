@@ -1,14 +1,15 @@
 use anyhow::Result;
+use beeline::Proxy;
 use clap::Parser;
-use beeline::{Proxy, config::Config};
+use common::Config;
 use std::mem::MaybeUninit;
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value="127.0.0.1:3000")]
+    #[arg(short, long, default_value = "127.0.0.1:3000")]
     address: String,
 
-    #[arg(short, long, default_value="config/debug.yaml")]
+    #[arg(short, long, default_value = "config/debug.yaml")]
     config: String,
 }
 

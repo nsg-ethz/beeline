@@ -134,6 +134,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "beeline"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "as-bytes",
+ "clap",
+ "common",
+ "env_logger",
+ "httparse",
+ "libbpf-cargo",
+ "libbpf-rs 0.24.8 (git+https://github.com/libbpf/libbpf-rs.git?branch=master)",
+ "libbpf-sys",
+ "libc",
+ "log",
+ "rand",
+ "serde",
+ "serde_yaml",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -836,28 +858,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c3a7fc5db1e57d5a779a352c8cdb57b29aa4c40cc69c3a68a7fedc815fbf2f9"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "proxy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "as-bytes",
- "clap",
- "common",
- "env_logger",
- "httparse",
- "libbpf-cargo",
- "libbpf-rs 0.24.8 (git+https://github.com/libbpf/libbpf-rs.git?branch=master)",
- "libbpf-sys",
- "libc",
- "log",
- "rand",
- "serde",
- "serde_yaml",
- "sha2",
- "tokio",
 ]
 
 [[package]]

@@ -1,37 +1,52 @@
+use crate::{
+    bpf::{types::*, TypedLookUp, *},
+    net::{SocketBinder, TryIntoRawOctets},
+    parse::{http::HttpParser, Action},
+};
 use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
+use common::Config;
+use libbpf_rs::{
+    set_print,
+    skel::{OpenSkel, SkelBuilder},
+    Link, MapCore, MapFlags, MapHandle, PrintLevel,
+};
+use log::{debug, error, info, log_enabled, warn};
 use ma::{NewUpstream, Pipeline, Timer, Uturn};
 use pipeline::DebugPipeline;
-use crate::{
-    bpf::{*, types::*, TypedLookUp},
-    config::Config,
-    net::{SocketBinder, TryIntoRawOctets},
-    parse::{http::HttpParser, Action}
+use std::{
+    collections::HashMap,
+    io::Cursor,
+    mem::MaybeUninit,
+    net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs},
+    os::{
+        fd::{AsFd, AsRawFd, IntoRawFd},
+        unix::fs::OpenOptionsExt,
+    },
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
-use libbpf_rs::{set_print, PrintLevel, skel::{OpenSkel, SkelBuilder}, Link, MapCore, MapFlags, MapHandle};
-use log::{debug, error, info, log_enabled, warn};
-use std::{collections::HashMap, io::Cursor, mem::MaybeUninit, net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs}, os::{fd::{AsFd, AsRawFd, IntoRawFd}, unix::fs::OpenOptionsExt}, str::FromStr, sync::{Arc, Mutex}, time::Duration};
-use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, task, time};
+use tokio::{
+    io::{self, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    task, time,
+};
 
 pub mod bpf;
-pub mod config;
-pub mod parse;
-pub mod net;
 pub mod ma;
+pub mod net;
+pub mod parse;
 pub mod pipeline;
 
 fn state_action_to_raw(state: u16, action: Action, rodata: &rodata) -> u32 {
     let action = match action {
-        Action::StartCapture(mid) => {
-            rodata.a_start_capture | (mid as u16) & rodata.a_id_mask
-        },
+        Action::StartCapture(mid) => rodata.a_start_capture | (mid as u16) & rodata.a_id_mask,
         Action::EndCapture(cid, mid) => {
             let id = (cid as u16) << 6 | (mid as u16);
             rodata.a_end_capture | id & rodata.a_id_mask
         }
-        Action::Match(fid) => {
-            rodata.a_match | (fid as u16) & rodata.a_id_mask
-        },
+        Action::Match(fid) => rodata.a_match | (fid as u16) & rodata.a_id_mask,
         Action::Done => rodata.a_done,
         Action::None => 0,
     };
@@ -48,8 +63,14 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, ft: Option<frwd_token>, flags: MapFlags) -> Result<()> {
-    let addr = addr.to_socket_addrs()?
+fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(
+    map: &M,
+    addr: &A,
+    ft: Option<frwd_token>,
+    flags: MapFlags,
+) -> Result<()> {
+    let addr = addr
+        .to_socket_addrs()?
         .next()
         .expect("Failed to resolve address");
 
@@ -61,7 +82,7 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, ft: 
 
     let val = opt_frwd_token {
         is_some: ft.is_some() as u8,
-        inner: ft.unwrap_or_default()
+        inner: ft.unwrap_or_default(),
     };
     let val = unsafe { val.as_bytes() };
 
@@ -70,12 +91,19 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, addr: &A, ft: 
     Ok(())
 }
 
-fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_addr: &A, remote_addr: &A, ctx: &pipeline_ctx) -> Result<()> {
-    let local_addr = local_addr.to_socket_addrs()?
+fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(
+    map: &M,
+    local_addr: &A,
+    remote_addr: &A,
+    ctx: &pipeline_ctx,
+) -> Result<()> {
+    let local_addr = local_addr
+        .to_socket_addrs()?
         .next()
         .expect("Failed to resolve local address");
 
-    let remote_addr = remote_addr.to_socket_addrs()?
+    let remote_addr = remote_addr
+        .to_socket_addrs()?
         .next()
         .expect("Failed to resolve local address");
 
@@ -89,8 +117,7 @@ fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(map: &M, local_ad
 }
 
 fn print(level: PrintLevel, msg: String) {
-    let msg = msg.trim_start_matches("libbpf:")
-        .trim();
+    let msg = msg.trim_start_matches("libbpf:").trim();
 
     match level {
         PrintLevel::Debug => debug!(target: "libbpf", "{}", msg),
@@ -120,11 +147,15 @@ unsafe impl<'obj> Send for Proxy<'obj> {}
 unsafe impl<'obj> Sync for Proxy<'obj> {}
 
 impl<'obj> Proxy<'obj> {
-
-    pub fn attach<A: ToSocketAddrs>(address: A, config: Config, open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>) -> Result<Self> {
+    pub fn attach<A: ToSocketAddrs>(
+        address: A,
+        config: Config,
+        open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>,
+    ) -> Result<Self> {
         set_print(Some((PrintLevel::Debug, print)));
-        
-        let address = address.to_socket_addrs()?
+
+        let address = address
+            .to_socket_addrs()?
             .next()
             .expect("Failed to resolve address");
 
@@ -135,7 +166,10 @@ impl<'obj> Proxy<'obj> {
         }
 
         // TODO: configure the parser according to the config
-        let mut parser = HttpParser::new(open_skel.maps.rodata_data.s_init, open_skel.maps.rodata_data.s_any);
+        let mut parser = HttpParser::new(
+            open_skel.maps.rodata_data.s_init,
+            open_skel.maps.rodata_data.s_any,
+        );
         parser.match_http_hdr("backend")?;
         parser.match_http_hdr("content-length")?;
         parser.match_http_hdr("conn-id")?;
@@ -152,10 +186,7 @@ impl<'obj> Proxy<'obj> {
 
         let skel = open_skel.load()?;
 
-        let sock_map_fd = skel.maps
-            .sock_map
-            .as_fd()
-            .as_raw_fd();
+        let sock_map_fd = skel.maps.sock_map.as_fd().as_raw_fd();
 
         let cgroup_fd = std::fs::OpenOptions::new()
             .read(true)
@@ -163,16 +194,15 @@ impl<'obj> Proxy<'obj> {
             .open("/sys/fs/cgroup")?
             .into_raw_fd();
 
-        let sockops = skel.progs
-            .monitor_sockets
-            .attach_cgroup(cgroup_fd)?;
+        let sockops = skel.progs.monitor_sockets.attach_cgroup(cgroup_fd)?;
 
-        skel.progs
-            .msg_verdict
-            .attach_sockmap(sock_map_fd)?;
+        skel.progs.msg_verdict.attach_sockmap(sock_map_fd)?;
 
-        let dests = config.hosts.iter()
-            .map(|h| Ipv4Addr::from_str(&h.address))
+        let dests = config
+            .hosts
+            .iter()
+            .flat_map(|h| h.instances.clone())
+            .map(|addr| Ipv4Addr::from_str(&addr))
             .collect::<Result<Vec<_>, AddrParseError>>()?;
         let binder = SocketBinder::new(12345, dests)?;
 
@@ -180,27 +210,29 @@ impl<'obj> Proxy<'obj> {
             ("us_conn_map", skel.maps.us_conns.info()?.info.id),
             ("frwd_map", skel.maps.frwd_map.info()?.info.id),
         ]);
-        let maps = maps.iter()
+        let maps = maps
+            .iter()
             .map(|(k, v)| (k.to_string(), MapHandle::from_map_id(*v).unwrap()))
             .collect::<HashMap<_, _>>();
 
         let mut pipeline = DebugPipeline::new(maps)?;
-        let timers = pipeline.create_timers()?
+        let timers = pipeline
+            .create_timers()?
             .into_iter()
             .map(|t| Mutex::new(t))
             .collect();
 
-        let uturns = pipeline.create_uturns()?
+        let uturns = pipeline
+            .create_uturns()?
             .into_iter()
             .map(|t| Mutex::new(t))
             .collect();
 
         let new_upstream = pipeline.create_new_upstream()?;
-        let new_upstream = Mutex::new(new_upstream); 
+        let new_upstream = Mutex::new(new_upstream);
 
-        let crypto = &skel.progs.
-            crypto_setup;
-        
+        let crypto = &skel.progs.crypto_setup;
+
         let input = libbpf_rs::ProgramInput::default();
 
         let res = crypto.test_run(input)?;
@@ -262,14 +294,13 @@ impl<'obj> Proxy<'obj> {
         let new_upstream = self.new_upstream.clone();
 
         tokio::spawn(async move {
-            let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr))
-                .unwrap();
+            let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr)).unwrap();
             let mut buf = Vec::with_capacity(8192);
 
             let res = 'read_downstream: loop {
                 // wait until the downstream connection is readable
                 match downstream.readable().await {
-                    Err(ref e)if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
                     Ok(()) => {}
                 }
@@ -288,9 +319,11 @@ impl<'obj> Proxy<'obj> {
                     break Err(anyhow!(e));
                 }
 
-                let con_len = req.headers.iter()
+                let con_len = req
+                    .headers
+                    .iter()
                     .find(|h| h.name.eq_ignore_ascii_case("content-length"))
-                    .and_then(|h|  std::str::from_utf8(h.value).ok())
+                    .and_then(|h| std::str::from_utf8(h.value).ok())
                     .and_then(|v| v.parse::<usize>().ok())
                     .unwrap_or(0);
 
@@ -306,11 +339,15 @@ impl<'obj> Proxy<'obj> {
                 }
 
                 // check if there is a pipeline context in the waiting list
-                let ctx: Option<pipeline_ctx> = utrn_wait_list.lookup_and_delete_as(&dkey)
+                let ctx: Option<pipeline_ctx> = utrn_wait_list
+                    .lookup_and_delete_as(&dkey)
                     .expect("Failed to lookup utrn_wait_list");
 
                 if ctx.is_none() {
-                    warn!("No context found in wait list for downstream connection: {:?}", dkey);
+                    warn!(
+                        "No context found in wait list for downstream connection: {:?}",
+                        dkey
+                    );
                     continue;
                 }
                 let ctx = ctx.unwrap();
@@ -325,20 +362,42 @@ impl<'obj> Proxy<'obj> {
 
                 // check if there is a forwarding token in the waiting list
                 let ft = ctx.ft;
-                let us_remote_addr = new_upstream.lock().unwrap().new_upstream_connection(&ctx).unwrap();
+                let us_remote_addr = new_upstream
+                    .lock()
+                    .unwrap()
+                    .new_upstream_connection(&ctx)
+                    .unwrap();
                 let us_sock = binder.bind(us_remote_addr.ip()).unwrap();
                 let us_local_addr = us_sock.local_addr().unwrap();
 
                 debug!("Bound to socket: {}", us_local_addr);
 
-                add_forward_rule_to_wait_list(&utrn_wait_list, &us_local_addr, &us_remote_addr, &ctx).unwrap();
-                if let Err(e) = add_socket_to_wait_list(&sock_wait_list, &us_local_addr, Some(ft), MapFlags::NO_EXIST) {
-                    error!("Failed to add socket [{:?}->{:?}] to wait list: {:?}", us_local_addr, us_remote_addr, e);
+                add_forward_rule_to_wait_list(
+                    &utrn_wait_list,
+                    &us_local_addr,
+                    &us_remote_addr,
+                    &ctx,
+                )
+                .unwrap();
+                if let Err(e) = add_socket_to_wait_list(
+                    &sock_wait_list,
+                    &us_local_addr,
+                    Some(ft),
+                    MapFlags::NO_EXIST,
+                ) {
+                    error!(
+                        "Failed to add socket [{:?}->{:?}] to wait list: {:?}",
+                        us_local_addr, us_remote_addr, e
+                    );
                     break Err(e);
                 }
-                add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY).unwrap();
+                add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY)
+                    .unwrap();
 
-                debug!("Opening upstream connection [{}->{}]", us_local_addr, us_remote_addr);
+                debug!(
+                    "Opening upstream connection [{}->{}]",
+                    us_local_addr, us_remote_addr
+                );
                 let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
 
                 let msg = buf.drain(..req_len).collect::<Vec<u8>>();
@@ -347,15 +406,12 @@ impl<'obj> Proxy<'obj> {
 
                 // upstream connections are automatically reused by the eBPF program
                 // adding them to this shared vector allows us to keep them alive
-                upstreams.lock()
-                    .unwrap()
-                    .push(upstream);   
+                upstreams.lock().unwrap().push(upstream);
 
-                timers.iter()
-                    .for_each(|t| {
-                        let mut t = t.lock().unwrap();
-                        t.monitor_upstream(&dkey, &ft);
-                    });                    
+                timers.iter().for_each(|t| {
+                    let mut t = t.lock().unwrap();
+                    t.monitor_upstream(&dkey, &ft);
+                });
 
                 buf.clear();
             };
@@ -375,13 +431,11 @@ impl<'obj> Proxy<'obj> {
 
         task::spawn(async move {
             let mut interval = time::interval(update_freq);
-    
+
             loop {
                 interval.tick().await;
 
-                let res = timers[0].lock()
-                    .unwrap()
-                    .trigger();
+                let res = timers[0].lock().unwrap().trigger();
 
                 // TODO: report error with name of timer
                 if let Err(e) = res {
@@ -402,5 +456,4 @@ impl<'obj> Proxy<'obj> {
         let id = self.skel.maps.utrn_wait_list.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
-
 }
