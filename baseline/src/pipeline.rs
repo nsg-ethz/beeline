@@ -1,14 +1,13 @@
 use anyhow::{anyhow, bail, Result};
 use common::Config;
 use hmac::{Hmac, Mac};
-use futures::lock::Mutex;
 use httparse::Status;
 use jwt::VerifyWithKey;
 use log::{debug, trace};
 use rand::{self, seq::SliceRandom};
 use sha2::Sha256;
 use tokio::{task, time};
-use std::{collections::{BTreeMap, HashMap, HashSet}, net::SocketAddr, sync::Arc, time::Duration, u32};
+use std::{collections::{BTreeMap, HashMap, HashSet}, net::SocketAddr, sync::{Arc, RwLock}, time::Duration, u32};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DownstreamState {
@@ -89,11 +88,11 @@ impl ForwardingToken {
 
 pub struct Pipeline {
     config: Arc<Config>,
-    ds_state: Arc<Mutex<HashMap<SocketAddr, DownstreamState>>>,
-    us_state: Arc<Mutex<HashMap<SocketAddr, UpstreamState>>>,
-    us_load_state: Arc<Mutex<HashMap<(u8, u16), UpstreamLoadState>>>,
-    fib: Arc<Mutex<HashMap<ForwardingToken, SocketAddr>>>,
-    min_instance: Arc<Mutex<HashMap<ForwardingToken, u16>>>,
+    ds_state: Arc<RwLock<HashMap<SocketAddr, DownstreamState>>>,
+    us_state: Arc<RwLock<HashMap<SocketAddr, UpstreamState>>>,
+    us_load_state: Arc<RwLock<HashMap<(u8, u16), UpstreamLoadState>>>,
+    fib: Arc<RwLock<HashMap<ForwardingToken, SocketAddr>>>,
+    min_instance: Arc<RwLock<HashMap<ForwardingToken, u16>>>,
 }
 
 impl Pipeline {
@@ -101,11 +100,11 @@ impl Pipeline {
     pub fn new(config: Config) -> Self {
         Pipeline {
             config: Arc::new(config),
-            ds_state: Arc::new(Mutex::new(HashMap::new())),
-            us_state: Arc::new(Mutex::new(HashMap::new())),
-            us_load_state: Arc::new(Mutex::new(HashMap::new())),
-            fib: Arc::new(Mutex::new(HashMap::new())),
-            min_instance: Arc::new(Mutex::new(HashMap::new())),
+            ds_state: Arc::new(RwLock::new(HashMap::new())),
+            us_state: Arc::new(RwLock::new(HashMap::new())),
+            us_load_state: Arc::new(RwLock::new(HashMap::new())),
+            fib: Arc::new(RwLock::new(HashMap::new())),
+            min_instance: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -121,10 +120,10 @@ impl Pipeline {
             loop {
                 interval.tick().await;
 
-                let us_load_states = us_load_state.lock().await;
-                let us_state = us_state.lock().await;
-                let fib = fib.lock().await;
-                let mut min_instance = min_instance.lock().await;
+                let us_load_states = us_load_state.read().unwrap();
+                let us_state = us_state.read().unwrap();
+                let fib = fib.read().unwrap();
+                let mut min_instance = min_instance.write().unwrap();
 
                 // find all the possible groups over which we want to find the min instance
                 // this works by finding all unique possibilities for connections that have an instance assigned
@@ -143,9 +142,12 @@ impl Pipeline {
                 for g in groups.into_iter() {
                     let instance = fib.iter()
                         .filter(|(ft, _)| ft.reserved == g.reserved && ft.conn_id == g.conn_id && ft.direction == g.direction && ft.backend == g.backend) // filter for all elements in the same group
-                        .filter(|(ft, _)| {
-                            if let Some(state) = us_state.get(ft) {
-                                // TODO: don't select a reserved socket as a min
+                        .filter(|(_, addr)| {
+                            if let Some(state) = us_state.get(&addr) {
+                                !state.reserved
+                            }
+                            else {
+                                true
                             }
                         }) 
                         .min_by_key(|(ft, _)| {
@@ -196,7 +198,7 @@ impl Pipeline {
 
         if is_downstream {
             self.authenticate(&mut ctx).await?;
-            self.update_ds_conn(&mut ctx).await?;
+            self.update_ds_conn(&mut ctx)?;
             self.forward_ds_conn(&mut ctx).await?;
 
             let conn_id_hdr = format!("conn-id: {}\r\n", origin.port());
@@ -233,9 +235,9 @@ impl Pipeline {
         }
     }
 
-    async fn update_ds_conn(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        self.ds_state.lock()
-            .await
+    fn update_ds_conn(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
+        self.ds_state.write()
+            .unwrap()
             .entry(ctx.origin)
             .and_modify(|state| {
                 state.num_reqs += 1;
@@ -262,8 +264,8 @@ impl Pipeline {
             .to_digit(10)
             .unwrap() as u8;
 
-        self.us_load_state.lock()
-            .await
+        self.us_load_state.write()
+            .unwrap()
             .entry((backend, ctx.origin.port()))
             .and_modify(|state| {
                 state.num_reqs += 1;
@@ -274,8 +276,8 @@ impl Pipeline {
                 num_bytes: ctx.hdrs.len() as u32,
             });
 
-        self.us_state.lock()    
-            .await
+        self.us_state.write()    
+            .unwrap()
             .entry(ctx.origin)
             .and_modify(|state| {
                 state.reserved = false
@@ -310,8 +312,8 @@ impl Pipeline {
             instance: ForwardingDimension::DontCare
         };
 
-        self.fib.lock()
-            .await
+        self.fib.write()
+            .unwrap()
             .insert(ft_inv, ctx.origin);
 
         Ok(())
@@ -333,7 +335,7 @@ impl Pipeline {
 
         // check if we have to retrieve the min instance for that group
         let ft = if ctx.ft.instance == ForwardingDimension::Min {
-            let min_instance = self.min_instance.lock().await;
+            let min_instance = self.min_instance.read().unwrap();
             let instance = min_instance.get(&ctx.ft);
             debug!("{:?}", min_instance.keys());
 
@@ -352,7 +354,7 @@ impl Pipeline {
             ctx.ft.clone()
         };
 
-        let fib = self.fib.lock().await;
+        let fib = self.fib.read().unwrap();
         let addr = fib.get(&ft);
 
         if let Some(addr) = addr {
@@ -384,8 +386,8 @@ impl Pipeline {
 
     async fn post_decision_update_us_conn(self: &Arc<Self>, _ctx: &mut Context, dest: &Destination) -> Result<()> {
         if let &Destination::Exisiting(addr) = dest {
-            self.us_state.lock()    
-                .await
+            self.us_state.write()    
+                .unwrap()
                 .entry(addr)
                 .and_modify(|state| {
                     state.reserved = true
@@ -400,8 +402,8 @@ impl Pipeline {
 
     pub async fn add_sock(self: &Arc<Self>, ft: ForwardingToken, addr: SocketAddr) {
         trace!("Add {:?} to FIB", ft);
-        self.fib.lock()
-            .await
+        self.fib.write()
+            .unwrap()
             .insert(ft, addr);
     }
 
