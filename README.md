@@ -24,7 +24,7 @@ This project requires kernel version 6.11.
 Install the following packets:
 
 ```
-sudo apt install autoreconf autpoint binutils-dev llvm
+sudo apt install autoconf autopoint binutils-dev llvm
 ```
 
 Next, install [bpftool](https://github.com/libbpf/bpftool) from source.
