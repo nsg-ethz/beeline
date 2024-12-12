@@ -147,11 +147,11 @@ __bpf_kfunc_start_defs();
 // 			    				  const struct bpf_dynptr *src,
 // 								  const struct bpf_dynptr *dst,
 // 								  const struct bpf_dynptr *siv) {
-// 	return __bpf_crypto_digest(ctx, 
-// 							   (const struct bpf_dynptr_kern *)src, 
-// 							   (const struct bpf_dynptr_kern *)dst, 
+// 	return __bpf_crypto_digest(ctx,
+// 							   (const struct bpf_dynptr_kern *)src,
+// 							   (const struct bpf_dynptr_kern *)dst,
 // 							   (const struct bpf_dynptr_kern *)siv);
-// }   
+// }
 
 
 __bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
@@ -160,7 +160,7 @@ __bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
 								  u8 *dst,
 								  u32 dst__sz)
 {
-	if (!src__sz || !dst__sz) 
+	if (!src__sz || !dst__sz)
 		return -EINVAL;
 
 	if (dst__sz < ctx->siv_len)
@@ -197,7 +197,7 @@ __bpf_kfunc int bpf_base64url_encode(const u8 *src,
 		*cp++ = base64url_table[(ac << (6 - bits)) & 0x3f];
 		bits -= 6;
 	}
-	
+
 	return cp - dst;
 }
 
@@ -292,6 +292,6 @@ module_init(bpf_crypto_shash_init);
 module_exit(bpf_crypto_shash_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Laurin Brandner");            
-MODULE_DESCRIPTION("A module that adds BPF hash functions"); 
-MODULE_VERSION("1.0");                 
+MODULE_AUTHOR("Laurin Brandner");
+MODULE_DESCRIPTION("A module that adds BPF hash functions");
+MODULE_VERSION("1.0");
