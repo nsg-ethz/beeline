@@ -18,7 +18,7 @@ make clean
 echo -e "${COLOR_GREEN}Loading module into kernel ${COLOR_OFF}"
 
 cd ${ROOT}
-sudo rmmod ${MODULE} || true
+(sudo rmmod ${MODULE}) || true
 sudo insmod ${TARGET}
 
 sudo dmesg --since "3 seconds ago"
