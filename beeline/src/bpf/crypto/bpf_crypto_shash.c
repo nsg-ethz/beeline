@@ -28,10 +28,6 @@ struct bpf_crypto_ctx {
 
 void *__bpf_dynptr_slice(const struct bpf_dynptr *p, u32 offset,
 				   void *buffer__opt, u32 buffer__szk);
-int __bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
-			    					const struct bpf_dynptr_kern *src,
-			    					const struct bpf_dynptr_kern *dst,
-			    					const struct bpf_dynptr_kern *siv);
 
 bool __bpf_dynptr_is_rdonly(const struct bpf_dynptr_kern *ptr)
 {
@@ -104,55 +100,44 @@ void *__bpf_dynptr_data_rw(const struct bpf_dynptr_kern *ptr, u32 len)
 	return (void *)__bpf_dynptr_data(ptr, len);
 }
 
-int __bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
-			    		const struct bpf_dynptr_kern *src,
-			    		const struct bpf_dynptr_kern *dst,
-			    		const struct bpf_dynptr_kern *siv) {
-	u32 src_len, dst_len, siv_len;
-	const u8 *psrc;
-	u8 *pdst, *piv;
+// int __bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
+// 			    		const struct bpf_dynptr_kern *src,
+// 			    		const struct bpf_dynptr_kern *dst,
+// 			    		const struct bpf_dynptr_kern *siv) {
+// 	u32 src_len, dst_len, siv_len;
+// 	const u8 *psrc;
+// 	u8 *pdst, *piv;
 
-	if (__bpf_dynptr_is_rdonly(dst))
-		return -EINVAL;
+// 	if (__bpf_dynptr_is_rdonly(dst))
+// 		return -EINVAL;
 
-	siv_len = __bpf_dynptr_size(siv);
-	src_len = __bpf_dynptr_size(src);
-	dst_len = __bpf_dynptr_size(dst);
-	if (!src_len || !dst_len || !siv_len)
-		return -EINVAL;
+// 	siv_len = __bpf_dynptr_size(siv);
+// 	src_len = __bpf_dynptr_size(src);
+// 	dst_len = __bpf_dynptr_size(dst);
+// 	if (!src_len || !dst_len || !siv_len)
+// 		return -EINVAL;
 
-	if (siv_len != ctx->siv_len)
-		return -EINVAL;
+// 	if (siv_len != ctx->siv_len)
+// 		return -EINVAL;
 
-	psrc = __bpf_dynptr_data(src, src_len);
-	if (!psrc)
-		return -EINVAL;
-	pdst = __bpf_dynptr_data_rw(dst, dst_len);
-	if (!pdst)
-		return -EINVAL;
+// 	psrc = __bpf_dynptr_data(src, src_len);
+// 	if (!psrc)
+// 		return -EINVAL;
+// 	pdst = __bpf_dynptr_data_rw(dst, dst_len);
+// 	if (!pdst)
+// 		return -EINVAL;
 
-	piv = __bpf_dynptr_data_rw(siv, siv_len);
-	if (!piv)
-		return -EINVAL;
+// 	piv = __bpf_dynptr_data_rw(siv, siv_len);
+// 	if (!piv)
+// 		return -EINVAL;
 
-	struct shash_desc *desc = (struct shash_desc *)piv;
-	desc->tfm = ctx->tfm;
+// 	struct shash_desc *desc = (struct shash_desc *)piv;
+// 	desc->tfm = ctx->tfm;
 
-	return crypto_shash_digest(desc, psrc, src_len, pdst);
-}
-
-__bpf_kfunc_start_defs();
-
-// __bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
-// 			    				  const struct bpf_dynptr *src,
-// 								  const struct bpf_dynptr *dst,
-// 								  const struct bpf_dynptr *siv) {
-// 	return __bpf_crypto_digest(ctx,
-// 							   (const struct bpf_dynptr_kern *)src,
-// 							   (const struct bpf_dynptr_kern *)dst,
-// 							   (const struct bpf_dynptr_kern *)siv);
+// 	return crypto_shash_digest(desc, psrc, src_len, pdst);
 // }
 
+__bpf_kfunc_start_defs();
 
 __bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
 			    				  const u8 *src,

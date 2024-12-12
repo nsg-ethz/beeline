@@ -119,7 +119,7 @@ struct {
     __type(value, struct opt_frwd_token);
 } sock_wait_list SEC(".maps");
 
-// TODO: These per-cpu maps are only necessary if the respective struct 
+// TODO: These per-cpu maps are only necessary if the respective struct
 // doesn't fit onto the stack
 // TODO: percpu maps might also be necessary for forwarding and auth tokens
 struct {
@@ -201,12 +201,12 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
 
     bpf_log("Rewriting payload (%dB) in range [%d, %d]", msg->size, idx, len);
 
-    // at this point we have to pull the data again to get valid data pointers    
+    // at this point we have to pull the data again to get valid data pointers
     if (bpf_msg_pull_data(msg, idx, idx+str_len, 0) < 0) return -1;
 
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
-    
+
     u32 i;
     bpf_for(i, 0, str_len) {
         if (data + i + 1 > data_end) return -1;
@@ -257,7 +257,7 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     char *data = (char *)(long)msg->data;
     char buf[64]; // a number cannot be larger than 64 bytes
     unsigned long tmp = 0;
-    
+
     struct prange r0 = pranges[0];
     r0.len &= 0xfff;
     bpf_probe_read_kernel(ctx->backend, r0.len, data + r0.idx);
@@ -372,7 +372,7 @@ enum pr_action authorize(struct pipeline_ctx *ctx) {
     }
 
     bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
-    
+
     if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
         bpf_err("ERROR: Failed to digest msg");
         return PR_DROP;
@@ -472,7 +472,7 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
 
     ctx->ft.direction = PR_UPSTREAM;
     ctx->ft.num_bytes_min = true;
-    
+
     return PR_PASS;
 }
 
@@ -531,7 +531,7 @@ static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *ac
         bpf_clamp_uminmax(sa, 0, 0xFFFFFFFF);
         if (sa == 0) {
             *next_state = s_any;
-            *action = 0;   
+            *action = 0;
             return;
         }
     }
@@ -711,7 +711,7 @@ int msg_verdict(struct sk_msg_md *msg) {
             bpf_err("ERROR: Failed to parse message");
             return SK_PASS;
         }
-        
+
         ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
         if (ctx == NULL) {
             bpf_err("ERROR: Failed to init pipeline context");
@@ -722,7 +722,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
 
     struct sock_key *ekey = NULL;
-    if (res == PR_PASS) {    
+    if (res == PR_PASS) {
         res = select_sock(&ikey, ctx, &ekey);
     }
 

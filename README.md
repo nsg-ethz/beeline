@@ -24,8 +24,10 @@ This project requires kernel version 6.11.
 Install the following packets:
 
 ```
-sudo apt install autoconf autopoint binutils-dev bison clang flex libc6-dev-i386 libcap-dev libelf-dev llvm pkg-config
+sudo apt install autoconf autopoint binutils-dev bison clang dwarves flex libc6-dev-i386 libcap-dev libdwarf-dev libdw-dev libelf-dev llvm pkg-config
 ```
+
+Note: depending on your kernel version, you'll have to install [dwarves](https://github.com/acmel/dwarves) from source.
 
 Next, install [bpftool](https://github.com/libbpf/bpftool) from source.
 
