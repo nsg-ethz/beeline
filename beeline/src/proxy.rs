@@ -18,12 +18,11 @@ use std::{
     collections::HashMap,
     io::Cursor,
     mem::MaybeUninit,
-    net::{AddrParseError, Ipv4Addr, SocketAddr, ToSocketAddrs},
+    net::{AddrParseError, SocketAddr, SocketAddrV4, ToSocketAddrs},
     os::{
         fd::{AsFd, AsRawFd, IntoRawFd},
         unix::fs::OpenOptionsExt,
     },
-    str::FromStr,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -202,7 +201,7 @@ impl<'obj> Proxy<'obj> {
             .hosts
             .iter()
             .flat_map(|h| h.instances.clone())
-            .map(|addr| Ipv4Addr::from_str(&addr))
+            .map(|addr| addr.parse::<SocketAddrV4>().map(|a| a.ip().clone()))
             .collect::<Result<Vec<_>, AddrParseError>>()?;
         let binder = SocketBinder::new(12345, dests)?;
 

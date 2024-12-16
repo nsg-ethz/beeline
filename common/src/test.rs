@@ -1,12 +1,16 @@
-use anyhow::{anyhow, Result};
 use crate::{config::Host, Config};
+use anyhow::{anyhow, Result};
+use core::str;
 use hmac::{Hmac, Mac};
 use jwt::SignWithKey;
 use rand::{distributions::Alphanumeric, Rng};
 use sha2::Sha256;
-use core::str;
 use std::{collections::HashMap, vec};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::{self, *}};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    time::{self, *},
+};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_millis(10);
 
@@ -15,12 +19,12 @@ pub fn config() -> Config {
         hosts: vec![
             Host {
                 name: "server1".into(),
-                instances: vec!["127.0.0.1:8001".into()]
+                instances: vec!["127.0.0.1:8001".into()],
             },
             Host {
                 name: "server2".into(),
-                instances: vec!["127.0.0.1:8002".into()]
-            }
+                instances: vec!["127.0.0.1:8002".into()],
+            },
         ],
         ..Config::default()
     }
@@ -28,16 +32,21 @@ pub fn config() -> Config {
 
 fn http_msg_from(hdrs: &HashMap<&str, &str>, payload_len: usize, is_req: bool) -> String {
     let msg = if is_req {
-        format!("POST / HTTP/1.1\r\n\
+        format!(
+            "POST / HTTP/1.1\r\n\
                 Host: 127.0.0.1\r\n\
-                Content-Length: {}\r\n", payload_len)
-    }
-    else {
-        format!("HTTP/1.1 200 OK\r\n\
+                Content-Length: {}\r\n",
+            payload_len
+        )
+    } else {
+        format!(
+            "HTTP/1.1 200 OK\r\n\
                 Host: 127.0.0.1\r\n\
-                Content-Length: {}\r\n", payload_len)
+                Content-Length: {}\r\n",
+            payload_len
+        )
     };
-    let mut msg = String::from(msg); 
+    let mut msg = String::from(msg);
 
     for (k, v) in hdrs {
         msg.push_str(&format!("{}: {}\r\n", k, v));
@@ -63,7 +72,11 @@ fn generate_jwt(secret: &str) -> Result<String> {
     Ok(token)
 }
 
-async fn write_http_msg(client: &mut TcpStream, hdrs: &HashMap<&str, &str>, is_req: bool) -> Result<String> {
+async fn write_http_msg(
+    client: &mut TcpStream,
+    hdrs: &HashMap<&str, &str>,
+    is_req: bool,
+) -> Result<String> {
     let msg = http_msg_from(hdrs, 128, is_req);
     let write = client.write_all(msg.as_bytes());
     timeout(DEFAULT_TIMEOUT, write).await??;
@@ -96,7 +109,11 @@ async fn read(server: &mut TcpStream) -> Result<String> {
     Ok(req_recv)
 }
 
-async fn write_accept_read(client: &mut TcpStream, server: TcpListener, hdrs: &HashMap<&str, &str>) -> Result<(TcpStream, String, String)> {
+async fn write_accept_read(
+    client: &mut TcpStream,
+    server: TcpListener,
+    hdrs: &HashMap<&str, &str>,
+) -> Result<(TcpStream, String, String)> {
     let req_sent = write_http_msg(client, hdrs, true).await?;
     let mut server = try_accept(server).await?;
     let req_recv = read(&mut server).await?;
@@ -111,17 +128,17 @@ fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<String, String>> {
 
     let mut msg_hdr = [httparse::EMPTY_HEADER; 64];
     let mut msg = httparse::Request::new(&mut msg_hdr);
-    
+
     let headers = if msg.parse(buf).is_ok() {
         msg.headers
-    }
-    else {
+    } else {
         let mut msg = httparse::Response::new(&mut msg_hdr);
         msg.parse(buf)?;
         msg.headers
     };
 
-    let hdrs = headers.iter()
+    let hdrs = headers
+        .iter()
         .map(|hdr| {
             let key = hdr.name.to_lowercase();
             let val = String::from_utf8(hdr.value.to_vec()).unwrap();
@@ -134,7 +151,11 @@ fn parse_http_hdrs(buf: &[u8]) -> Result<HashMap<String, String>> {
 
 fn assert_http_hdr_eq(buf: &str, exp_hdrs: &HashMap<String, String>) {
     let hdrs = parse_http_hdrs(buf.as_bytes());
-    assert!(hdrs.is_ok(), "failed to parse headers: {:?}", hdrs.err().unwrap());
+    assert!(
+        hdrs.is_ok(),
+        "failed to parse headers: {:?}",
+        hdrs.err().unwrap()
+    );
 
     for (key, val) in hdrs.unwrap().into_iter() {
         let hdr_val = exp_hdrs.get(&key);
@@ -158,14 +179,14 @@ async fn setup() -> (TcpListener, TcpListener) {
     let server1 = loop {
         match TcpListener::bind(format!("127.0.0.1:{port}")).await {
             Ok(server) => break server,
-            Err(_) => port += 1
+            Err(_) => port += 1,
         }
     };
 
     let server2 = loop {
         match TcpListener::bind(format!("127.0.0.1:{port}")).await {
             Ok(server) => break server,
-            Err(_) => port += 1
+            Err(_) => port += 1,
         }
     };
 
@@ -177,13 +198,10 @@ pub async fn it_drops_invalid_jwt(mut client: TcpStream) {
 
     let token = generate_jwt("invalid_secret").unwrap();
     let token = format!("Bearer {token}");
-    let hdrs = HashMap::from([
-        ("backend", "server1"),
-        ("Authorization", token.as_str())
-    ]);
+    let hdrs = HashMap::from([("backend", "server1"), ("Authorization", token.as_str())]);
 
-    let res = write_http_msg(&mut client, &hdrs, true).await;
-    assert!(res.is_ok());
+    // this will fail for the eBPF version, so we ignore the result
+    let _ = write_http_msg(&mut client, &hdrs, true).await;
 
     let server1_req_recv = try_accept(server1).await;
     assert!(server1_req_recv.is_err());
@@ -197,26 +215,24 @@ pub async fn it_forwards_valid_jwt(mut client: TcpStream) {
 
     let token = generate_jwt("testtest12345678").unwrap();
     let token = format!("Bearer {token}");
-    let req_hdrs = HashMap::from([
-        ("backend", "server1"),
-        ("authorization", token.as_str())
-    ]);
+    let req_hdrs = HashMap::from([("backend", "server1"), ("authorization", token.as_str())]);
 
-    let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &req_hdrs).await.unwrap();
-    let mut hdrs_sent = parse_http_hdrs(req_sent.as_bytes()).unwrap();    
+    let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &req_hdrs)
+        .await
+        .unwrap();
+    let mut hdrs_sent = parse_http_hdrs(req_sent.as_bytes()).unwrap();
     let conn_id = client.local_addr().unwrap().port().to_string();
     hdrs_sent.insert(String::from("conn-id"), conn_id.clone());
     assert_http_hdr_eq(&req_recv, &hdrs_sent);
     assert_http_payload_eq(&req_sent, &req_recv);
 
-    let res_hdrs = HashMap::from([
-        ("signature", "server1"),
-        ("conn-id", conn_id.as_str()),
-    ]);
+    let res_hdrs = HashMap::from([("signature", "server1"), ("conn-id", conn_id.as_str())]);
 
-    let res_sent = write_http_msg(&mut server1, &res_hdrs, false).await.unwrap();
+    let res_sent = write_http_msg(&mut server1, &res_hdrs, false)
+        .await
+        .unwrap();
     let res_recv = read(&mut client).await.unwrap();
-    let hdrs_recv = parse_http_hdrs(res_recv.as_bytes()).unwrap();    
+    let hdrs_recv = parse_http_hdrs(res_recv.as_bytes()).unwrap();
     assert_http_hdr_eq(&res_recv, &hdrs_recv);
     assert_http_payload_eq(&res_sent, &res_recv);
 
