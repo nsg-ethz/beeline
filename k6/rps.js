@@ -4,14 +4,17 @@ const rate = __ENV.RATE || 10000;
 const vus = __ENV.VUS || 3000;
 
 export const options = {
-  scenarios: {
-    rps: {
-      executor: "constant-arrival-rate",
-      duration: "1m",
-      rate: rate,
-      preAllocatedVUs: vus,
-    }
-  }
+    scenarios: {
+        rps: {
+            executor: "constant-arrival-rate",
+            duration: "1m",
+            rate: rate,
+            preAllocatedVUs: vus,
+        },
+    },
+    thresholds: {
+        http_req_failed: [{ threshold: "rate<0.01", abortOnFail: true }],
+    },
 };
 
 export default randomRequest;

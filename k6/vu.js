@@ -3,13 +3,16 @@ import { randomRequest } from "./common.js";
 const vus = __ENV.VUS || 1000;
 
 export const options = {
-  scenarios: {
-    tput: {
-      executor: "constant-vus",
-      duration: "60s",
-      vus: vus,
-    }
-  }
+    scenarios: {
+        tput: {
+            executor: "constant-vus",
+            duration: "60s",
+            vus: vus,
+        },
+    },
+    thresholds: {
+        http_req_failed: [{ threshold: "rate<0.01", abortOnFail: true }],
+    },
 };
 
 export default randomRequest;
