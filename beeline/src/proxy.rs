@@ -18,7 +18,7 @@ use std::{
     collections::HashMap,
     io::Cursor,
     mem::MaybeUninit,
-    net::{AddrParseError, SocketAddr, SocketAddrV4, ToSocketAddrs},
+    net::{SocketAddr, ToSocketAddrs},
     os::{
         fd::{AsFd, AsRawFd, IntoRawFd},
         unix::fs::OpenOptionsExt,
@@ -201,8 +201,12 @@ impl<'obj> Proxy<'obj> {
             .hosts
             .iter()
             .flat_map(|h| h.instances.clone())
-            .map(|addr| addr.parse::<SocketAddrV4>().map(|a| a.ip().clone()))
-            .collect::<Result<Vec<_>, AddrParseError>>()?;
+            .map(|addr| match addr.ip() {
+                std::net::IpAddr::V4(ip) => Ok(ip),
+                _ => Err(anyhow!("Only IPv4 addresses are supported")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         let binder = SocketBinder::new(12345, dests)?;
 
         let maps = HashMap::from([

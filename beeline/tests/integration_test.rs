@@ -5,7 +5,6 @@ use std::{
     net::SocketAddr,
     ops::{Deref, DerefMut},
 };
-use tokio::net::TcpStream;
 
 struct OpenObject {
     inner: MaybeUninit<libbpf_rs::OpenObject>,
