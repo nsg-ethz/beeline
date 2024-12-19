@@ -6,6 +6,8 @@ COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
 IFACE="enp1s0"
+ROOT=$(dirname "$(readlink -f "$0")")
+ECHO_BIN=${ROOT}/../target/release/echo
 
 function create_veth {
   sudo iptables -P FORWARD ACCEPT
@@ -41,14 +43,6 @@ function create_veth {
   echo "127.0.0.1 localhost" | sudo tee /etc/netns/ns5/hosts
 }
 
-function delete_veth {
-  for i in `seq 1 $1`;
-  do
-  	sudo ip link del veth${i} &> /dev/null
-  	sudo ip netns del ns${i} &> /dev/null
-  done
-}
-
 function ping_cycle {
   for i in `seq 1 $1`;
   do
@@ -61,11 +55,18 @@ function ping_cycle {
   done
 }
 
+function pod {
+    local UNIT_NAME="exp-pod${1}-$(basename ${2})-$(uuidgen)"
+    sudo -b -E ip netns exec ns${1} systemd-run -q --scope -u ${UNIT_NAME} --slice pod${1}.slice "${@:2}"
+    echo -e "${COLOR_GREEN}Launched ${UNIT_NAME} in pod${1}.${COLOR_OFF}"
+}
+
+/bin/bash ${ROOT}/clean-env.sh
+
 echo -e "${COLOR_YELLOW}Enabling IPv4 forwarding${COLOR_OFF}"
 sudo sysctl net.ipv4.ip_forward=1
 
 echo -e "${COLOR_YELLOW}Creating namespaces${COLOR_OFF}"
-delete_veth 5
 create_veth 5
 echo -e "${COLOR_GREEN}Namespaces created${COLOR_OFF}"
 
@@ -92,5 +93,29 @@ echo -e "${COLOR_GREEN}Namespaces created${COLOR_OFF}"
 
 echo -e "${COLOR_YELLOW}Let's check if everything is setup correctly${COLOR_OFF}"
 ping_cycle 5
+
+cargo b -r --bin echo
+
+echo -e "${COLOR_YELLOW}Starting services${COLOR_OFF}"
+
+pod 1 ${ECHO_BIN} -a 10.0.1.1:8001 -H "signature: server1" -e "conn-id"
+pod 1 ${ECHO_BIN} -a 10.0.1.1:8002 -H "signature: server1" -e "conn-id"
+pod 1 ${ECHO_BIN} -a 10.0.1.1:8003 -H "signature: server1" -e "conn-id"
+pod 1 ${ECHO_BIN} -a 10.0.1.1:8004 -H "signature: server1" -e "conn-id"
+
+pod 2 ${ECHO_BIN} -a 10.0.2.1:8001 -H "signature: server2" -e "conn-id"
+pod 2 ${ECHO_BIN} -a 10.0.2.1:8002 -H "signature: server2" -e "conn-id"
+pod 2 ${ECHO_BIN} -a 10.0.2.1:8003 -H "signature: server2" -e "conn-id"
+pod 2 ${ECHO_BIN} -a 10.0.2.1:8004 -H "signature: server2" -e "conn-id"
+
+pod 3 ${ECHO_BIN} -a 10.0.3.1:8001 -H "signature: server3" -e "conn-id"
+pod 3 ${ECHO_BIN} -a 10.0.3.1:8002 -H "signature: server3" -e "conn-id"
+pod 3 ${ECHO_BIN} -a 10.0.3.1:8003 -H "signature: server3" -e "conn-id"
+pod 3 ${ECHO_BIN} -a 10.0.3.1:8004 -H "signature: server3" -e "conn-id"
+
+pod 4 ${ECHO_BIN} -a 10.0.4.1:8001 -H "signature: server4" -e "conn-id"
+pod 4 ${ECHO_BIN} -a 10.0.4.1:8002 -H "signature: server4" -e "conn-id"
+pod 4 ${ECHO_BIN} -a 10.0.4.1:8003 -H "signature: server4" -e "conn-id"
+pod 4 ${ECHO_BIN} -a 10.0.4.1:8004 -H "signature: server4" -e "conn-id"
 
 echo -e "${COLOR_GREEN}Done${COLOR_OFF}"

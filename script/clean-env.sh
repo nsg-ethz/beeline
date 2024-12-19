@@ -17,7 +17,10 @@ function delete_veth {
   done
 }
 
+echo -e "${COLOR_YELLOW}Stopping services${COLOR_OFF}"
 stop_experiment
+
+echo -e "${COLOR_YELLOW}Delete virtual network${COLOR_OFF}"
 delete_veth 5
 
 # echo -e "${COLOR_YELLOW}Enable HyperThreading${COLOR_OFF}"
@@ -26,11 +29,11 @@ delete_veth 5
 # echo -e "${COLOR_YELLOW}Disable CPU performance governor${COLOR_OFF}"
 # sudo cpupower frequency-set --governor ondemand
 
-echo -e "${COLOR_YELLOW}Reset CPU shielding${COLOR_OFF}"
-CPU_ALLOWED="0-47"
-sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
-sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
-sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
+# echo -e "${COLOR_YELLOW}Reset CPU shielding${COLOR_OFF}"
+# CPU_ALLOWED="0-47"
+# sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
+# sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
+# sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
 
 # if [ $(nproc) -ne  48 ]; then
 #   echo -e "${COLOR_RED}Failed to reset all CPUs${COLOR_OFF}"
