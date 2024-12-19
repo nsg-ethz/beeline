@@ -3,7 +3,7 @@ use common::Config;
 use hmac::{Hmac, Mac};
 use httparse::Status;
 use jwt::VerifyWithKey;
-use log::trace;
+use log::{debug, trace};
 use rand::{self, seq::SliceRandom};
 use sha2::Sha256;
 use std::{
@@ -170,8 +170,6 @@ impl Pipeline {
         origin: SocketAddr,
         is_downstream: bool,
     ) -> Result<Destination> {
-        trace!("Processing msg from {:?}", origin);
-
         // TODO: this should only parse once to make it a fair comparison
         let mut headers = [httparse::EMPTY_HEADER; 64];
         let (hdrs, len) = if is_downstream {
@@ -204,6 +202,8 @@ impl Pipeline {
             })
             .collect();
 
+        debug!("Processing msg from {:?} headers: {:?}", origin, hdrs);
+
         let mut ctx = Context {
             hdrs,
             origin,
@@ -224,9 +224,7 @@ impl Pipeline {
 
         let dest = self.select_sock(&mut ctx).await?;
 
-        if is_downstream {
-            self.post_decision_update_us_conn(&mut ctx, &dest).await?;
-        }
+        debug!("Selected sock {:?} -> {:?}", origin, dest);
 
         Ok(dest)
     }
@@ -351,13 +349,12 @@ impl Pipeline {
         let addrs = fib.get(&ft);
 
         if let Some(addrs) = addrs {
+            let mut us_state = self.us_state.write().unwrap();
             if ft.direction == ForwardingDimension::Concrete(Direction::Upstream) {
                 let addr = addrs
                     .iter()
                     .find(|addr| {
-                        self.us_state
-                            .read()
-                            .unwrap()
+                        us_state
                             .get(addr)
                             .map(|state| !state.reserved)
                             .unwrap_or(false)
@@ -365,9 +362,13 @@ impl Pipeline {
                     .cloned();
 
                 if let Some(addr) = addr {
+                    // we have to reserve this connection while we hold the lock
+                    us_state.insert(addr, UpstreamState { reserved: true });
+
                     return Ok(Destination::Exisiting(addr));
                 }
             } else {
+                assert!(addrs.len() == 1);
                 return Ok(Destination::Exisiting(addrs[0].clone()));
             }
         }
@@ -390,23 +391,6 @@ impl Pipeline {
         };
 
         Ok(Destination::New(addr.clone(), ft))
-    }
-
-    async fn post_decision_update_us_conn(
-        self: &Arc<Self>,
-        _ctx: &mut Context,
-        dest: &Destination,
-    ) -> Result<()> {
-        if let &Destination::Exisiting(addr) = dest {
-            self.us_state
-                .write()
-                .unwrap()
-                .entry(addr)
-                .and_modify(|state| state.reserved = true)
-                .or_insert(UpstreamState { reserved: true });
-        }
-
-        Ok(())
     }
 
     pub async fn add_sock(self: &Arc<Self>, ft: ForwardingToken, addr: SocketAddr) {

@@ -1,9 +1,19 @@
+use crate::pipeline::{Destination, Pipeline};
 use anyhow::{anyhow, Result};
 use common::Config;
-use crate::pipeline::{Destination, Pipeline};
 use log::{debug, error, info};
-use std::{collections::HashMap, io::Cursor, net::{SocketAddr, ToSocketAddrs}, sync::Arc, time::Duration};
-use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::RwLock};
+use std::{
+    collections::HashMap,
+    io::Cursor,
+    net::{SocketAddr, ToSocketAddrs},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::{
+    io::{self, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    sync::RwLock,
+};
 
 mod pipeline;
 
@@ -27,9 +37,9 @@ unsafe impl Send for Proxy {}
 unsafe impl Sync for Proxy {}
 
 impl Proxy {
-
     pub fn new<A: ToSocketAddrs>(address: A, config: Config) -> Result<Self> {
-        let address = address.to_socket_addrs()?
+        let address = address
+            .to_socket_addrs()?
             .next()
             .expect("Failed to resolve address");
 
@@ -56,11 +66,9 @@ impl Proxy {
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        let (rx, tx) = try_split(downstream)?;     
+        let (rx, tx) = try_split(downstream)?;
 
-        self.sockets.write()
-            .await
-            .insert(downstream_addr, tx);
+        self.sockets.write().await.insert(downstream_addr, tx);
 
         if let Err(e) = Self::start_reading(rx, true, self.pipeline.clone(), self.sockets.clone()) {
             error!("Error handling connection: {:?}", e);
@@ -69,12 +77,17 @@ impl Proxy {
         Ok(())
     }
 
-    fn start_reading(stream: TcpStream, is_downstream: bool, pipeline: Arc<Pipeline>, sockets: SocketHashMap) -> Result<()> {
+    fn start_reading(
+        stream: TcpStream,
+        is_downstream: bool,
+        pipeline: Arc<Pipeline>,
+        sockets: SocketHashMap,
+    ) -> Result<()> {
         tokio::spawn(async move {
             let mut buf = Vec::with_capacity(8192);
             let res: Result<(), _> = loop {
                 match stream.readable().await {
-                    Err(ref e)if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
                     Ok(()) => {}
                 }
@@ -95,8 +108,7 @@ impl Proxy {
                     }
 
                     (hdr_len, req.headers)
-                }
-                else {
+                } else {
                     let mut req = httparse::Response::new(&mut headers);
                     let hdr_len = req.parse(&buf);
                     if let Err(e) = hdr_len {
@@ -106,9 +118,10 @@ impl Proxy {
                     (hdr_len, req.headers)
                 };
 
-                let con_len = hdrs.iter()
+                let con_len = hdrs
+                    .iter()
                     .find(|h| h.name.eq_ignore_ascii_case("content-length"))
-                    .and_then(|h|  std::str::from_utf8(h.value).ok())
+                    .and_then(|h| std::str::from_utf8(h.value).ok())
                     .and_then(|v| v.parse::<usize>().ok())
                     .unwrap_or(0);
 
@@ -125,32 +138,33 @@ impl Proxy {
 
                 let origin = if is_downstream {
                     stream.peer_addr().unwrap()
-                }
-                else {
+                } else {
                     stream.local_addr().unwrap()
                 };
 
                 let mut msg = buf.drain(..req_len).collect();
                 let dest = match pipeline.process(&mut msg, origin, is_downstream).await {
                     Ok(dest) => dest,
-                    Err(e) => break Err(e)
+                    Err(e) => break Err(e),
                 };
 
                 let addr = match dest {
                     Destination::Exisiting(addr) => addr,
                     Destination::New(addr, ft) => {
-                        debug!("Opening upstream connection [{}->{}]", stream.local_addr().unwrap(), addr);
-                        
+                        debug!(
+                            "Opening upstream connection [{}->{}]",
+                            stream.local_addr().unwrap(),
+                            addr
+                        );
+
                         let upstream = match TcpStream::connect(addr).await {
                             Ok(upstream) => upstream,
-                            Err(e) => break Err(anyhow!(e))
+                            Err(e) => break Err(anyhow!(e)),
                         };
                         let addr = upstream.local_addr().unwrap();
                         let (rx, tx) = try_split(upstream).unwrap();
-                        
-                        sockets.write()
-                            .await
-                            .insert(addr, tx);
+
+                        sockets.write().await.insert(addr, tx);
                         pipeline.add_sock(ft, addr).await;
 
                         Self::start_reading(rx, false, pipeline.clone(), sockets.clone()).unwrap();
@@ -159,7 +173,7 @@ impl Proxy {
                     }
                 };
 
-                debug!("Forward msg to {}", addr);
+                debug!("Forward msg {} -> {}", origin, addr);
 
                 let mut sockets_wr = sockets.write().await;
                 let wr_stream = sockets_wr.get_mut(&addr).unwrap();
@@ -169,13 +183,11 @@ impl Proxy {
 
             if let Err(e) = res {
                 error!("Error handling connection: {:?}", e);
-            }
-            else {
+            } else {
                 debug!("Connection closed: {}", stream.peer_addr().unwrap());
             }
         });
 
         Ok(())
     }
-
 }
