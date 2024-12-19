@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, net::SocketAddr};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
@@ -17,5 +17,5 @@ pub struct Patterns {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Host {
     pub name: String,
-    pub instances: Vec<String>,
+    pub instances: Vec<SocketAddr>,
 }

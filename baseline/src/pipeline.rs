@@ -3,11 +3,11 @@ use common::Config;
 use hmac::{Hmac, Mac};
 use httparse::Status;
 use jwt::VerifyWithKey;
-use log::{debug, trace};
+use log::trace;
 use rand::{self, seq::SliceRandom};
 use sha2::Sha256;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     net::SocketAddr,
     sync::{Arc, RwLock},
     time::Duration,
@@ -72,17 +72,15 @@ where
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ForwardingToken {
-    reserved: ForwardingDimension<bool>,
     conn_id: ForwardingDimension<u32>,
     direction: ForwardingDimension<Direction>,
-    backend: ForwardingDimension<u8>,
+    backend: ForwardingDimension<String>,
     instance: ForwardingDimension<u16>,
 }
 
 impl ForwardingToken {
     fn dont_care() -> ForwardingToken {
         ForwardingToken {
-            reserved: ForwardingDimension::DontCare,
             conn_id: ForwardingDimension::DontCare,
             direction: ForwardingDimension::DontCare,
             backend: ForwardingDimension::DontCare,
@@ -95,28 +93,42 @@ pub struct Pipeline {
     config: Arc<Config>,
     ds_state: Arc<RwLock<HashMap<SocketAddr, DownstreamState>>>,
     us_state: Arc<RwLock<HashMap<SocketAddr, UpstreamState>>>,
-    us_load_state: Arc<RwLock<HashMap<(u8, u16), UpstreamLoadState>>>,
-    fib: Arc<RwLock<HashMap<ForwardingToken, SocketAddr>>>,
+    us_load_state: Arc<RwLock<HashMap<(String, u16), UpstreamLoadState>>>,
+    fib: Arc<RwLock<HashMap<ForwardingToken, Vec<SocketAddr>>>>,
     min_instance: Arc<RwLock<HashMap<ForwardingToken, u16>>>,
 }
 
 impl Pipeline {
     pub fn new(config: Config) -> Self {
+        let min_instances = config
+            .hosts
+            .iter()
+            .map(|host| {
+                let ft = ForwardingToken {
+                    conn_id: ForwardingDimension::DontCare,
+                    direction: ForwardingDimension::Concrete(Direction::Upstream),
+                    backend: ForwardingDimension::Concrete(host.name.clone()),
+                    instance: ForwardingDimension::Min,
+                };
+
+                (ft, host.instances[0].port())
+            })
+            .collect();
+
         Pipeline {
             config: Arc::new(config),
             ds_state: Arc::new(RwLock::new(HashMap::new())),
             us_state: Arc::new(RwLock::new(HashMap::new())),
             us_load_state: Arc::new(RwLock::new(HashMap::new())),
             fib: Arc::new(RwLock::new(HashMap::new())),
-            min_instance: Arc::new(RwLock::new(HashMap::new())),
+            min_instance: Arc::new(RwLock::new(min_instances)),
         }
     }
 
     pub fn start_updating_fib(&self, freq: Duration) {
-        let us_state = self.us_state.clone();
         let us_load_state = self.us_load_state.clone();
-        let fib = self.fib.clone();
         let min_instance = self.min_instance.clone();
+        let hosts = self.config.hosts.clone();
 
         task::spawn(async move {
             let mut interval = time::interval(freq);
@@ -125,54 +137,28 @@ impl Pipeline {
                 interval.tick().await;
 
                 let us_load_states = us_load_state.read().unwrap();
-                let us_state = us_state.read().unwrap();
-                let fib = fib.read().unwrap();
                 let mut min_instance = min_instance.write().unwrap();
 
-                // find all the possible groups over which we want to find the min instance
-                // this works by finding all unique possibilities for connections that have an instance assigned
-                let groups = fib
-                    .iter()
-                    .filter(|(ft, _)| ft.instance != ForwardingDimension::DontCare)
-                    .map(|(ft, _)| {
-                        let mut ft = ft.clone();
-                        ft.instance = ForwardingDimension::Min;
-
-                        ft
-                    })
-                    .collect::<HashSet<_>>()
-                    .clone();
-
-                // for each group, find the min instance
-                for g in groups.into_iter() {
-                    let instance = fib
+                // for every host in our config, select the one with the smallest load
+                for host in hosts.iter() {
+                    let instance = host
+                        .instances
                         .iter()
-                        .filter(|(ft, _)| {
-                            ft.reserved == g.reserved
-                                && ft.conn_id == g.conn_id
-                                && ft.direction == g.direction
-                                && ft.backend == g.backend
-                        }) // filter for all elements in the same group
-                        .filter(|(_, addr)| {
-                            if let Some(state) = us_state.get(&addr) {
-                                !state.reserved
-                            } else {
-                                true
-                            }
-                        })
-                        .min_by_key(|(ft, _)| {
-                            let backend = *ft.backend.concrete_val().unwrap();
-                            let instance = *ft.instance.concrete_val().unwrap();
+                        .min_by_key(|addr| {
                             us_load_states
-                                .get(&(backend, instance))
+                                .get(&(host.name.clone(), addr.port()))
                                 .map(|s| s.num_bytes)
                                 .unwrap_or(u32::MAX)
                         })
-                        .map(|(ft, _)| ft.instance.concrete_val().unwrap().clone());
+                        .unwrap_or_else(|| host.instances.choose(&mut rand::thread_rng()).unwrap());
 
-                    if let Some(instance) = instance {
-                        min_instance.insert(g, instance);
-                    }
+                    let ft = ForwardingToken {
+                        conn_id: ForwardingDimension::DontCare,
+                        direction: ForwardingDimension::Concrete(Direction::Upstream),
+                        backend: ForwardingDimension::Concrete(host.name.clone()),
+                        instance: ForwardingDimension::Min,
+                    };
+                    min_instance.insert(ft, instance.port());
                 }
             }
         });
@@ -288,18 +274,10 @@ impl Pipeline {
             bail!("Response without signature: {:?}", ctx.hdrs.keys());
         }
 
-        let backend = backend
-            .unwrap()
-            .chars()
-            .last()
-            .unwrap()
-            .to_digit(10)
-            .unwrap() as u8;
-
         self.us_load_state
             .write()
             .unwrap()
-            .entry((backend, ctx.origin.port()))
+            .entry((backend.unwrap().clone(), ctx.origin.port()))
             .and_modify(|state| {
                 state.num_reqs += 1;
                 state.num_bytes += ctx.hdrs.len() as u32;
@@ -324,28 +302,19 @@ impl Pipeline {
             .hdrs
             .get("backend")
             .ok_or_else(|| anyhow!("No Backend header found"))?;
-        let backend = match backend.as_str() {
-            "server1" => 1,
-            "server2" => 2,
-            "server3" => 3,
-            "server4" => 4,
-            _ => return Err(anyhow!("Invalid backend")),
-        };
 
-        ctx.ft.reserved = ForwardingDimension::Concrete(false);
         ctx.ft.direction = ForwardingDimension::Concrete(Direction::Upstream);
-        ctx.ft.backend = ForwardingDimension::Concrete(backend);
+        ctx.ft.backend = ForwardingDimension::Concrete(backend.clone());
         ctx.ft.instance = ForwardingDimension::Min;
 
         let ft_inv = ForwardingToken {
-            reserved: ForwardingDimension::Concrete(false),
             conn_id: ForwardingDimension::Concrete(ctx.origin.port() as u32),
             direction: ForwardingDimension::Concrete(Direction::Downstream),
             backend: ForwardingDimension::DontCare,
             instance: ForwardingDimension::DontCare,
         };
 
-        self.fib.write().unwrap().insert(ft_inv, ctx.origin);
+        self.fib.write().unwrap().insert(ft_inv, vec![ctx.origin]);
 
         Ok(())
     }
@@ -356,7 +325,6 @@ impl Pipeline {
             .get("conn-id")
             .ok_or_else(|| anyhow!("No conn-id header found"))?
             .parse()?;
-        ctx.ft.reserved = ForwardingDimension::Concrete(false);
         ctx.ft.conn_id = ForwardingDimension::Concrete(conn_id);
         ctx.ft.direction = ForwardingDimension::Concrete(Direction::Downstream);
 
@@ -369,52 +337,59 @@ impl Pipeline {
         // check if we have to retrieve the min instance for that group
         let ft = if ctx.ft.instance == ForwardingDimension::Min {
             let min_instance = self.min_instance.read().unwrap();
-            let instance = min_instance.get(&ctx.ft);
-            debug!("{:?}", min_instance.keys());
+            let instance = min_instance.get(&ctx.ft).unwrap();
 
-            if let Some(instance) = instance {
-                let mut ft = ctx.ft.clone();
-                ft.instance = ForwardingDimension::Concrete(instance.clone());
-                debug!("Min instance is {}", instance);
+            let mut ft = ctx.ft.clone();
+            ft.instance = ForwardingDimension::Concrete(instance.clone());
 
-                ft
-            } else {
-                ctx.ft.clone()
-            }
+            ft
         } else {
             ctx.ft.clone()
         };
 
         let fib = self.fib.read().unwrap();
-        let addr = fib.get(&ft);
+        let addrs = fib.get(&ft);
 
-        if let Some(addr) = addr {
-            Ok(Destination::Exisiting(addr.clone()))
-        } else {
-            if ctx.ft.direction.concrete_val() == Some(&Direction::Downstream) {
-                bail!("No socket found for downstream connection: {:?}", ctx.ft);
+        if let Some(addrs) = addrs {
+            if ft.direction == ForwardingDimension::Concrete(Direction::Upstream) {
+                let addr = addrs
+                    .iter()
+                    .find(|addr| {
+                        self.us_state
+                            .read()
+                            .unwrap()
+                            .get(addr)
+                            .map(|state| !state.reserved)
+                            .unwrap_or(false)
+                    })
+                    .cloned();
+
+                if let Some(addr) = addr {
+                    return Ok(Destination::Exisiting(addr));
+                }
+            } else {
+                return Ok(Destination::Exisiting(addrs[0].clone()));
             }
-
-            let backend = ctx.ft.backend.concrete_val().unwrap();
-            let addr = self.resolve_preconfigured_instance_rand(*backend);
-            if addr.is_none() {
-                bail!(
-                    "Could not resolve preconfigured address for backend {}",
-                    backend
-                );
-            }
-            let addr = addr.unwrap();
-
-            let ft = ForwardingToken {
-                reserved: ForwardingDimension::Concrete(false),
-                conn_id: ForwardingDimension::DontCare,
-                direction: ForwardingDimension::Concrete(Direction::Upstream),
-                backend: ctx.ft.backend.clone(),
-                instance: ForwardingDimension::Concrete(addr.port()),
-            };
-
-            Ok(Destination::New(addr, ft))
         }
+
+        if ctx.ft.direction.concrete_val() == Some(&Direction::Downstream) {
+            bail!("No socket found for downstream connection: {:?}", ctx.ft);
+        }
+
+        let addr = self.resolve_preconfigured_instance(&ft);
+        if addr.is_none() {
+            bail!("Could not resolve preconfigured address for {:?}", ft);
+        }
+        let addr = addr.unwrap();
+
+        let ft = ForwardingToken {
+            conn_id: ForwardingDimension::DontCare,
+            direction: ForwardingDimension::Concrete(Direction::Upstream),
+            backend: ctx.ft.backend.clone(),
+            instance: ForwardingDimension::Concrete(addr.port()),
+        };
+
+        Ok(Destination::New(addr.clone(), ft))
     }
 
     async fn post_decision_update_us_conn(
@@ -436,19 +411,25 @@ impl Pipeline {
 
     pub async fn add_sock(self: &Arc<Self>, ft: ForwardingToken, addr: SocketAddr) {
         trace!("Add {:?} to FIB", ft);
-        self.fib.write().unwrap().insert(ft, addr);
+        self.fib
+            .write()
+            .unwrap()
+            .entry(ft)
+            .or_insert(vec![])
+            .push(addr);
     }
 
-    fn resolve_preconfigured_instance_rand(self: &Arc<Self>, backend: u8) -> Option<SocketAddr> {
-        let name = format!("server{}", backend);
+    fn resolve_preconfigured_instance(
+        self: &Arc<Self>,
+        ft: &ForwardingToken,
+    ) -> Option<&SocketAddr> {
+        let backend = ft.backend.concrete_val()?;
+        let instance = ft.instance.concrete_val()?;
 
-        let addr = self
-            .config
+        self.config
             .hosts
             .iter()
-            .find(|host| host.name == name)
-            .and_then(|host| host.instances.choose(&mut rand::thread_rng()))?;
-
-        addr.parse().ok()
+            .find(|host| host.name == *backend)
+            .and_then(|host| host.instances.iter().find(|addr| addr.port() == *instance))
     }
 }

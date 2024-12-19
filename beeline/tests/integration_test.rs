@@ -2,6 +2,7 @@ use beeline::Proxy;
 use common::test;
 use std::{
     mem::MaybeUninit,
+    net::SocketAddr,
     ops::{Deref, DerefMut},
 };
 use tokio::net::TcpStream;
@@ -34,7 +35,7 @@ impl DerefMut for OpenObject {
 
 unsafe impl Send for OpenObject {}
 
-async fn setup() -> TcpStream {
+async fn setup() -> SocketAddr {
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     tokio::spawn(async move {
@@ -52,25 +53,23 @@ async fn setup() -> TcpStream {
         proxy.listen().await
     });
 
-    let proxy_addr = rx.await.unwrap();
-    let client = loop {
-        match TcpStream::connect(&proxy_addr).await {
-            Ok(client) => break client,
-            Err(_) => continue,
-        }
-    };
-
-    client
+    rx.await.unwrap()
 }
 
 #[tokio::test]
 async fn it_drops_invalid_jwt() {
-    let client = setup().await;
-    test::it_drops_invalid_jwt(client).await;
+    let addr = setup().await;
+    test::it_drops_invalid_jwt(addr).await;
 }
 
 #[tokio::test]
 async fn it_forwards_valid_jwt() {
-    let client = setup().await;
-    test::it_forwards_valid_jwt(client).await;
+    let addr = setup().await;
+    test::it_forwards_valid_jwt(addr).await;
+}
+
+#[tokio::test]
+async fn it_does_not_multiplex_conns() {
+    let addr = setup().await;
+    test::it_does_not_multiplex_conns(addr).await;
 }

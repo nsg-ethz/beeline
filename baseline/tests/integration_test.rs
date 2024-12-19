@@ -1,8 +1,8 @@
 use baseline::Proxy;
-use tokio::net::TcpStream;
 use common::test;
+use std::net::SocketAddr;
 
-async fn setup() -> TcpStream {
+async fn setup() -> SocketAddr {
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     tokio::spawn(async move {
@@ -10,7 +10,7 @@ async fn setup() -> TcpStream {
         let proxy = loop {
             match Proxy::new(format!("127.0.0.1:{port}"), test::config()) {
                 Ok(proxy) => break proxy,
-                Err(_) => port += 1
+                Err(_) => port += 1,
             }
         };
 
@@ -19,25 +19,23 @@ async fn setup() -> TcpStream {
         proxy.listen().await
     });
 
-    let proxy_addr = rx.await.unwrap();
-    let client = loop {
-        match TcpStream::connect(&proxy_addr).await {
-            Ok(client) => break client,
-            Err(_) => continue
-        }
-    };
-
-    client
+    rx.await.unwrap()
 }
 
 #[tokio::test]
 async fn it_drops_invalid_jwt() {
-    let client = setup().await;
-    test::it_drops_invalid_jwt(client).await;
+    let addr = setup().await;
+    test::it_drops_invalid_jwt(addr).await;
 }
 
 #[tokio::test]
 async fn it_forwards_valid_jwt() {
-    let client = setup().await;
-    test::it_forwards_valid_jwt(client).await;
+    let addr = setup().await;
+    test::it_forwards_valid_jwt(addr).await;
+}
+
+#[tokio::test]
+async fn it_does_not_multiplex_conns() {
+    let addr = setup().await;
+    test::it_does_not_multiplex_conns(addr).await;
 }

@@ -5,7 +5,7 @@ use hmac::{Hmac, Mac};
 use jwt::SignWithKey;
 use rand::{distributions::Alphanumeric, Rng};
 use sha2::Sha256;
-use std::{collections::HashMap, vec};
+use std::{collections::HashMap, net::SocketAddr, vec};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -19,11 +19,11 @@ pub fn config() -> Config {
         hosts: vec![
             Host {
                 name: "server1".into(),
-                instances: vec!["127.0.0.1:8001".into()],
+                instances: vec!["127.0.0.1:8001".parse().unwrap()],
             },
             Host {
                 name: "server2".into(),
-                instances: vec!["127.0.0.1:8002".into()],
+                instances: vec!["127.0.0.1:8002".parse().unwrap()],
             },
         ],
         ..Config::default()
@@ -84,7 +84,7 @@ async fn write_http_msg(
     Ok(msg)
 }
 
-async fn try_accept(server: TcpListener) -> Result<TcpStream> {
+async fn try_accept(server: &TcpListener) -> Result<TcpStream> {
     let (server, _) = timeout(DEFAULT_TIMEOUT, server.accept()).await??;
     Ok(server)
 }
@@ -111,7 +111,7 @@ async fn read(server: &mut TcpStream) -> Result<String> {
 
 async fn write_accept_read(
     client: &mut TcpStream,
-    server: TcpListener,
+    server: &TcpListener,
     hdrs: &HashMap<&str, &str>,
 ) -> Result<(TcpStream, String, String)> {
     let req_sent = write_http_msg(client, hdrs, true).await?;
@@ -193,8 +193,9 @@ async fn setup() -> (TcpListener, TcpListener) {
     (server1, server2)
 }
 
-pub async fn it_drops_invalid_jwt(mut client: TcpStream) {
+pub async fn it_drops_invalid_jwt(addr: SocketAddr) {
     let (server1, server2) = setup().await;
+    let mut client = TcpStream::connect(&addr).await.unwrap();
 
     let token = generate_jwt("invalid_secret").unwrap();
     let token = format!("Bearer {token}");
@@ -203,21 +204,22 @@ pub async fn it_drops_invalid_jwt(mut client: TcpStream) {
     // this will fail for the eBPF version, so we ignore the result
     let _ = write_http_msg(&mut client, &hdrs, true).await;
 
-    let server1_req_recv = try_accept(server1).await;
+    let server1_req_recv = try_accept(&server1).await;
     assert!(server1_req_recv.is_err());
 
-    let server2_req_recv = try_accept(server2).await;
+    let server2_req_recv = try_accept(&server2).await;
     assert!(server2_req_recv.is_err());
 }
 
-pub async fn it_forwards_valid_jwt(mut client: TcpStream) {
+pub async fn it_forwards_valid_jwt(addr: SocketAddr) {
     let (server1, server2) = setup().await;
+    let mut client = TcpStream::connect(&addr).await.unwrap();
 
     let token = generate_jwt("testtest12345678").unwrap();
     let token = format!("Bearer {token}");
     let req_hdrs = HashMap::from([("backend", "server1"), ("authorization", token.as_str())]);
 
-    let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, server1, &req_hdrs)
+    let (mut server1, req_sent, req_recv) = write_accept_read(&mut client, &server1, &req_hdrs)
         .await
         .unwrap();
     let mut hdrs_sent = parse_http_hdrs(req_sent.as_bytes()).unwrap();
@@ -244,6 +246,43 @@ pub async fn it_forwards_valid_jwt(mut client: TcpStream) {
     assert_http_hdr_eq(&req_recv, &hdrs_sent);
     assert_http_payload_eq(&req_sent, &req_recv);
 
-    let server2_req_recv = try_accept(server2).await;
+    let server2_req_recv = try_accept(&server2).await;
     assert!(server2_req_recv.is_err());
+}
+
+pub async fn it_does_not_multiplex_conns(addr: SocketAddr) {
+    let (server1, _) = setup().await;
+    let mut client1 = TcpStream::connect(&addr).await.unwrap();
+    let mut client2 = TcpStream::connect(&addr).await.unwrap();
+
+    let token = generate_jwt("testtest12345678").unwrap();
+    let token = format!("Bearer {token}");
+    let req_hdrs = HashMap::from([("backend", "server1"), ("authorization", token.as_str())]);
+
+    let (upstream1, req_sent, req_recv) = write_accept_read(&mut client1, &server1, &req_hdrs)
+        .await
+        .unwrap();
+    let mut hdrs_sent = parse_http_hdrs(req_sent.as_bytes()).unwrap();
+    let conn_id = client1.local_addr().unwrap().port().to_string();
+    hdrs_sent.insert(String::from("conn-id"), conn_id.clone());
+    assert_http_hdr_eq(&req_recv, &hdrs_sent);
+    assert_http_payload_eq(&req_sent, &req_recv);
+
+    let (upstream2, req_sent, req_recv) = write_accept_read(&mut client2, &server1, &req_hdrs)
+        .await
+        .unwrap();
+    let mut hdrs_sent = parse_http_hdrs(req_sent.as_bytes()).unwrap();
+    let conn_id = client2.local_addr().unwrap().port().to_string();
+    hdrs_sent.insert(String::from("conn-id"), conn_id.clone());
+    assert_http_hdr_eq(&req_recv, &hdrs_sent);
+    assert_http_payload_eq(&req_sent, &req_recv);
+
+    // since we haven't responded to the first request, a second connection should get opened
+    assert_ne!(
+        upstream1.peer_addr().unwrap(),
+        upstream2.peer_addr().unwrap()
+    );
+
+    let mut buf = Vec::new();
+    assert!(upstream1.try_read(&mut buf).is_err());
 }

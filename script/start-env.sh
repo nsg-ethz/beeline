@@ -63,8 +63,10 @@ function pod {
 
 /bin/bash ${ROOT}/clean-env.sh
 
-echo -e "${COLOR_YELLOW}Enabling IPv4 forwarding${COLOR_OFF}"
-sudo sysctl net.ipv4.ip_forward=1
+echo -e "${COLOR_YELLOW}Update system settings${COLOR_OFF}"
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo sysctl -w fs.file-max=16384
+sudo sysctl -w fs.inotify.max_user_instances=1024
 
 echo -e "${COLOR_YELLOW}Creating namespaces${COLOR_OFF}"
 create_veth 5
