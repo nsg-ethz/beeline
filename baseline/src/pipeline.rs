@@ -6,8 +6,14 @@ use jwt::VerifyWithKey;
 use log::{debug, trace};
 use rand::{self, seq::SliceRandom};
 use sha2::Sha256;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    time::Duration,
+    u32,
+};
 use tokio::{task, time};
-use std::{collections::{BTreeMap, HashMap, HashSet}, net::SocketAddr, sync::{Arc, RwLock}, time::Duration, u32};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DownstreamState {
@@ -23,7 +29,7 @@ struct UpstreamLoadState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct UpstreamState {
-    reserved: bool
+    reserved: bool,
 }
 
 struct Context {
@@ -49,18 +55,19 @@ pub enum Destination {
 enum ForwardingDimension<T: PartialEq> {
     Concrete(T),
     Min,
-    DontCare
+    DontCare,
 }
 
-impl<T> ForwardingDimension<T> where T: PartialEq {
-
+impl<T> ForwardingDimension<T>
+where
+    T: PartialEq,
+{
     fn concrete_val(&self) -> Option<&T> {
         match &self {
             &ForwardingDimension::Concrete(val) => Some(val),
-            _ => None
+            _ => None,
         }
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -69,21 +76,19 @@ pub struct ForwardingToken {
     conn_id: ForwardingDimension<u32>,
     direction: ForwardingDimension<Direction>,
     backend: ForwardingDimension<u8>,
-    instance: ForwardingDimension<u16>
+    instance: ForwardingDimension<u16>,
 }
 
 impl ForwardingToken {
-
     fn dont_care() -> ForwardingToken {
         ForwardingToken {
             reserved: ForwardingDimension::DontCare,
             conn_id: ForwardingDimension::DontCare,
             direction: ForwardingDimension::DontCare,
             backend: ForwardingDimension::DontCare,
-            instance: ForwardingDimension::DontCare
+            instance: ForwardingDimension::DontCare,
         }
     }
-
 }
 
 pub struct Pipeline {
@@ -96,7 +101,6 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-
     pub fn new(config: Config) -> Self {
         Pipeline {
             config: Arc::new(config),
@@ -116,7 +120,7 @@ impl Pipeline {
 
         task::spawn(async move {
             let mut interval = time::interval(freq);
-    
+
             loop {
                 interval.tick().await;
 
@@ -127,7 +131,8 @@ impl Pipeline {
 
                 // find all the possible groups over which we want to find the min instance
                 // this works by finding all unique possibilities for connections that have an instance assigned
-                let groups = fib.iter()
+                let groups = fib
+                    .iter()
                     .filter(|(ft, _)| ft.instance != ForwardingDimension::DontCare)
                     .map(|(ft, _)| {
                         let mut ft = ft.clone();
@@ -140,31 +145,45 @@ impl Pipeline {
 
                 // for each group, find the min instance
                 for g in groups.into_iter() {
-                    let instance = fib.iter()
-                        .filter(|(ft, _)| ft.reserved == g.reserved && ft.conn_id == g.conn_id && ft.direction == g.direction && ft.backend == g.backend) // filter for all elements in the same group
+                    let instance = fib
+                        .iter()
+                        .filter(|(ft, _)| {
+                            ft.reserved == g.reserved
+                                && ft.conn_id == g.conn_id
+                                && ft.direction == g.direction
+                                && ft.backend == g.backend
+                        }) // filter for all elements in the same group
                         .filter(|(_, addr)| {
                             if let Some(state) = us_state.get(&addr) {
                                 !state.reserved
-                            }
-                            else {
+                            } else {
                                 true
                             }
-                        }) 
+                        })
                         .min_by_key(|(ft, _)| {
                             let backend = *ft.backend.concrete_val().unwrap();
                             let instance = *ft.instance.concrete_val().unwrap();
-                            us_load_states.get(&(backend, instance)).map(|s| s.num_bytes).unwrap_or(u32::MAX)
+                            us_load_states
+                                .get(&(backend, instance))
+                                .map(|s| s.num_bytes)
+                                .unwrap_or(u32::MAX)
                         })
-                        .map(|(ft, _)| ft.instance.concrete_val().unwrap().clone())
-                        .unwrap();
+                        .map(|(ft, _)| ft.instance.concrete_val().unwrap().clone());
 
-                    min_instance.insert(g, instance);
+                    if let Some(instance) = instance {
+                        min_instance.insert(g, instance);
+                    }
                 }
             }
         });
     }
 
-    pub async fn process(self: &Arc<Self>, buf: &mut Vec<u8>, origin: SocketAddr, is_downstream: bool) -> Result<Destination> {
+    pub async fn process(
+        self: &Arc<Self>,
+        buf: &mut Vec<u8>,
+        origin: SocketAddr,
+        is_downstream: bool,
+    ) -> Result<Destination> {
         trace!("Processing msg from {:?}", origin);
 
         // TODO: this should only parse once to make it a fair comparison
@@ -178,8 +197,7 @@ impl Pipeline {
             };
 
             (req.headers, hdr_len)
-        } 
-        else {
+        } else {
             let mut res = httparse::Response::new(&mut headers);
             let hdr_len = match res.parse(&buf) {
                 Ok(Status::Complete(len)) => len,
@@ -190,11 +208,21 @@ impl Pipeline {
             (res.headers, hdr_len)
         };
 
-        let hdrs = hdrs.iter()
-            .map(|hdr| (hdr.name.to_string().to_lowercase(), String::from_utf8(hdr.value.to_vec()).unwrap()))
+        let hdrs = hdrs
+            .iter()
+            .map(|hdr| {
+                (
+                    hdr.name.to_string().to_lowercase(),
+                    String::from_utf8(hdr.value.to_vec()).unwrap(),
+                )
+            })
             .collect();
 
-        let mut ctx = Context { hdrs, origin, ft: ForwardingToken::dont_care() };
+        let mut ctx = Context {
+            hdrs,
+            origin,
+            ft: ForwardingToken::dont_care(),
+        };
 
         if is_downstream {
             self.authenticate(&mut ctx).await?;
@@ -202,9 +230,8 @@ impl Pipeline {
             self.forward_ds_conn(&mut ctx).await?;
 
             let conn_id_hdr = format!("conn-id: {}\r\n", origin.port());
-            buf.splice(len-2..len-2, conn_id_hdr.bytes());
-        } 
-        else {
+            buf.splice(len - 2..len - 2, conn_id_hdr.bytes());
+        } else {
             self.update_us_conn(&mut ctx).await?;
             self.forward_us_conn(&mut ctx).await?;
         }
@@ -219,9 +246,12 @@ impl Pipeline {
     }
 
     async fn authenticate(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        let token = ctx.hdrs.get("authorization")
+        let token = ctx
+            .hdrs
+            .get("authorization")
             .ok_or_else(|| anyhow!("No Authorization header found"))?;
-        let token = token.strip_prefix("Bearer")
+        let token = token
+            .strip_prefix("Bearer")
             .expect("Invalid auth token")
             .split("\r\n")
             .next()
@@ -231,12 +261,13 @@ impl Pipeline {
         let key: Hmac<Sha256> = Hmac::new_from_slice(b"testtest12345678")?;
         match token.verify_with_key(&key) {
             Ok::<BTreeMap<String, String>, _>(_) => Ok(()),
-            Err(_) => Err(anyhow!("Invalid token: {token}"))
+            Err(_) => Err(anyhow!("Invalid token: {token}")),
         }
     }
 
     fn update_ds_conn(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        self.ds_state.write()
+        self.ds_state
+            .write()
             .unwrap()
             .entry(ctx.origin)
             .and_modify(|state| {
@@ -257,14 +288,16 @@ impl Pipeline {
             bail!("Response without signature: {:?}", ctx.hdrs.keys());
         }
 
-        let backend = backend.unwrap()
+        let backend = backend
+            .unwrap()
             .chars()
             .last()
             .unwrap()
             .to_digit(10)
             .unwrap() as u8;
 
-        self.us_load_state.write()
+        self.us_load_state
+            .write()
             .unwrap()
             .entry((backend, ctx.origin.port()))
             .and_modify(|state| {
@@ -276,27 +309,27 @@ impl Pipeline {
                 num_bytes: ctx.hdrs.len() as u32,
             });
 
-        self.us_state.write()    
+        self.us_state
+            .write()
             .unwrap()
             .entry(ctx.origin)
-            .and_modify(|state| {
-                state.reserved = false
-            })
-            .or_insert(UpstreamState {
-                reserved: false
-            });
+            .and_modify(|state| state.reserved = false)
+            .or_insert(UpstreamState { reserved: false });
 
         Ok(())
     }
 
     async fn forward_ds_conn(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        let backend = ctx.hdrs.get("backend").ok_or_else(|| anyhow!("No Backend header found"))?;
+        let backend = ctx
+            .hdrs
+            .get("backend")
+            .ok_or_else(|| anyhow!("No Backend header found"))?;
         let backend = match backend.as_str() {
             "server1" => 1,
             "server2" => 2,
             "server3" => 3,
             "server4" => 4,
-            _ => return Err(anyhow!("Invalid backend"))
+            _ => return Err(anyhow!("Invalid backend")),
         };
 
         ctx.ft.reserved = ForwardingDimension::Concrete(false);
@@ -309,18 +342,18 @@ impl Pipeline {
             conn_id: ForwardingDimension::Concrete(ctx.origin.port() as u32),
             direction: ForwardingDimension::Concrete(Direction::Downstream),
             backend: ForwardingDimension::DontCare,
-            instance: ForwardingDimension::DontCare
+            instance: ForwardingDimension::DontCare,
         };
 
-        self.fib.write()
-            .unwrap()
-            .insert(ft_inv, ctx.origin);
+        self.fib.write().unwrap().insert(ft_inv, ctx.origin);
 
         Ok(())
     }
 
     async fn forward_us_conn(self: &Arc<Self>, ctx: &mut Context) -> Result<()> {
-        let conn_id = ctx.hdrs.get("conn-id")
+        let conn_id = ctx
+            .hdrs
+            .get("conn-id")
             .ok_or_else(|| anyhow!("No conn-id header found"))?
             .parse()?;
         ctx.ft.reserved = ForwardingDimension::Concrete(false);
@@ -345,12 +378,10 @@ impl Pipeline {
                 debug!("Min instance is {}", instance);
 
                 ft
-            }
-            else {
+            } else {
                 ctx.ft.clone()
             }
-        }
-        else {
+        } else {
             ctx.ft.clone()
         };
 
@@ -359,8 +390,7 @@ impl Pipeline {
 
         if let Some(addr) = addr {
             Ok(Destination::Exisiting(addr.clone()))
-        } 
-        else {
+        } else {
             if ctx.ft.direction.concrete_val() == Some(&Direction::Downstream) {
                 bail!("No socket found for downstream connection: {:?}", ctx.ft);
             }
@@ -368,7 +398,10 @@ impl Pipeline {
             let backend = ctx.ft.backend.concrete_val().unwrap();
             let addr = self.resolve_preconfigured_instance_rand(*backend);
             if addr.is_none() {
-                bail!("Could not resolve preconfigured address for backend {}", backend);
+                bail!(
+                    "Could not resolve preconfigured address for backend {}",
+                    backend
+                );
             }
             let addr = addr.unwrap();
 
@@ -377,24 +410,25 @@ impl Pipeline {
                 conn_id: ForwardingDimension::DontCare,
                 direction: ForwardingDimension::Concrete(Direction::Upstream),
                 backend: ctx.ft.backend.clone(),
-                instance: ForwardingDimension::Concrete(addr.port())
+                instance: ForwardingDimension::Concrete(addr.port()),
             };
 
             Ok(Destination::New(addr, ft))
         }
     }
 
-    async fn post_decision_update_us_conn(self: &Arc<Self>, _ctx: &mut Context, dest: &Destination) -> Result<()> {
+    async fn post_decision_update_us_conn(
+        self: &Arc<Self>,
+        _ctx: &mut Context,
+        dest: &Destination,
+    ) -> Result<()> {
         if let &Destination::Exisiting(addr) = dest {
-            self.us_state.write()    
+            self.us_state
+                .write()
                 .unwrap()
                 .entry(addr)
-                .and_modify(|state| {
-                    state.reserved = true
-                })
-                .or_insert(UpstreamState {
-                    reserved: true
-                });
+                .and_modify(|state| state.reserved = true)
+                .or_insert(UpstreamState { reserved: true });
         }
 
         Ok(())
@@ -402,21 +436,19 @@ impl Pipeline {
 
     pub async fn add_sock(self: &Arc<Self>, ft: ForwardingToken, addr: SocketAddr) {
         trace!("Add {:?} to FIB", ft);
-        self.fib.write()
-            .unwrap()
-            .insert(ft, addr);
+        self.fib.write().unwrap().insert(ft, addr);
     }
 
     fn resolve_preconfigured_instance_rand(self: &Arc<Self>, backend: u8) -> Option<SocketAddr> {
         let name = format!("server{}", backend);
 
-        let addr = self.config.hosts.iter()
+        let addr = self
+            .config
+            .hosts
+            .iter()
             .find(|host| host.name == name)
-            .and_then(|host| {
-                host.instances.choose(&mut rand::thread_rng())
-            })?;
+            .and_then(|host| host.instances.choose(&mut rand::thread_rng()))?;
 
         addr.parse().ok()
     }
-
 }
