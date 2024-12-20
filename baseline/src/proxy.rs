@@ -1,7 +1,7 @@
 use crate::pipeline::{Destination, Pipeline};
 use anyhow::{anyhow, Result};
 use common::Config;
-use log::{debug, error, info};
+use log::{debug, error, info, trace, warn};
 use std::{
     collections::HashMap,
     io::Cursor,
@@ -17,7 +17,7 @@ use tokio::{
 
 mod pipeline;
 
-type SocketHashMap = Arc<RwLock<HashMap<SocketAddr, TcpStream>>>;
+type SocketHashMap = Arc<RwLock<HashMap<SocketAddr, RwLock<TcpStream>>>>;
 
 fn try_split(stream: TcpStream) -> Result<(TcpStream, TcpStream)> {
     let rx = stream.into_std()?;
@@ -68,7 +68,10 @@ impl Proxy {
 
         let (rx, tx) = try_split(downstream)?;
 
-        self.sockets.write().await.insert(downstream_addr, tx);
+        self.sockets
+            .write()
+            .await
+            .insert(downstream_addr, RwLock::new(tx));
 
         if let Err(e) = Self::start_reading(rx, true, self.pipeline.clone(), self.sockets.clone()) {
             error!("Error handling connection: {:?}", e);
@@ -164,7 +167,7 @@ impl Proxy {
                         let addr = upstream.local_addr().unwrap();
                         let (rx, tx) = try_split(upstream).unwrap();
 
-                        sockets.write().await.insert(addr, tx);
+                        sockets.write().await.insert(addr, RwLock::new(tx));
                         pipeline.add_sock(ft, addr).await;
 
                         Self::start_reading(rx, false, pipeline.clone(), sockets.clone()).unwrap();
@@ -173,12 +176,19 @@ impl Proxy {
                     }
                 };
 
-                debug!("Forward msg {} -> {}", origin, addr);
+                trace!("Forward msg {} -> {}", origin, addr);
+                let start = std::time::Instant::now();
 
-                let mut sockets_wr = sockets.write().await;
-                let wr_stream = sockets_wr.get_mut(&addr).unwrap();
+                let sockets_rd = sockets.read().await;
+                let mut wr_stream = sockets_rd.get(&addr).unwrap().write().await;
                 let mut req_buf = Cursor::new(&msg);
                 wr_stream.write_all_buf(&mut req_buf).await.unwrap();
+
+                let end = std::time::Instant::now();
+                let delta = end.duration_since(start);
+                if delta.as_millis() > 500 {
+                    warn!("Forwarding took {}µs", delta.as_micros());
+                };
             };
 
             if let Err(e) = res {

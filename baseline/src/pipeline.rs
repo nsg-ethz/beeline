@@ -3,7 +3,7 @@ use common::Config;
 use hmac::{Hmac, Mac};
 use httparse::Status;
 use jwt::VerifyWithKey;
-use log::{debug, trace};
+use log::trace;
 use rand::{self, seq::SliceRandom};
 use sha2::Sha256;
 use std::{
@@ -202,7 +202,7 @@ impl Pipeline {
             })
             .collect();
 
-        debug!("Processing msg from {:?} headers: {:?}", origin, hdrs);
+        trace!("Processing msg from {:?} headers: {:?}", origin, hdrs);
 
         let mut ctx = Context {
             hdrs,
@@ -224,7 +224,7 @@ impl Pipeline {
 
         let dest = self.select_sock(&mut ctx).await?;
 
-        debug!("Selected sock {:?} -> {:?}", origin, dest);
+        trace!("Selected sock {:?} -> {:?}", origin, dest);
 
         Ok(dest)
     }
@@ -330,8 +330,6 @@ impl Pipeline {
     }
 
     async fn select_sock(self: &Arc<Self>, ctx: &mut Context) -> Result<Destination> {
-        trace!("Selecting sock for {:?}", ctx.ft);
-
         // check if we have to retrieve the min instance for that group
         let ft = if ctx.ft.instance == ForwardingDimension::Min {
             let min_instance = self.min_instance.read().unwrap();
