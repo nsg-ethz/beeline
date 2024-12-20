@@ -65,8 +65,7 @@ function pod {
 
 echo -e "${COLOR_YELLOW}Update system settings${COLOR_OFF}"
 sudo sysctl -w net.ipv4.ip_forward=1
-sudo sysctl -w fs.file-max=16384
-sudo sysctl -w fs.inotify.max_user_instances=1024
+sudo sysctl -w fs.file-max=1000000
 
 echo -e "${COLOR_YELLOW}Creating namespaces${COLOR_OFF}"
 create_veth 5
