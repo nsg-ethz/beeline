@@ -11,7 +11,6 @@ use std::{
     io::Cursor,
     net::{SocketAddr, ToSocketAddrs},
     os::fd::AsRawFd,
-    sync::Arc,
     time::Duration,
 };
 use tokio::{
@@ -54,17 +53,15 @@ impl Proxy {
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        let pipeline = Pipeline::new(self.config.clone());
-        pipeline.start_updating_fib(Duration::from_millis(10));
-
-        if let Err(e) = Self::start_reading(downstream, Arc::new(pipeline)) {
+        let pipeline = Pipeline::new(self.config.clone(), Duration::from_millis(10));
+        if let Err(e) = Self::start_reading(downstream, pipeline) {
             error!("Error handling connection: {:?}", e);
         }
 
         Ok(())
     }
 
-    fn start_reading(stream: TcpStream, pipeline: Arc<Pipeline>) -> Result<()> {
+    fn start_reading(stream: TcpStream, mut pipeline: Pipeline) -> Result<()> {
         let stream_addr = stream.peer_addr()?;
         let stream_fd = stream.as_raw_fd();
         let (rx, tx) = stream.into_split();
@@ -144,7 +141,7 @@ impl Proxy {
                 };
 
                 let mut msg = buf.drain(..req_len).collect();
-                let dest = match pipeline.process(&mut msg, origin, is_downstream).await {
+                let dest = match pipeline.process(&mut msg, origin, is_downstream) {
                     Ok(dest) => dest,
                     Err(e) => break Err(e),
                 };
@@ -164,7 +161,7 @@ impl Proxy {
 
                         rxs.push_back(rx);
                         txs.insert(addr, tx);
-                        pipeline.add_sock(ft, addr).await;
+                        pipeline.add_sock(ft, addr);
 
                         addr
                     }
