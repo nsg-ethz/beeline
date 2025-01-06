@@ -61,7 +61,6 @@ static __always_inline struct cctx_val *cctx_val_lookup(void) {
 	return bpf_map_lookup_elem(&cctx_map, &key);
 }
 
-
 static __always_inline int crypto_ctx_insert(struct bpf_crypto_ctx *ctx) {
     struct cctx_val local, *v;
     struct bpf_crypto_ctx *old;
@@ -168,6 +167,26 @@ struct frwd_token {
     u8 num_bytes_min;
 };
 
+struct fib_pqueue {
+    __uint(type, BPF_MAP_TYPE_QUEUE);
+    __uint(max_entries, 16384);
+    __type(value, struct sock_key);
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH_OF_MAPS);
+    __uint(max_entries, 2048);
+    __type(key, struct frwd_token);
+	__array(values, struct fib_pqueue);
+} fib SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct frwd_token);
+    __type(value, struct sock_key);
+} fib_direct SEC(".maps");
+
 // ----------------------------------------------
 // plugin helpers
 
@@ -214,6 +233,18 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     }
 
     return 0;
+}
+
+static __always_inline int _fib_insert(const struct frwd_token *ft, const struct sock_key *key, bool bijective) {
+    if (bijective) {
+        return bpf_map_update_elem(&fib_direct, ft, key, BPF_ANY);
+    }
+    else {
+        struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
+        if (pqueue == NULL) return -1;
+
+        return bpf_map_push_elem(pqueue, key, BPF_ANY);
+    }
 }
 
 // ----------------------------------------------
@@ -309,8 +340,6 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
 struct ds_conn_state {
     u32 num_bytes;
     u32 num_reqs;
-    u64 last_req_ts;
-    u64 this_req_ts;
 };
 
 struct us_conn_state {
@@ -344,13 +373,6 @@ struct {
     __type(key, struct addr_key);
     __type(value, struct us_conn_state);
 } us_conns SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
-    __type(key, struct frwd_token);
-    __type(value, struct sock_key);
-} frwd_map SEC(".maps");
 
 enum pr_action authorize(struct pipeline_ctx *ctx) {
     if (!ctx) return PR_DROP;
@@ -408,16 +430,12 @@ enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx 
         struct ds_conn_state ns = (struct ds_conn_state) {
             .num_bytes = ctx->content_length,
             .num_reqs = 1,
-            .last_req_ts = 0,
-            .this_req_ts = bpf_ktime_get_ns()
         };
         bpf_map_update_elem(&ds_conns, dkey, &ns, BPF_ANY);
     }
     else {
         s->num_bytes += ctx->content_length;
         s->num_reqs++;
-        s->last_req_ts = s->this_req_ts;
-        s->this_req_ts = bpf_ktime_get_ns();
     }
 
     return PR_PASS;
@@ -445,12 +463,6 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     if (dkey == NULL || ctx == NULL) {
         return PR_DROP;
     }
-
-    // rate limit connection if it's sent a request less than 1ms ago
-    // u64 req_interval = state->this_req_ts - state->last_req_ts;
-    // if (req_interval < 10000000) {
-    //     return SK_DROP;
-    // }
 
     const char *server1 = "server1";
     bool backend_is_server1 = bpf_strncmp(ctx->backend, 7, server1) == 0;
@@ -483,12 +495,20 @@ enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx 
     return PR_PASS;
 }
 
-enum pr_action select_sock(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key **ekey) {
-    *ekey = bpf_map_lookup_elem(&frwd_map, &ctx->ft);
-    if (*ekey == NULL) {
-        bpf_log("No socket found for {%d, %d, %d, %d}", ctx->ft.conn_id, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
-        return PR_UTRN;
+enum pr_action select_sock(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key *ekey) {
+    struct sock_key *res_ptr;
+    res_ptr = bpf_map_lookup_elem(&fib_direct, &ctx->ft);
+    if (res_ptr != NULL) {
+        *ekey = *res_ptr;
+        return PR_PASS;
     }
+
+    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, &ctx->ft);
+    if (pqueue == NULL) return PR_UTRN;
+
+    struct sock_key res;
+    if (bpf_map_pop_elem(pqueue, &res) < 0) return PR_UTRN;
+    *ekey = res;
 
     return PR_PASS;
 }
@@ -509,7 +529,7 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
     ft_inv.direction = PR_DOWNSTREAM;
     ft_inv.conn_id = dkey->local.port;
 
-    if (bpf_map_update_elem(&frwd_map, &ft_inv, dkey, BPF_ANY) < 0) {
+    if (_fib_insert(&ft_inv, dkey, true) < 0) {
         bpf_err("ERROR: Failed to set downstream forwarding token");
     }
     else {
@@ -721,7 +741,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         res = _pipeline(msg, ctx, &ikey);
     }
 
-    struct sock_key *ekey = NULL;
+    struct sock_key ekey = { 0 };
     if (res == PR_PASS) {
         res = select_sock(&ikey, ctx, &ekey);
     }
@@ -741,15 +761,13 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (ekey != NULL) {
-        if (bpf_msg_redirect_hash(msg, &sock_map, ekey, BPF_F_INGRESS) == SK_PASS) {
-            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to socket [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey->local.ip4, ekey->local.port, &ekey->remote.ip4, ekey->remote.port);
-            return SK_PASS;
-        }
-        else {
-            bpf_err("ERROR: Failed to redirect msg");
-            return SK_DROP;
-        }
+    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_PASS) {
+        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+        return SK_PASS;
+    }
+    else {
+        bpf_log("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+        return SK_DROP;
     }
 
     return SK_PASS;
@@ -780,7 +798,7 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 
             // add the socket before the forwarding token to avoid a race condition
             if (ft->is_some) {
-                if (bpf_map_update_elem(&frwd_map, &ft->inner, &skey, BPF_ANY) < 0) {
+                if (_fib_insert(&ft->inner, &skey, false) < 0) {
                     bpf_err("ERROR: Failed to set forwarding token");
                 }
                 else {

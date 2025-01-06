@@ -9,10 +9,10 @@ use common::Config;
 use libbpf_rs::{
     set_print,
     skel::{OpenSkel, SkelBuilder},
-    Link, MapCore, MapFlags, MapHandle, PrintLevel,
+    Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
 use log::{debug, error, info, log_enabled, warn};
-use ma::{NewUpstream, Pipeline, Timer, Uturn};
+use ma::{NewUpstream, Pipeline, Timer};
 use pipeline::DebugPipeline;
 use std::{
     collections::HashMap,
@@ -90,6 +90,40 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(
     Ok(())
 }
 
+fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
+    let opts = libbpf_sys::bpf_map_create_opts {
+        sz: size_of::<libbpf_sys::bpf_map_create_opts>() as libbpf_sys::size_t,
+        map_flags: libbpf_sys::BPF_ANY,
+        // bpf_map_create_opts might have padding fields on some platform
+        ..Default::default()
+    };
+
+    let pqueue = MapHandle::create(
+        MapType::Queue,
+        Some("fib_pqueue"),
+        0,
+        size_of::<sock_key>() as u32,
+        2048,
+        &opts,
+    )?;
+
+    let key = unsafe { ft.as_bytes() };
+
+    let val = pqueue.as_fd();
+    let val = unsafe { val.as_bytes() };
+
+    match map.update(key, &val, MapFlags::NO_EXIST) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if e.kind() == libbpf_rs::ErrorKind::AlreadyExists {
+                Ok(())
+            } else {
+                bail!(e)
+            }
+        }
+    }
+}
+
 fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(
     map: &M,
     local_addr: &A,
@@ -137,7 +171,6 @@ pub struct Proxy<'obj> {
     upstreams: Arc<Mutex<Vec<TcpStream>>>,
 
     timers: Arc<Vec<Mutex<Box<dyn Timer>>>>,
-    uturns: Arc<Vec<Mutex<Box<dyn Uturn>>>>,
     new_upstream: Arc<Mutex<Box<dyn NewUpstream>>>,
 }
 
@@ -211,7 +244,7 @@ impl<'obj> Proxy<'obj> {
 
         let maps = HashMap::from([
             ("us_conn_map", skel.maps.us_conns.info()?.info.id),
-            ("frwd_map", skel.maps.frwd_map.info()?.info.id),
+            ("fib", skel.maps.fib.info()?.info.id),
         ]);
         let maps = maps
             .iter()
@@ -221,12 +254,6 @@ impl<'obj> Proxy<'obj> {
         let mut pipeline = DebugPipeline::new(maps)?;
         let timers = pipeline
             .create_timers()?
-            .into_iter()
-            .map(|t| Mutex::new(t))
-            .collect();
-
-        let uturns = pipeline
-            .create_uturns()?
             .into_iter()
             .map(|t| Mutex::new(t))
             .collect();
@@ -255,7 +282,6 @@ impl<'obj> Proxy<'obj> {
             binder: Arc::new(binder),
             upstreams: Arc::new(Mutex::new(Vec::new())),
             timers: Arc::new(timers),
-            uturns: Arc::new(uturns),
             new_upstream: Arc::new(new_upstream),
         })
     }
@@ -290,10 +316,10 @@ impl<'obj> Proxy<'obj> {
         let addr = self.address.clone();
         let sock_wait_list = self.get_sock_wait_list()?;
         let utrn_wait_list = self.get_utrn_wait_list()?;
+        let fib = self.get_fib()?;
         let binder = self.binder.clone();
         let upstreams = self.upstreams.clone();
         let timers = self.timers.clone();
-        let uturns = self.uturns.clone();
         let new_upstream = self.new_upstream.clone();
 
         tokio::spawn(async move {
@@ -355,14 +381,6 @@ impl<'obj> Proxy<'obj> {
                 }
                 let ctx = ctx.unwrap();
 
-                for uturn in uturns.iter() {
-                    let act = uturn.lock().unwrap().handle_uturn(&ctx).unwrap();
-                    if matches!(act, ma::Action::Drop) {
-                        debug!("Uturn dropped request");
-                        continue 'read_downstream;
-                    }
-                }
-
                 // check if there is a forwarding token in the waiting list
                 let ft = ctx.ft;
                 let us_remote_addr = new_upstream
@@ -394,6 +412,8 @@ impl<'obj> Proxy<'obj> {
                     );
                     break Err(e);
                 }
+
+                add_pqueue_to_fib(&fib, ft).unwrap();
                 add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY)
                     .unwrap();
 
@@ -429,23 +449,23 @@ impl<'obj> Proxy<'obj> {
 
     fn trigger_timers(&self) -> Result<()> {
         // TODO: timers can have their own frequency
-        let timers = self.timers.clone();
-        let update_freq = Duration::from_micros(500);
+        // let timers = self.timers.clone();
+        // let update_freq = Duration::from_micros(500);
 
-        task::spawn(async move {
-            let mut interval = time::interval(update_freq);
+        // task::spawn(async move {
+        //     let mut interval = time::interval(update_freq);
 
-            loop {
-                interval.tick().await;
+        //     loop {
+        //         interval.tick().await;
 
-                let res = timers[0].lock().unwrap().trigger();
+        //         let res = timers[0].lock().unwrap().trigger();
 
-                // TODO: report error with name of timer
-                if let Err(e) = res {
-                    error!("An error occured in timer {}: {:?}", "UpdateForwardMap", e);
-                }
-            }
-        });
+        //         // TODO: report error with name of timer
+        //         if let Err(e) = res {
+        //             error!("An error occured in timer {}: {:?}", "UpdateForwardMap", e);
+        //         }
+        //     }
+        // });
 
         Ok(())
     }
@@ -457,6 +477,11 @@ impl<'obj> Proxy<'obj> {
 
     fn get_utrn_wait_list(&self) -> Result<MapHandle> {
         let id = self.skel.maps.utrn_wait_list.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_fib(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.fib.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 }
