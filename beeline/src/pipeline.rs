@@ -90,54 +90,35 @@ impl Timer for UpdateForwardMap {
                 states.insert(k, v);
             });
 
-        let mut keys = Vec::new();
-        let mut vals = Vec::new();
-        for (ft, ft_socks) in self.upstreams.iter() {
-            let mut min_bytes = u32::max_value();
-            let mut min_bytes_key = None;
+        let mut pqueues = Vec::new();
+        self.fib
+            .lookup_batch(50, MapFlags::ANY, MapFlags::ANY)?
+            .for_each(|(_, v)| {
+                let v = align_val_to::<u32>(v.as_slice()).unwrap();
+                pqueues.push(v);
+            });
 
-            for sock in ft_socks.into_iter() {
-                // the state for this specific key might not exist because no request
-                // has been forwarded to this upstream connection yet
-                if let Some(val) = states.get(&sock.local) {
-                    if val.num_bytes < min_bytes {
-                        min_bytes = val.num_bytes;
-                        min_bytes_key = Some(sock);
-                    }
-                }
+        let key: [u8; 0] = [];
+        for id in pqueues.iter() {
+            let queue = MapHandle::from_map_id(*id)?;
+            let mut socks = Vec::new();
+
+            while let Some(val) = queue.lookup_and_delete(&key)? {
+                let val = align_val_to::<sock_key>(val.as_slice()).unwrap();
+                socks.push(val);
             }
 
-            if let Some(sock) = min_bytes_key {
-                // TODO: add metric flags here
-                let ft = frwd_token {
-                    num_bytes_min: 1,
-                    ..*ft
-                };
+            socks.sort_by(|lhs, rhs| {
+                let lhs_state = states.get(&lhs.local).unwrap();
+                let rhs_state = states.get(&rhs.local).unwrap();
 
-                keys.push(ft);
-                vals.push(sock);
+                lhs_state.num_bytes.cmp(&rhs_state.num_bytes)
+            });
+
+            for sock in socks.iter() {
+                let value = unsafe { sock.as_bytes() };
+                queue.update(&key, &value, MapFlags::ANY)?;
             }
-        }
-
-        let len = keys.len() as u32;
-        if len > 0 {
-            let mut keys_raw = Vec::new();
-            for key in keys.iter() {
-                let key = unsafe { key.as_bytes() };
-                keys_raw.extend_from_slice(key);
-            }
-
-            let keys = keys_raw.as_slice();
-
-            let mut vals_raw = Vec::new();
-            for val in vals.iter() {
-                let val = unsafe { val.as_bytes() };
-                vals_raw.extend_from_slice(val);
-            }
-            let vals = vals_raw.as_slice();
-
-            self.fib
-                .update_batch(keys, vals, len, MapFlags::ANY, MapFlags::ANY)?;
         }
 
         Ok(())

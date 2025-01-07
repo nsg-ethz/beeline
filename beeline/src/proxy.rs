@@ -326,7 +326,7 @@ impl<'obj> Proxy<'obj> {
             let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr)).unwrap();
             let mut buf = Vec::with_capacity(8192);
 
-            let res = 'read_downstream: loop {
+            let res = loop {
                 // wait until the downstream connection is readable
                 match downstream.readable().await {
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
@@ -449,23 +449,23 @@ impl<'obj> Proxy<'obj> {
 
     fn trigger_timers(&self) -> Result<()> {
         // TODO: timers can have their own frequency
-        // let timers = self.timers.clone();
-        // let update_freq = Duration::from_micros(500);
+        let timers = self.timers.clone();
+        let update_freq = Duration::from_micros(500);
 
-        // task::spawn(async move {
-        //     let mut interval = time::interval(update_freq);
+        task::spawn(async move {
+            let mut interval = time::interval(update_freq);
 
-        //     loop {
-        //         interval.tick().await;
+            loop {
+                interval.tick().await;
 
-        //         let res = timers[0].lock().unwrap().trigger();
+                let res = timers[0].lock().unwrap().trigger();
 
-        //         // TODO: report error with name of timer
-        //         if let Err(e) = res {
-        //             error!("An error occured in timer {}: {:?}", "UpdateForwardMap", e);
-        //         }
-        //     }
-        // });
+                // TODO: report error with name of timer
+                if let Err(e) = res {
+                    error!("An error occured in timer {}: {:?}", "UpdateForwardMap", e);
+                }
+            }
+        });
 
         Ok(())
     }
