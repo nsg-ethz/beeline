@@ -40,7 +40,7 @@ cargo b -r --bin ${PROXY}
 
 stop_experiment
 
-sudo -b -E ip netns exec ns5 systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -a 10.0.5.1:3000 -c ${ROOT}/../config/bench.yaml
+sudo -b -E systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -a 127.0.0.1:3000 -c ${ROOT}/../config/bench.yaml
 echo -e "${COLOR_GREEN}Launched exp-pod5-proxy in pod5.${COLOR_OFF}"
 
 sleep 0.25

@@ -68,7 +68,7 @@ export function randomRequest() {
     if (direct) {
         url = `http://10.0.${server}.1:8000`;
     } else {
-        url = `http://10.0.5.1:3000`;
+        url = `http://127.0.0.1:3000`;
     }
 
     requestTo(url, server);
