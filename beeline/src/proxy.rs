@@ -251,7 +251,7 @@ impl<'obj> Proxy<'obj> {
             .map(|(k, v)| (k.to_string(), MapHandle::from_map_id(*v).unwrap()))
             .collect::<HashMap<_, _>>();
 
-        let mut pipeline = DebugPipeline::new(maps)?;
+        let mut pipeline = DebugPipeline::new(config.clone(), maps)?;
         let timers = pipeline
             .create_timers()?
             .into_iter()

@@ -1,3 +1,4 @@
+use rand::{self, seq::SliceRandom};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr};
 
@@ -7,6 +8,21 @@ pub struct Config {
 
     #[serde(alias = "parse")]
     pub patterns: Patterns,
+}
+
+impl Config {
+    pub fn resolve_instance(&self, backend: &str, instance: u16) -> Option<&SocketAddr> {
+        self.hosts
+            .iter()
+            .find(|host| host.name == *backend)
+            .and_then(|host| host.instances.iter().find(|addr| addr.port() == instance))
+    }
+
+    pub fn select_backend_instance(&self, backend: &str) -> Option<&SocketAddr> {
+        let host = self.hosts.iter().find(|host| host.name == *backend)?;
+
+        host.instances.choose(&mut rand::thread_rng())
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]

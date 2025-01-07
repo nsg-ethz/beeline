@@ -1,12 +1,12 @@
 use crate::{align_val_to, bpf::types::*, ma::*};
 use anyhow::{anyhow, bail, Ok, Result};
 use as_bytes::AsBytes;
+use common::Config;
 use libbpf_rs::{MapCore, MapFlags, MapHandle};
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
     net::SocketAddr,
-    str::FromStr,
 };
 
 impl Eq for frwd_token {}
@@ -30,12 +30,13 @@ impl Hash for frwd_token {
 }
 
 pub struct DebugPipeline {
+    config: Config,
     maps: HashMap<String, MapHandle>,
 }
 
 impl Pipeline for DebugPipeline {
-    fn new(maps: HashMap<String, MapHandle>) -> Result<Self> {
-        Ok(DebugPipeline { maps })
+    fn new(config: Config, maps: HashMap<String, MapHandle>) -> Result<Self> {
+        Ok(DebugPipeline { config, maps })
     }
 
     fn create_timers(&mut self) -> Result<Vec<Box<dyn Timer>>> {
@@ -43,7 +44,9 @@ impl Pipeline for DebugPipeline {
     }
 
     fn create_new_upstream(&mut self) -> Result<Box<dyn NewUpstream>> {
-        Ok(Box::new(ConnectToBackend {}))
+        Ok(Box::new(ConnectToBackend {
+            config: self.config.clone(),
+        }))
     }
 }
 
@@ -109,10 +112,16 @@ impl Timer for UpdateForwardMap {
             }
 
             socks.sort_by(|lhs, rhs| {
-                let lhs_state = states.get(&lhs.local).unwrap();
-                let rhs_state = states.get(&rhs.local).unwrap();
+                let lhs_num_bytes = states
+                    .get(&lhs.local)
+                    .and_then(|s| Some(s.num_bytes))
+                    .unwrap_or(0);
+                let rhs_num_bytes = states
+                    .get(&rhs.local)
+                    .and_then(|s| Some(s.num_bytes))
+                    .unwrap_or(0);
 
-                lhs_state.num_bytes.cmp(&rhs_state.num_bytes)
+                lhs_num_bytes.cmp(&rhs_num_bytes)
             });
 
             for sock in socks.iter() {
@@ -125,7 +134,15 @@ impl Timer for UpdateForwardMap {
     }
 }
 
-pub struct ConnectToBackend {}
+pub struct ConnectToBackend {
+    config: Config,
+}
+
+impl ConnectToBackend {
+    pub fn new(config: Config) -> Self {
+        ConnectToBackend { config }
+    }
+}
 
 impl NewUpstream for ConnectToBackend {
     fn new_upstream_connection(&mut self, ctx: &pipeline_ctx) -> Result<SocketAddr> {
@@ -134,13 +151,10 @@ impl NewUpstream for ConnectToBackend {
             bail!("Invalid direction: {}", ft.direction);
         }
 
-        let addr = if ft.backend == 1 {
-            "127.0.0.1:8001"
-        } else {
-            "127.0.0.1:8002"
-        };
-        let addr = SocketAddr::from_str(&addr)?;
-
-        Ok(addr)
+        let backend = format!("server{}", ft.backend);
+        match self.config.select_backend_instance(&backend) {
+            Some(addr) => Ok(*addr),
+            None => bail!("Backend not found: {}", backend),
+        }
     }
 }
