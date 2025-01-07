@@ -334,6 +334,19 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     ctx->ft = (struct frwd_token){ 0 };
 }
 
+static __always_inline enum ft_backend _res_origin(const struct sock_key *key) {
+    switch (key->remote.port) {
+        case 8001:
+            return PR_SERVER1;
+        case 8002:
+            return PR_SERVER2;
+        case 8003:
+            return PR_SERVER3;
+        case 8004:
+            return PR_SERVER4;
+    }
+}
+
 // ----------------------------------------------
 // user provided
 
@@ -442,6 +455,14 @@ enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx 
 }
 
 enum pr_action update_us_state(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    struct frwd_token ft = {
+        .conn_id = 0,
+        .direction = PR_UPSTREAM,
+        .backend = _res_origin(ukey),
+        .num_bytes_min = true
+    };
+    _fib_insert(&ft, ukey, false);
+
     const struct addr_key *rukey = &ukey->remote;
     struct us_conn_state *s = bpf_map_lookup_elem(&us_conns, rukey);
     if (s == NULL) {
@@ -495,24 +516,6 @@ enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx 
     return PR_PASS;
 }
 
-enum pr_action select_sock(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key *ekey) {
-    struct sock_key *res_ptr;
-    res_ptr = bpf_map_lookup_elem(&fib_direct, &ctx->ft);
-    if (res_ptr != NULL) {
-        *ekey = *res_ptr;
-        return PR_PASS;
-    }
-
-    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, &ctx->ft);
-    if (pqueue == NULL) return PR_UTRN;
-
-    struct sock_key res;
-    if (bpf_map_pop_elem(pqueue, &res) < 0) return PR_UTRN;
-    *ekey = res;
-
-    return PR_PASS;
-}
-
 enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (msg == NULL || dkey == NULL || ctx == NULL) return PR_DROP;
 
@@ -540,6 +543,24 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
 }
 
 // ----------------------------------------------
+
+static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key *ekey) {
+    struct sock_key *res_ptr;
+    res_ptr = bpf_map_lookup_elem(&fib_direct, &ctx->ft);
+    if (res_ptr != NULL) {
+        *ekey = *res_ptr;
+        return PR_PASS;
+    }
+
+    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, &ctx->ft);
+    if (pqueue == NULL) return PR_UTRN;
+
+    struct sock_key res;
+    if (bpf_map_pop_elem(pqueue, &res) < 0) return PR_UTRN;
+    *ekey = res;
+
+    return PR_PASS;
+}
 
 static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *action) {
     state &= 0x7F;
@@ -743,7 +764,7 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     struct sock_key ekey = { 0 };
     if (res == PR_PASS) {
-        res = select_sock(&ikey, ctx, &ekey);
+        res = _fib_query(&ikey, ctx, &ekey);
     }
 
     if (res == PR_DROP) {
