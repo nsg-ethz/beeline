@@ -324,12 +324,6 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     bpf_probe_read_kernel(ctx->jwt_sig, r4.len, data + r4.idx);
     ctx->jwt_sig_range = r4;
 
-    bpf_log("backend: %s", ctx->backend);
-    bpf_log("content_length: %s", ctx->content_length);
-    bpf_log("conn_id: %d", ctx->conn_id);
-    bpf_log("jwt_claims: %s", ctx->jwt_claims);
-    bpf_log("jwt_sig: %s", ctx->jwt_sig);
-
     ctx->done_idx = done_idx;
     ctx->ft = (struct frwd_token){ 0 };
 }
@@ -406,7 +400,7 @@ enum pr_action authorize(struct pipeline_ctx *ctx) {
         return PR_DROP;
     }
 
-    bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
+    // bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
 
     if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
         bpf_err("ERROR: Failed to digest msg");
@@ -422,7 +416,7 @@ enum pr_action authorize(struct pipeline_ctx *ctx) {
     if (sig_len > 50) sig_len = 50;
     ctx->tmp[50] = '\0';
 
-    bpf_log("Computed signature: %s", ctx->tmp);
+    // bpf_log("Computed signature: %s", ctx->tmp);
 
     u32 i;
     bpf_for(i, 0, sig_len) {
@@ -768,7 +762,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
 
     if (res == PR_DROP) {
-        bpf_log("PLUGIN: Drop msg");
+        bpf_err("PLUGIN: Drop msg");
         return SK_DROP;
     }
 
@@ -782,16 +776,15 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_PASS) {
-        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        return SK_PASS;
+    u64 verdict = bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS);
+    if (verdict == SK_DROP) {
+        bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
     }
     else {
-        bpf_log("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        return SK_DROP;
+        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
     }
 
-    return SK_PASS;
+    return verdict;
 }
 
 SEC("sockops")

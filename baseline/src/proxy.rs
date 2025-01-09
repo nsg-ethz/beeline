@@ -89,7 +89,7 @@ impl Proxy {
                 let rx = rxs.get(rx).unwrap();
                 drop(readable);
 
-                let buf_len = match rx.try_read_buf(&mut buf) {
+                match rx.try_read_buf(&mut buf) {
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
                     Ok(0) => break Ok(()),
@@ -129,8 +129,8 @@ impl Proxy {
                 };
 
                 let req_len = hdr_len + con_len;
-                if buf_len < req_len {
-                    debug!("Request not fully read: {buf_len}/{req_len}");
+                if buf.len() < req_len {
+                    debug!("Request not fully read: {}/{}", buf.len(), req_len);
                     continue;
                 }
 
