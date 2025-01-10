@@ -329,7 +329,9 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
 }
 
 static __always_inline enum ft_backend _res_origin(const struct sock_key *key) {
-    switch (key->remote.port) {
+    if (key == NULL) return 0;
+
+    switch (key->local.port) {
         case 8001:
             return PR_SERVER1;
         case 8002:
@@ -338,6 +340,8 @@ static __always_inline enum ft_backend _res_origin(const struct sock_key *key) {
             return PR_SERVER3;
         case 8004:
             return PR_SERVER4;
+        default:
+            return 0;
     }
 }
 
@@ -538,19 +542,29 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
 
 // ----------------------------------------------
 
-static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key *ekey) {
-    struct sock_key *res_ptr;
-    res_ptr = bpf_map_lookup_elem(&fib_direct, &ctx->ft);
-    if (res_ptr != NULL) {
-        *ekey = *res_ptr;
-        return PR_PASS;
+static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key *ekey, bool bijective) {
+    if (bijective) {
+        struct sock_key *res_ptr;
+        res_ptr = bpf_map_lookup_elem(&fib_direct, &ctx->ft);
+        if (res_ptr != NULL) {
+            *ekey = *res_ptr;
+            return PR_PASS;
+        }
+
+        return PR_DROP;
     }
 
     struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, &ctx->ft);
-    if (pqueue == NULL) return PR_UTRN;
+    if (pqueue == NULL) {
+        bpf_log("WARN: No pqueue found for forwarding token");
+        return PR_UTRN;
+    }
 
     struct sock_key res;
-    if (bpf_map_pop_elem(pqueue, &res) < 0) return PR_UTRN;
+    if (bpf_map_pop_elem(pqueue, &res) < 0) {
+        bpf_log("WARN: pqueue is empty");
+        return PR_UTRN;
+    }
     *ekey = res;
 
     return PR_PASS;
@@ -758,7 +772,7 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     struct sock_key ekey = { 0 };
     if (res == PR_PASS) {
-        res = _fib_query(&ikey, ctx, &ekey);
+        res = _fib_query(&ikey, ctx, &ekey, !is_downstream && !is_retry);
     }
 
     if (res == PR_DROP) {
