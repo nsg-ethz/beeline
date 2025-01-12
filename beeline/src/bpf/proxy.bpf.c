@@ -562,6 +562,7 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
     bpf_clamp_uminmax(len, 0, 16);
 
     if (_modify(msg, r, conn_id, len) < 0) return PR_UTRN;
+    ctx->done_idx += 16;
 
     // at this point we have to ask the plugin how it wants to route
     // this request back to the client
@@ -786,6 +787,11 @@ int msg_verdict(struct sk_msg_md *msg) {
         res = _fib_query(&ikey, &ctx->ft, &ekey);
     }
 
+    if (res == PR_DROP) {
+        bpf_err("Drop msg conn-id: %d, body: %s", ctx->ft.conn_id, msg->data);
+        return SK_DROP;
+    }
+
     if (res == PR_UTRN) {
         bpf_log("No FIB entry for {%d %d %d %d}", ctx->ft.conn_id, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
         if (bpf_map_update_elem(&utrn_wait_list, &ikey, ctx, BPF_ANY) < 0) {
@@ -797,15 +803,21 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    u64 verdict = bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS);
-    if (verdict == SK_DROP) {
+    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
         bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-    }
-    else {
-        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+        return SK_PASS;
     }
 
-    return verdict;
+    u32 msg_len = ctx->content_length+ctx->done_idx+2;
+    bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
+    bpf_msg_apply_bytes(msg, msg_len);
+
+    if (msg_len < msg->size) {
+        bpf_log("body: %s", msg->data);
+    }
+
+    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+    return SK_PASS;
 }
 
 SEC("sockops")
