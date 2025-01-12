@@ -27,7 +27,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     task, time,
 };
@@ -106,18 +106,16 @@ fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
         ..Default::default()
     };
 
-    let name = format!("fib_queue_{:?}", ft);
     let pqueue = MapHandle::create(
         MapType::Queue,
-        Some(name),
+        Some("fib_queue"),
         0,
         size_of::<sock_key>() as u32,
         2048,
         &opts,
     )?;
 
-    let val = pqueue.as_fd();
-    let val = unsafe { val.as_bytes() };
+    let val = pqueue.as_fd().as_raw_fd().to_ne_bytes();
 
     match map.update(&key, &val, MapFlags::ANY) {
         Ok(_) => Ok(()),
@@ -297,7 +295,7 @@ impl<'obj> Proxy<'obj> {
         let addr = self.address;
         info!("Listening on {}", addr);
 
-        // self.trigger_timers()?;
+        self.trigger_timers()?;
 
         let listener = TcpListener::bind(&addr).await?;
         loop {
@@ -326,7 +324,6 @@ impl<'obj> Proxy<'obj> {
         let fib = self.get_fib()?;
         let binder = self.binder.clone();
         let upstreams = self.upstreams.clone();
-        let timers = self.timers.clone();
         let new_upstream = self.new_upstream.clone();
 
         tokio::spawn(async move {
@@ -441,11 +438,6 @@ impl<'obj> Proxy<'obj> {
                 // upstream connections are automatically reused by the eBPF program
                 // adding them to this shared vector allows us to keep them alive
                 upstreams.lock().unwrap().push(upstream);
-
-                timers.iter().for_each(|t| {
-                    let mut t = t.lock().unwrap();
-                    t.monitor_upstream(&dkey, &ft);
-                });
 
                 buf.clear();
             };

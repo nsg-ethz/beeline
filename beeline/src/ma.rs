@@ -18,9 +18,6 @@ pub trait Pipeline: Sized {
 
 pub trait Timer: Send + Sync {
     fn trigger(&mut self) -> Result<()>;
-
-    fn monitor_upstream(&mut self, key: &sock_key, ft: &frwd_token);
-    fn monitor_downstream(&mut self, key: &sock_key);
 }
 
 pub trait NewUpstream: Send + Sync {
