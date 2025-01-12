@@ -91,6 +91,14 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(
 }
 
 fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
+    let key = unsafe { ft.as_bytes() };
+    // let key = ((ft.direction as u32) << 16 | (ft.backend as u32) << 8 | ft.num_bytes_min as u32)
+    //     .to_ne_bytes();
+    // let key = 0u32.to_ne_bytes();
+    if map.lookup(&key, MapFlags::empty())?.is_some() {
+        return Ok(());
+    }
+
     let opts = libbpf_sys::bpf_map_create_opts {
         sz: size_of::<libbpf_sys::bpf_map_create_opts>() as libbpf_sys::size_t,
         map_flags: libbpf_sys::BPF_ANY,
@@ -98,21 +106,20 @@ fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
         ..Default::default()
     };
 
+    let name = format!("fib_queue_{:?}", ft);
     let pqueue = MapHandle::create(
         MapType::Queue,
-        Some("fib_pqueue"),
+        Some(name),
         0,
         size_of::<sock_key>() as u32,
         2048,
         &opts,
     )?;
 
-    let key = unsafe { ft.as_bytes() };
-
     let val = pqueue.as_fd();
     let val = unsafe { val.as_bytes() };
 
-    match map.update(key, &val, MapFlags::NO_EXIST) {
+    match map.update(&key, &val, MapFlags::ANY) {
         Ok(_) => Ok(()),
         Err(e) => {
             if e.kind() == libbpf_rs::ErrorKind::AlreadyExists {
@@ -290,7 +297,7 @@ impl<'obj> Proxy<'obj> {
         let addr = self.address;
         info!("Listening on {}", addr);
 
-        self.trigger_timers()?;
+        // self.trigger_timers()?;
 
         let listener = TcpListener::bind(&addr).await?;
         loop {

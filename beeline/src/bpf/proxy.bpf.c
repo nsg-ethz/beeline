@@ -165,11 +165,12 @@ struct frwd_token {
     u8 direction;
     u8 backend;
     u8 num_bytes_min;
+    u8 padding;
 };
 
 struct fib_pqueue {
     __uint(type, BPF_MAP_TYPE_QUEUE);
-    __uint(max_entries, 16384);
+    __uint(max_entries, 2048);
     __type(value, struct sock_key);
 };
 
@@ -182,7 +183,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
+    __uint(max_entries, 8192);
     __type(key, struct frwd_token);
     __type(value, struct sock_key);
 } fib_direct SEC(".maps");
@@ -235,16 +236,48 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     return 0;
 }
 
-static __always_inline int _fib_insert(const struct frwd_token *ft, const struct sock_key *key, bool bijective) {
-    if (bijective) {
+static __always_inline int _fib_insert(const struct frwd_token *ft, const struct sock_key *key) {
+    bpf_log("Insert to FIB {%d %d %d %d}", ft->conn_id, ft->direction, ft->backend, ft->num_bytes_min);
+    if (!ft->num_bytes_min) {
         return bpf_map_update_elem(&fib_direct, ft, key, BPF_ANY);
     }
     else {
         struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
-        if (pqueue == NULL) return -1;
+        if (pqueue == NULL) {
+            bpf_log("WARN: No pqueue found for forwarding token");
+            return -1;
+        }
 
         return bpf_map_push_elem(pqueue, key, BPF_ANY);
     }
+}
+
+static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, struct frwd_token *ft, struct sock_key *ekey) {
+    if (!ft->num_bytes_min) {
+        struct sock_key *res_ptr;
+        res_ptr = bpf_map_lookup_elem(&fib_direct, ft);
+        if (res_ptr != NULL) {
+            *ekey = *res_ptr;
+            return PR_PASS;
+        }
+
+        return PR_DROP;
+    }
+
+    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
+    if (pqueue == NULL) {
+        bpf_log("WARN: No pqueue found for forwarding token");
+        return PR_UTRN;
+    }
+
+    struct sock_key res;
+    if (bpf_map_pop_elem(pqueue, &res) < 0) {
+        bpf_log("WARN: pqueue is empty");
+        return PR_UTRN;
+    }
+    *ekey = res;
+
+    return PR_PASS;
 }
 
 // ----------------------------------------------
@@ -453,13 +486,19 @@ enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx 
 }
 
 enum pr_action update_us_state(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    if (ukey == NULL || ctx == NULL) {
+        return PR_DROP;
+    }
+
     struct frwd_token ft = {
         .conn_id = 0,
         .direction = PR_UPSTREAM,
         .backend = _res_origin(ukey),
         .num_bytes_min = true
     };
-    _fib_insert(&ft, ukey, false);
+    if (_fib_insert(&ft, ukey) < 0) {
+        bpf_err("ERROR: Failed to reinsert upstream socket");
+    }
 
     const struct addr_key *rukey = &ukey->remote;
     struct us_conn_state *s = bpf_map_lookup_elem(&us_conns, rukey);
@@ -530,7 +569,7 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
     ft_inv.direction = PR_DOWNSTREAM;
     ft_inv.conn_id = dkey->local.port;
 
-    if (_fib_insert(&ft_inv, dkey, true) < 0) {
+    if (_fib_insert(&ft_inv, dkey) < 0) {
         bpf_err("ERROR: Failed to set downstream forwarding token");
     }
     else {
@@ -541,34 +580,6 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
 }
 
 // ----------------------------------------------
-
-static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, struct pipeline_ctx *ctx, struct sock_key *ekey, bool bijective) {
-    if (bijective) {
-        struct sock_key *res_ptr;
-        res_ptr = bpf_map_lookup_elem(&fib_direct, &ctx->ft);
-        if (res_ptr != NULL) {
-            *ekey = *res_ptr;
-            return PR_PASS;
-        }
-
-        return PR_DROP;
-    }
-
-    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, &ctx->ft);
-    if (pqueue == NULL) {
-        bpf_log("WARN: No pqueue found for forwarding token");
-        return PR_UTRN;
-    }
-
-    struct sock_key res;
-    if (bpf_map_pop_elem(pqueue, &res) < 0) {
-        bpf_log("WARN: pqueue is empty");
-        return PR_UTRN;
-    }
-    *ekey = res;
-
-    return PR_PASS;
-}
 
 static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *action) {
     state &= 0x7F;
@@ -772,15 +783,11 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     struct sock_key ekey = { 0 };
     if (res == PR_PASS) {
-        res = _fib_query(&ikey, ctx, &ekey, !is_downstream && !is_retry);
-    }
-
-    if (res == PR_DROP) {
-        bpf_err("PLUGIN: Drop msg");
-        return SK_DROP;
+        res = _fib_query(&ikey, &ctx->ft, &ekey);
     }
 
     if (res == PR_UTRN) {
+        bpf_log("No FIB entry for {%d %d %d %d}", ctx->ft.conn_id, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
         if (bpf_map_update_elem(&utrn_wait_list, &ikey, ctx, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }
@@ -826,7 +833,7 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 
             // add the socket before the forwarding token to avoid a race condition
             if (ft->is_some) {
-                if (_fib_insert(&ft->inner, &skey, false) < 0) {
+                if (_fib_insert(&ft->inner, &skey) < 0) {
                     bpf_err("ERROR: Failed to set forwarding token");
                 }
                 else {
