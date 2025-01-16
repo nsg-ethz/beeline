@@ -15,7 +15,11 @@ fn main() {
         .join("proxy.skel.rs");
 
     let log_level = std::env::var("RUST_LOG").unwrap_or("error".to_string());
-    let log_level = if log_level == "debug" { "2" } else { "1" };
+    let log_level = if log_level.eq_ignore_ascii_case("debug") {
+        "2"
+    } else {
+        "1"
+    };
     println!("cargo:rerun-if-env-changed=RUST_LOG");
 
     SkeletonBuilder::new()

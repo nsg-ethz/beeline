@@ -364,14 +364,15 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
 static __always_inline enum ft_backend _res_origin(const struct sock_key *key) {
     if (key == NULL) return 0;
 
-    switch (key->local.port) {
-        case 8001:
+    u8 server = key->local.ip4 >> 16;
+    switch (server) {
+        case 1:
             return PR_SERVER1;
-        case 8002:
+        case 2:
             return PR_SERVER2;
-        case 8003:
+        case 3:
             return PR_SERVER3;
-        case 8004:
+        case 4:
             return PR_SERVER4;
         default:
             return 0;
