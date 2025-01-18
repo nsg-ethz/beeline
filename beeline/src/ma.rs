@@ -21,5 +21,5 @@ pub trait Timer: Send + Sync {
 }
 
 pub trait NewUpstream: Send + Sync {
-    fn new_upstream_connection(&mut self, ctx: &pipeline_ctx) -> Result<SocketAddr>;
+    fn new_upstream_connection(&mut self, ft: &frwd_token) -> Result<SocketAddr>;
 }

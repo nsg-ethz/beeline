@@ -92,9 +92,6 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(
 
 fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
     let key = unsafe { ft.as_bytes() };
-    // let key = ((ft.direction as u32) << 16 | (ft.backend as u32) << 8 | ft.num_bytes_min as u32)
-    //     .to_ne_bytes();
-    // let key = 0u32.to_ne_bytes();
     if map.lookup(&key, MapFlags::empty())?.is_some() {
         return Ok(());
     }
@@ -111,7 +108,7 @@ fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
         Some("fib_queue"),
         0,
         size_of::<sock_key>() as u32,
-        2048,
+        8192,
         &opts,
     )?;
 
@@ -127,31 +124,6 @@ fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
             }
         }
     }
-}
-
-fn add_forward_rule_to_wait_list<A: ToSocketAddrs, M: MapCore>(
-    map: &M,
-    local_addr: &A,
-    remote_addr: &A,
-    ctx: &pipeline_ctx,
-) -> Result<()> {
-    let local_addr = local_addr
-        .to_socket_addrs()?
-        .next()
-        .expect("Failed to resolve local address");
-
-    let remote_addr = remote_addr
-        .to_socket_addrs()?
-        .next()
-        .expect("Failed to resolve local address");
-
-    let skey = sock_key::try_from((&local_addr, &remote_addr))?;
-    let skey = unsafe { skey.as_bytes() };
-    let ctx = unsafe { ctx.as_bytes() };
-
-    map.update(skey, ctx, MapFlags::ANY)?;
-
-    Ok(())
 }
 
 fn print(level: PrintLevel, msg: String) {
@@ -373,39 +345,29 @@ impl<'obj> Proxy<'obj> {
                     continue;
                 }
 
-                // check if there is a pipeline context in the waiting list
-                let ctx: Option<pipeline_ctx> = utrn_wait_list
+                // check if there is a forwarding token in the waiting list
+                let ft: Option<frwd_token> = utrn_wait_list
                     .lookup_and_delete_as(&dkey)
                     .expect("Failed to lookup utrn_wait_list");
 
-                if ctx.is_none() {
+                let Some(ft) = ft else {
                     warn!(
-                        "No context found in wait list for downstream connection: {:?}",
+                        "No forwarding toekn found in wait list for downstream connection: {:?}",
                         dkey
                     );
                     continue;
-                }
-                let ctx = ctx.unwrap();
+                };
 
-                // check if there is a forwarding token in the waiting list
-                let ft = ctx.ft;
                 let us_remote_addr = new_upstream
                     .lock()
                     .unwrap()
-                    .new_upstream_connection(&ctx)
+                    .new_upstream_connection(&ft)
                     .unwrap();
                 let us_sock = binder.bind(us_remote_addr.ip()).unwrap();
                 let us_local_addr = us_sock.local_addr().unwrap();
 
                 debug!("Bound to socket: {}", us_local_addr);
 
-                add_forward_rule_to_wait_list(
-                    &utrn_wait_list,
-                    &us_local_addr,
-                    &us_remote_addr,
-                    &ctx,
-                )
-                .unwrap();
                 if let Err(e) = add_socket_to_wait_list(
                     &sock_wait_list,
                     &us_local_addr,
@@ -420,8 +382,6 @@ impl<'obj> Proxy<'obj> {
                 }
 
                 add_pqueue_to_fib(&fib, ft).unwrap();
-                add_socket_to_wait_list(&sock_wait_list, &us_remote_addr, None, MapFlags::ANY)
-                    .unwrap();
 
                 debug!(
                     "Opening upstream connection [{}->{}] for port {}",

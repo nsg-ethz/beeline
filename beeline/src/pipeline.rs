@@ -161,8 +161,7 @@ impl ConnectToBackend {
 }
 
 impl NewUpstream for ConnectToBackend {
-    fn new_upstream_connection(&mut self, ctx: &pipeline_ctx) -> Result<SocketAddr> {
-        let ft = ctx.ft;
+    fn new_upstream_connection(&mut self, ft: &frwd_token) -> Result<SocketAddr> {
         if ft.direction != 2 {
             bail!("Invalid direction: {}", ft.direction);
         }

@@ -170,19 +170,19 @@ struct frwd_token {
 
 struct fib_pqueue {
     __uint(type, BPF_MAP_TYPE_QUEUE);
-    __uint(max_entries, 2048);
+    __uint(max_entries, 8192);
     __type(value, struct sock_key);
 };
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH_OF_MAPS);
-    __uint(max_entries, 2048);
+    __uint(max_entries, 8192);
     __type(key, struct frwd_token);
 	__array(values, struct fib_pqueue);
 } fib SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 8192);
     __type(key, struct frwd_token);
     __type(value, struct sock_key);
@@ -400,9 +400,9 @@ struct opt_frwd_token {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 2048);
+    __uint(max_entries, 8192);
     __type(key, struct sock_key);
-    __type(value, struct pipeline_ctx);
+    __type(value, struct frwd_token);
 } utrn_wait_list SEC(".maps");
 
 struct {
@@ -749,39 +749,25 @@ int msg_verdict(struct sk_msg_md *msg) {
     };
 
     bool is_downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
-    bool is_local_gw = ((ikey.local.ip4 >> 24) & 0xFF) == local_gw || ikey.local.ip4 == ip4;
-    bool is_retry = !is_downstream && ikey.local.port >= local_port && is_local_gw;
-    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d, retry: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream, is_retry);
+    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
-    struct pipeline_ctx *ctx = NULL;
     enum pr_action res = PR_PASS;
+    struct prange pranges[MAX_MATCHES] = { 0 };
+    bool pmatches[MAX_MATCHES] = { 0 };
 
-    if (is_retry) {
-        // TODO: under a heavy load, the context could have gotten evicted from the wait list
-        ctx = bpf_map_lookup_elem(&utrn_wait_list, &ikey);
-        if (ctx == NULL) {
-            bpf_err("ERROR: Failed to find cached context for retry");
-            return SK_DROP;
-        }
+    int done_idx = _parse(msg, pranges, pmatches);
+    if (done_idx < 0) {
+        bpf_err("ERROR: Failed to parse message");
+        return SK_PASS;
     }
-    else {
-        struct prange pranges[MAX_MATCHES] = { 0 };
-        bool pmatches[MAX_MATCHES] = { 0 };
 
-        int done_idx = _parse(msg, pranges, pmatches);
-        if (done_idx < 0) {
-            bpf_err("ERROR: Failed to parse message");
-            return SK_PASS;
-        }
-
-        ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
-        if (ctx == NULL) {
-            bpf_err("ERROR: Failed to init pipeline context");
-            return SK_DROP;
-        }
-        _init_pipeline_ctx(msg, done_idx, pranges, ctx);
-        res = _pipeline(msg, ctx, &ikey);
+    struct pipeline_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
+    if (ctx == NULL) {
+        bpf_err("ERROR: Failed to init pipeline context");
+        return SK_DROP;
     }
+    _init_pipeline_ctx(msg, done_idx, pranges, ctx);
+    res = _pipeline(msg, ctx, &ikey);
 
     struct sock_key ekey = { 0 };
     if (res == PR_PASS) {
@@ -795,7 +781,7 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     if (res == PR_UTRN) {
         bpf_log("No FIB entry for {%d %d %d %d}", ctx->ft.conn_id, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
-        if (bpf_map_update_elem(&utrn_wait_list, &ikey, ctx, BPF_ANY) < 0) {
+        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->ft, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }
         else {
