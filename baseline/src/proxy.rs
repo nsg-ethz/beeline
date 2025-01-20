@@ -15,7 +15,7 @@ use std::{
 };
 use tokio::{
     io::{self, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
+    net::{TcpListener, TcpSocket, TcpStream},
 };
 
 mod pipeline;
@@ -40,10 +40,13 @@ impl Proxy {
     }
 
     pub async fn listen(self) -> Result<()> {
-        let addr = self.address;
-        info!("Listening on {}", addr);
+        let socket = TcpSocket::new_v4()?;
+        socket.set_reuseaddr(true)?;
+        socket.bind(self.address)?;
+        let listener = socket.listen(4096)?;
 
-        let listener = TcpListener::bind(&addr).await?;
+        info!("Listening on {}", self.address);
+
         loop {
             self.accept(&listener).await?;
         }
