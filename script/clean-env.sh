@@ -6,7 +6,7 @@ COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
 function stop_experiment {
-    sudo systemctl list-unit-files | grep exp-pod | awk '{print $1}' | xargs -L 1 systemctl stop > /dev/null 2>&1
+    sudo systemctl list-unit-files | grep exp-pod | awk '{print $1}' | sudo xargs -L 1 systemctl stop > /dev/null 2>&1
 }
 
 function delete_veth {
