@@ -28,7 +28,7 @@ use std::{
 };
 use tokio::{
     io::{self, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
+    net::{TcpListener, TcpSocket, TcpStream},
     task, time,
 };
 
@@ -145,7 +145,6 @@ pub struct Proxy<'obj> {
     sockops: Link,
 
     binder: Arc<SocketBinder>,
-    upstreams: Arc<Mutex<Vec<TcpStream>>>,
 
     timers: Arc<Vec<Mutex<Box<dyn Timer>>>>,
     new_upstream: Arc<Mutex<Box<dyn NewUpstream>>>,
@@ -257,19 +256,21 @@ impl<'obj> Proxy<'obj> {
             skel,
             sockops,
             binder: Arc::new(binder),
-            upstreams: Arc::new(Mutex::new(Vec::new())),
             timers: Arc::new(timers),
             new_upstream: Arc::new(new_upstream),
         })
     }
 
     pub async fn listen(self) -> Result<()> {
-        let addr = self.address;
-        info!("Listening on {}", addr);
+        // self.trigger_timers()?;
 
-        self.trigger_timers()?;
+        let socket = TcpSocket::new_v4()?;
+        socket.set_reuseaddr(true)?;
+        socket.bind(self.address)?;
+        let listener = socket.listen(4096)?;
 
-        let listener = TcpListener::bind(&addr).await?;
+        info!("Listening on {}", self.address);
+
         loop {
             self.accept(&listener).await?;
         }
@@ -295,12 +296,12 @@ impl<'obj> Proxy<'obj> {
         let utrn_wait_list = self.get_utrn_wait_list()?;
         let fib = self.get_fib()?;
         let binder = self.binder.clone();
-        let upstreams = self.upstreams.clone();
         let new_upstream = self.new_upstream.clone();
 
         tokio::spawn(async move {
             let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr)).unwrap();
             let mut buf = Vec::with_capacity(8192);
+            let mut upstreams = Vec::new();
 
             let res = loop {
                 // wait until the downstream connection is readable
@@ -368,10 +369,13 @@ impl<'obj> Proxy<'obj> {
 
                 debug!("Bound to socket: {}", us_local_addr);
 
+                // don't add the forwarding token here, otherwise the connection is instantly used by another
+                // incoming connection. This way, the connection will be automatically added once the connection
+                // is free to use again
                 if let Err(e) = add_socket_to_wait_list(
                     &sock_wait_list,
                     &us_local_addr,
-                    Some(ft),
+                    None,
                     MapFlags::NO_EXIST,
                 ) {
                     error!(
@@ -397,9 +401,7 @@ impl<'obj> Proxy<'obj> {
 
                 // upstream connections are automatically reused by the eBPF program
                 // adding them to this shared vector allows us to keep them alive
-                upstreams.lock().unwrap().push(upstream);
-
-                buf.clear();
+                upstreams.push(upstream);
             };
 
             if let Err(e) = res {

@@ -810,6 +810,9 @@ int msg_verdict(struct sk_msg_md *msg) {
 SEC("sockops")
 int monitor_sockets(struct bpf_sock_ops *ops) {
     if (ops->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB || ops->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) {
+        // we don't want to get called anymore for this connection
+        bpf_sock_ops_cb_flags_set(ops, 0);
+
         struct sock_key skey = {
             .local = {
                 .ip4 = ops->local_ip4,
