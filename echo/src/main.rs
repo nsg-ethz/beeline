@@ -1,110 +1,69 @@
 use anyhow::Result;
-use core::str;
 use clap::Parser;
-use hyper::{
-    body::Incoming,
-    Request,
-    Response,
-    server::conn::http1,
-    service::service_fn,
-};
+use core::str;
+use hyper::{body::Incoming, service::service_fn, Response};
 use hyper_util::rt::TokioIo;
-use log::{debug, info, error};
-use std::{os::fd::AsFd, time::Duration};
-use socket2::{SockRef, TcpKeepalive};
-use tokio::net::TcpSocket;
+use log::debug;
+
+mod server;
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value="127.0.0.1:8000")]
+    #[arg(short, long, default_value = "127.0.0.1:8000")]
     address: String,
 
-    #[arg(short='H', long="header")]
+    #[arg(short = 'H', long = "header")]
     headers: Option<Vec<String>>,
 
-    #[arg(short='e', long="echo-header")]
+    #[arg(short = 'e', long = "echo-header")]
     header_echos: Option<Vec<String>>,
 }
 
-fn prepare_socket<S: AsFd>(socket: &S) -> Result<()> {
-    let socket = SockRef::from(&socket);
-    let ka = TcpKeepalive::new()
-        .with_time(Duration::from_secs(10));
-
-    socket.set_nodelay(true)?;
-    socket.set_tcp_keepalive(&ka)?;
-
-    Ok(())
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     env_logger::init();
 
     let Args {
         address,
         headers,
-        header_echos
+        header_echos,
     } = Args::parse();
-
     let addr = address.parse()?;
 
-    info!("Listening on {addr}");
-
-    let socket = TcpSocket::new_v4()?;
-    socket.set_reuseaddr(true)?;
-    prepare_socket(&socket)?;
-    socket.bind(addr)?;
-
-    let listener = socket.listen(4096)?;
-
-    // We start a loop to continuously accept incoming connections
-    loop {
-        let (stream, _) = listener.accept().await?;
-        prepare_socket(&stream)?;
-        
-        debug!("Accepted connection {:?}", stream.peer_addr().unwrap());
-
-        // Use an adapter to access something implementing `tokio::io` traits as if they implement
-        // `hyper::rt` IO traits.
-        let io = TokioIo::new(stream);
+    server::run(addr, move |socket, http, handle| {
         let headers = headers.clone();
         let header_echos = header_echos.clone();
 
-        // Spawn a tokio task to serve multiple connections concurrently
-        tokio::task::spawn(async move {
-            // Finally, we bind the incoming connection to our `hello` service
-            if let Err(err) = http1::Builder::new()
-                // `service_fn` converts our function in a `Service`
-                .serve_connection(io, service_fn(|req: Request<Incoming>| async {
-                    debug!("Received request: {:?}", req);
+        let svc = service_fn(move |req| {
+            let headers = headers.clone();
+            let header_echos = header_echos.clone();
 
-                    let mut res = Response::builder();
+            async move {
+                debug!("Received request: {:?}", req);
 
-                    if let Some(headers) = &headers {
-                        for header in headers {
-                            let hs: Vec<&str> = header
-                                .split_terminator(":")
-                                .map(|s| s.trim())
-                                .collect();
-                            res = res.header(hs[0], hs[1]);
-                        }   
+                let mut res = Response::builder();
+                if let Some(headers) = &headers {
+                    for header in headers {
+                        let hs: Vec<&str> =
+                            header.split_terminator(":").map(|s| s.trim()).collect();
+                        res = res.header(hs[0], hs[1]);
                     }
-                    if let Some(header_echos) = &header_echos {
-                        for key in header_echos {
-                            if let Some(val) = req.headers().get(key) {
-                                res = res.header(key, val);
-                            }
+                }
+                if let Some(header_echos) = &header_echos {
+                    for key in header_echos {
+                        if let Some(val) = req.headers().get(key) {
+                            res = res.header(key, val);
                         }
                     }
+                }
 
-                    let body: Incoming = req.into_body();
-                    res.body(body)
-                }))
-                .await
-            {
-                error!("Error serving connection: {:?}", err);
+                let body: Incoming = req.into_body();
+                res.body(body)
             }
         });
-    }
+
+        let io = TokioIo::new(socket);
+        handle.spawn(http.serve_connection(io, svc));
+    });
+
+    Ok(())
 }
