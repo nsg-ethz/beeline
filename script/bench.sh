@@ -8,6 +8,7 @@ COLOR_OFF='\033[0m' # No Color
 SIZE_LIST="128 256 512 1024 2048 4096 8192"
 WRITE_LOG=0
 RATE=20000
+VUS=3000
 DIRECT=0
 
 ROOT=$(dirname "$(readlink -f "$0")")
@@ -34,16 +35,19 @@ while getopts "dln:p:r:s:u:" opt; do
     esac
 done
 
-PROXY_BIN=${ROOT}/../target/release/${PROXY}
-
-cargo b -r --bin ${PROXY}
-
 stop_experiment
 
-sudo -b -E systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -a 127.0.0.1:3000 -c ${ROOT}/../config/bench.yaml
-echo -e "${COLOR_GREEN}Launched exp-pod5-proxy in pod5.${COLOR_OFF}"
+if [ ${DIRECT} -eq "1"  ]; then
+    PROXY="direct"
+else
+    PROXY_BIN=${ROOT}/../target/release/${PROXY}
+    cargo b -r --bin ${PROXY}
 
-sleep 0.25
+    sudo -b -E systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -a 127.0.0.1:3000 -c ${ROOT}/../config/bench.yaml
+    echo -e "${COLOR_GREEN}Launched exp-pod5-proxy in pod5.${COLOR_OFF}"
+
+    sleep 0.25
+fi
 
 shift $(($OPTIND-1))
 SCRIPT="$1"

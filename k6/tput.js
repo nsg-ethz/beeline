@@ -1,6 +1,6 @@
 import { randomRequest } from "./common.js";
 
-const vus = __ENV.VUS || 1000;
+const vus = __ENV.VUS || 3000;
 
 export const options = {
     scenarios: {
