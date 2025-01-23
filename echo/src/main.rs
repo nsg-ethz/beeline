@@ -4,6 +4,7 @@ use core::str;
 use hyper::{body::Incoming, service::service_fn, Response};
 use hyper_util::rt::TokioIo;
 use log::debug;
+use std::time::Duration;
 
 mod server;
 
@@ -39,6 +40,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             async move {
                 debug!("Received request: {:?}", req);
+
+                // this delay is necessary to make the server compute bound rather than IO bound
+                std::thread::sleep(Duration::from_micros(500));
 
                 let mut res = Response::builder();
                 if let Some(headers) = &headers {
