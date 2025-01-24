@@ -168,7 +168,7 @@ impl NewUpstream for ConnectToBackend {
             .enumerate()
             .map(|(idx, _)| frwd_token {
                 direction: 2,
-                backend: idx as u8,
+                backend: (idx + 1) as u8,
                 conn_id: 0,
                 num_bytes_min: 1,
                 padding: 0,
