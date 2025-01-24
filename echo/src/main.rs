@@ -18,6 +18,9 @@ struct Args {
 
     #[arg(short = 'e', long = "echo-header")]
     header_echos: Option<Vec<String>>,
+
+    #[arg(short = 'd', long = "us-delay", default_value = "200")]
+    delay_us: u64,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -27,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         address,
         headers,
         header_echos,
+        delay_us,
     } = Args::parse();
     let addr = address.parse()?;
 
@@ -42,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 debug!("Received request: {:?}", req);
 
                 // this delay is necessary to make the server compute bound rather than IO bound
-                std::thread::sleep(Duration::from_micros(500));
+                std::thread::sleep(Duration::from_micros(delay_us));
 
                 let mut res = Response::builder();
                 if let Some(headers) = &headers {
