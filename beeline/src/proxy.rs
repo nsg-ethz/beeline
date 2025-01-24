@@ -264,6 +264,12 @@ impl<'obj> Proxy<'obj> {
     pub async fn listen(self) -> Result<()> {
         // self.trigger_timers()?;
 
+        let fib = self.get_fib()?;
+        let fts = self.new_upstream.lock().unwrap().all_upstream_fts();
+        for ft in fts {
+            add_pqueue_to_fib(&fib, ft)?;
+        }
+
         let socket = TcpSocket::new_v4()?;
         socket.set_reuseaddr(true)?;
         socket.bind(self.address)?;
@@ -294,7 +300,6 @@ impl<'obj> Proxy<'obj> {
         let addr = self.address.clone();
         let sock_wait_list = self.get_sock_wait_list()?;
         let utrn_wait_list = self.get_utrn_wait_list()?;
-        let fib = self.get_fib()?;
         let binder = self.binder.clone();
         let new_upstream = self.new_upstream.clone();
 
@@ -353,7 +358,7 @@ impl<'obj> Proxy<'obj> {
 
                 let Some(ft) = ft else {
                     warn!(
-                        "No forwarding toekn found in wait list for downstream connection: {:?}",
+                        "No forwarding token found in wait list for downstream connection: {:?}",
                         dkey
                     );
                     continue;

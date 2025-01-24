@@ -161,6 +161,20 @@ impl ConnectToBackend {
 }
 
 impl NewUpstream for ConnectToBackend {
+    fn all_upstream_fts(&self) -> Vec<frwd_token> {
+        self.config
+            .hosts
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| frwd_token {
+                direction: 2,
+                backend: idx as u8,
+                conn_id: 0,
+                num_bytes_min: 1,
+                padding: 0,
+            })
+            .collect::<Vec<_>>()
+    }
     fn new_upstream_connection(&mut self, ft: &frwd_token) -> Result<SocketAddr> {
         if ft.direction != 2 {
             bail!("Invalid direction: {}", ft.direction);
