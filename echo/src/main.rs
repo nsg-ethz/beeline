@@ -71,14 +71,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
 
                 let body: Incoming = req.into_body();
-                res.body(body).inspect_err(|e| {
-                    error!("Failed to reply: {e}");
-                })
+                res.body(body)
             }
         });
 
         let io = TokioIo::new(socket);
-        handle.spawn(http.serve_connection(io, svc));
+        let conn = http.serve_connection(io, svc);
+        handle.spawn(async move {
+            conn.await.inspect_err(|e| {
+                error!("Connection failed: {e}");
+            })
+        });
     });
 
     Ok(())
