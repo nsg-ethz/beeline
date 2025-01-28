@@ -1,12 +1,16 @@
 use anyhow::Result;
 use clap::Parser;
 use core::str;
+use hyper::server::conn::http1::Builder;
 use hyper::{body::Incoming, service::service_fn, Response};
 use hyper_util::rt::TokioIo;
-use log::debug;
-use std::time::Duration;
-
-mod server;
+use log::{debug, error, info};
+use std::{net::SocketAddr, time::Duration};
+use tokio::net::TcpSocket;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    runtime::{Builder as RuntimeBuilder, Handle},
+};
 
 #[derive(Parser)]
 struct Args {
@@ -19,7 +23,7 @@ struct Args {
     #[arg(short = 'e', long = "echo-header")]
     header_echos: Option<Vec<String>>,
 
-    #[arg(short = 'd', long = "us-delay", default_value = "200")]
+    #[arg(short = 'd', long = "us-delay", default_value = "0")]
     delay_us: u64,
 }
 
@@ -34,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     } = Args::parse();
     let addr = address.parse()?;
 
-    server::run(addr, move |socket, http, handle| {
+    run(addr, move |socket, http, handle| {
         let headers = headers.clone();
         let header_echos = header_echos.clone();
 
@@ -45,8 +49,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             async move {
                 debug!("Received request: {:?}", req);
 
-                // this delay is necessary to make the server compute bound rather than IO bound
-                std::thread::sleep(Duration::from_micros(delay_us));
+                // this helps simulating slower backends
+                if delay_us > 0 {
+                    std::thread::sleep(Duration::from_micros(delay_us));
+                }
 
                 let mut res = Response::builder();
                 if let Some(headers) = &headers {
@@ -65,7 +71,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
 
                 let body: Incoming = req.into_body();
-                res.body(body)
+                res.body(body).inspect_err(|e| {
+                    error!("Failed to reply: {e}");
+                })
             }
         });
 
@@ -74,4 +82,47 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     Ok(())
+}
+
+fn run<F>(addr: SocketAddr, per_connection: F)
+where
+    F: Fn(TcpStream, &mut Builder, Handle) + Clone + Send + 'static,
+{
+    info!("Listening on {addr}");
+
+    let mut http = Builder::new();
+    let core = RuntimeBuilder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let handle = core.handle();
+
+    // For every accepted connection, spawn an HTTP task
+    let server = async move {
+        let tcp = reuse_listener(&addr).expect("Failed to bind to address");
+        loop {
+            match tcp.accept().await {
+                Ok((sock, _)) => {
+                    debug!("Accepted connection {:?}", sock.peer_addr().unwrap());
+                    let _ = sock.set_nodelay(true);
+                    per_connection(sock, &mut http, handle.clone());
+                }
+                Err(e) => {
+                    error!("Failed to accept connection: {}", e)
+                }
+            }
+        }
+    };
+
+    core.block_on(server);
+}
+
+fn reuse_listener(addr: &SocketAddr) -> Result<TcpListener> {
+    let socket = TcpSocket::new_v4()?;
+    socket.set_reuseport(true)?;
+    socket.set_reuseaddr(true)?;
+    socket.bind(*addr)?;
+
+    let listener = socket.listen(1024)?;
+    Ok(listener)
 }
