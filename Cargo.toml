@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 
-members = [ 
+members = [
     "baseline",
-    "beeline", 
+    "beeline",
     "common",
-    "echo", 
+    "echo",
 ]

@@ -1,16 +1,13 @@
 use anyhow::Result;
-use clap::Parser;
-use core::str;
-use hyper::server::conn::http1::Builder;
-use hyper::{body::Incoming, service::service_fn, Response};
-use hyper_util::rt::TokioIo;
-use log::{debug, error, info};
-use std::{net::SocketAddr, time::Duration};
-use tokio::net::TcpSocket;
-use tokio::{
-    net::{TcpListener, TcpStream},
-    runtime::{Builder as RuntimeBuilder, Handle},
+use axum::{
+    body::Bytes,
+    http::{HeaderMap, HeaderName, StatusCode},
+    response::IntoResponse,
+    routing::post,
+    Router,
 };
+use clap::Parser;
+use std::{collections::HashMap, str::FromStr, time::Duration};
 
 #[derive(Parser)]
 struct Args {
@@ -27,8 +24,10 @@ struct Args {
     delay_us: u64,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    env_logger::init();
+#[tokio::main]
+async fn main() {
+    // initialize tracing
+    tracing_subscriber::fmt::init();
 
     let Args {
         address,
@@ -36,96 +35,52 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         header_echos,
         delay_us,
     } = Args::parse();
-    let addr = address.parse()?;
 
-    run(addr, move |socket, http, handle| {
-        let headers = headers.clone();
-        let header_echos = header_echos.clone();
+    let headers = headers
+        .unwrap_or(vec![])
+        .iter()
+        .map(|h| {
+            let hs: Vec<&str> = h.split_terminator(":").map(|s| s.trim()).collect();
+            (hs[0].to_string(), hs[1].to_string())
+        })
+        .collect::<HashMap<String, String>>();
+    let header_echos = header_echos.unwrap_or_default();
 
-        let svc = service_fn(move |req| {
-            let headers = headers.clone();
-            let header_echos = header_echos.clone();
-
-            async move {
-                debug!("Received request: {:?}", req);
-
-                // this helps simulating slower backends
-                if delay_us > 0 {
-                    std::thread::sleep(Duration::from_micros(delay_us));
-                }
-
-                let mut res = Response::builder();
-                if let Some(headers) = &headers {
-                    for header in headers {
-                        let hs: Vec<&str> =
-                            header.split_terminator(":").map(|s| s.trim()).collect();
-                        res = res.header(hs[0], hs[1]);
-                    }
-                }
-                if let Some(header_echos) = &header_echos {
-                    for key in header_echos {
-                        if let Some(val) = req.headers().get(key) {
-                            res = res.header(key, val);
-                        }
-                    }
-                }
-
-                let body: Incoming = req.into_body();
-                res.body(body)
+    // build our application with a route
+    let app = Router::new().route(
+        "/",
+        post(move |req_hdrs: HeaderMap, body: Bytes| {
+            // this helps simulating slower backends
+            if delay_us > 0 {
+                std::thread::sleep(Duration::from_micros(delay_us));
             }
-        });
 
-        let io = TokioIo::new(socket);
-        let conn = http.serve_connection(io, svc);
-        handle.spawn(async move {
-            conn.await.inspect_err(|e| {
-                error!("Connection failed: {e}");
-            })
-        });
-    });
+            let mut res_hdrs = HeaderMap::new();
+            for (key, val) in headers.into_iter() {
+                let key = HeaderName::from_str(key.as_str()).unwrap();
+                res_hdrs.insert(key, val.parse().unwrap());
+            }
 
-    Ok(())
+            req_hdrs
+                .iter()
+                .filter(|(k, _)| header_echos.contains(&k.to_string()))
+                .for_each(|(k, v)| {
+                    res_hdrs.insert(k, v.clone());
+                });
+
+            echo(res_hdrs, body)
+        }),
+    );
+
+    // run our app with hyper, listening globally on port 3000
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
 
-fn run<F>(addr: SocketAddr, per_connection: F)
-where
-    F: Fn(TcpStream, &mut Builder, Handle) + Clone + Send + 'static,
-{
-    info!("Listening on {addr}");
-
-    let mut http = Builder::new();
-    let core = RuntimeBuilder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("runtime");
-    let handle = core.handle();
-
-    // For every accepted connection, spawn an HTTP task
-    let server = async move {
-        let tcp = reuse_listener(&addr).expect("Failed to bind to address");
-        loop {
-            match tcp.accept().await {
-                Ok((sock, _)) => {
-                    debug!("Accepted connection {:?}", sock.peer_addr().unwrap());
-                    let _ = sock.set_nodelay(true);
-                    per_connection(sock, &mut http, handle.clone());
-                }
-                Err(e) => {
-                    error!("Failed to accept connection: {}", e)
-                }
-            }
-        }
-    };
-
-    core.block_on(server);
-}
-
-fn reuse_listener(addr: &SocketAddr) -> Result<TcpListener> {
-    let socket = TcpSocket::new_v4()?;
-    socket.set_reuseport(true)?;
-    socket.set_reuseaddr(true)?;
-    socket.bind(*addr)?;
-
-    let listener = socket.listen(1024)?;
-    Ok(listener)
+async fn echo(headers: HeaderMap, body: Bytes) -> Result<impl IntoResponse, StatusCode> {
+    if let Ok(body) = String::from_utf8(body.to_vec()) {
+        Ok((headers, body))
+    } else {
+        Err(StatusCode::BAD_REQUEST)
+    }
 }
