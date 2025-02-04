@@ -71,26 +71,26 @@ echo -e "${COLOR_YELLOW}Creating namespaces${COLOR_OFF}"
 create_veth 5
 echo -e "${COLOR_GREEN}Namespaces created${COLOR_OFF}"
 
-# echo -e "${COLOR_YELLOW}Disable HyperThreading${COLOR_OFF}"
-# echo off | sudo tee /sys/devices/system/cpu/smt/control
+echo -e "${COLOR_YELLOW}Disable HyperThreading${COLOR_OFF}"
+echo off | sudo tee /sys/devices/system/cpu/smt/control
 
-# echo -e "${COLOR_YELLOW}Enable CPU performance governor${COLOR_OFF}"
-# sudo cpupower frequency-set --governor performance
+echo -e "${COLOR_YELLOW}Enable CPU performance governor${COLOR_OFF}"
+sudo cpupower frequency-set --governor performance
 
-# echo -e "${COLOR_YELLOW}Shield CPU1 and CPU2 from the OS scheduler${COLOR_OFF}"
-# CPU_ALLOWED="0,9-47"
+echo -e "${COLOR_YELLOW}Shield CPUs from the OS scheduler${COLOR_OFF}"
+CPU_ALLOWED="0,10-47"
 
-# echo -e "${COLOR_YELLOW}System may now only use CPU: ${CPU_ALLOWED}${COLOR_OFF}"
-# sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
-# sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
-# sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
-# sudo systemctl set-property --runtime pod1.slice AllowedCPUs=1
-# sudo systemctl set-property --runtime pod2.slice AllowedCPUs=2
-# sudo systemctl set-property --runtime pod3.slice AllowedCPUs=3
-# sudo systemctl set-property --runtime pod4.slice AllowedCPUs=4
-# sudo systemctl set-property --runtime pod5.slice AllowedCPUs=5-8
+echo -e "${COLOR_YELLOW}System may now only use CPU: ${CPU_ALLOWED}${COLOR_OFF}"
+sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
+sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
+sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
+sudo systemctl set-property --runtime pod1.slice AllowedCPUs=1,2
+sudo systemctl set-property --runtime pod2.slice AllowedCPUs=3,4
+sudo systemctl set-property --runtime pod3.slice AllowedCPUs=5,6
+sudo systemctl set-property --runtime pod4.slice AllowedCPUs=7,8
+sudo systemctl set-property --runtime pod5.slice AllowedCPUs=9,10
 
-# echo -e "${COLOR_GREEN}CPUs prepared for performance testing...\n${COLOR_OFF}"
+echo -e "${COLOR_GREEN}CPUs prepared for performance testing...\n${COLOR_OFF}"
 
 echo -e "${COLOR_YELLOW}Let's check if everything is setup correctly${COLOR_OFF}"
 ping_cycle 5

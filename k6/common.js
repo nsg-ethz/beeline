@@ -66,7 +66,8 @@ export function randomRequest() {
     var url = null;
     const direct = (__ENV.DIRECT || "0") == "1";
     if (direct) {
-        url = `http://10.0.${server}.1:8000`;
+        const port = randomIntBetween(1, 4);
+        url = `http://10.0.${server}.1:800${port}`;
     } else {
         url = `http://127.0.0.1:3000`;
     }
@@ -91,7 +92,7 @@ export function requestTo(url, server) {
     };
     const params = {
         headers: headers,
-        timeout: "1s",
+        timeout: "3s",
     };
 
     const res = http.post(url, payload, params);
@@ -101,6 +102,12 @@ export function requestTo(url, server) {
             r.headers["Signature"] == signature,
         "body is the same": (r) => r.body === payload,
     });
+
+    if (!passed && res.body != null) {
+        console.log(
+            `Failed request to ${url}: req = ${payload}, res = ${res.body}`,
+        );
+    }
 
     return passed;
 }
