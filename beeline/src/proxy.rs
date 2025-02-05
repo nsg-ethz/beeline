@@ -238,7 +238,6 @@ impl<'obj> Proxy<'obj> {
         let new_upstream = Mutex::new(new_upstream);
 
         let crypto = &skel.progs.crypto_setup;
-
         let input = libbpf_rs::ProgramInput::default();
 
         let res = crypto.test_run(input)?;
@@ -389,8 +388,6 @@ impl<'obj> Proxy<'obj> {
                     );
                     break Err(e);
                 }
-
-                add_pqueue_to_fib(&fib, ft).unwrap();
 
                 debug!(
                     "Opening upstream connection [{}->{}] for port {}",
