@@ -6,12 +6,12 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-struct bpf_crypto_ctx *bpf_crypto_ctx_create(const struct bpf_crypto_params *params, u32 params__sz, int *err) __ksym;
-struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym;
-void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
-int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
-int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
-int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
+// struct bpf_crypto_ctx *bpf_crypto_ctx_create(const struct bpf_crypto_params *params, u32 params__sz, int *err) __ksym;
+// struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym;
+// void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
+// int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
+// int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
+// int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
 
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
@@ -426,55 +426,55 @@ struct {
     __type(value, u16);
 } u2d SEC(".maps");
 
-enum pr_action authorize(struct pipeline_ctx *ctx) {
-    if (!ctx) return PR_DROP;
-    if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
-        bpf_err("ERROR: No JWT parsed");
-        return PR_DROP;
-    }
+// enum pr_action authorize(struct pipeline_ctx *ctx) {
+//     if (!ctx) return PR_DROP;
+//     if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
+//         bpf_err("ERROR: No JWT parsed");
+//         return PR_DROP;
+//     }
 
-    struct cctx_val *cctx_val = cctx_val_lookup();
-    if (cctx_val == NULL) {
-        bpf_err("ERROR: Failed to find crypto context");
-        return PR_DROP;
-    }
+//     struct cctx_val *cctx_val = cctx_val_lookup();
+//     if (cctx_val == NULL) {
+//         bpf_err("ERROR: Failed to find crypto context");
+//         return PR_DROP;
+//     }
 
-    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
-    if (cctx == NULL) {
-        bpf_err("ERROR: Failed to find crypto context");
-        return PR_DROP;
-    }
+//     struct bpf_crypto_ctx *cctx = cctx_val->ctx;
+//     if (cctx == NULL) {
+//         bpf_err("ERROR: Failed to find crypto context");
+//         return PR_DROP;
+//     }
 
-    // bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
+//     // bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
 
-    if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
-        bpf_err("ERROR: Failed to digest msg");
-        return PR_DROP;
-    }
+//     if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
+//         bpf_err("ERROR: Failed to digest msg");
+//         return PR_DROP;
+//     }
 
-    int sig_len = bpf_base64url_encode(ctx->jwt_claims, 32, ctx->tmp, 512);
-    if (sig_len < 0) {
-        bpf_err("ERROR: Failed to encode signature");
-        return PR_DROP;
-    }
+//     int sig_len = bpf_base64url_encode(ctx->jwt_claims, 32, ctx->tmp, 512);
+//     if (sig_len < 0) {
+//         bpf_err("ERROR: Failed to encode signature");
+//         return PR_DROP;
+//     }
 
-    if (sig_len > 50) sig_len = 50;
-    ctx->tmp[50] = '\0';
+//     if (sig_len > 50) sig_len = 50;
+//     ctx->tmp[50] = '\0';
 
-    // bpf_log("Computed signature: %s", ctx->tmp);
+//     // bpf_log("Computed signature: %s", ctx->tmp);
 
-    u32 i;
-    bpf_for(i, 0, sig_len) {
-        if (ctx->jwt_sig[i] != ctx->tmp[i]) {
-            bpf_err("ERROR: Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
-            return PR_DROP;
-        }
-    }
+//     u32 i;
+//     bpf_for(i, 0, sig_len) {
+//         if (ctx->jwt_sig[i] != ctx->tmp[i]) {
+//             bpf_err("ERROR: Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
+//             return PR_DROP;
+//         }
+//     }
 
-    bpf_log("JWT verified successfully");
+//     bpf_log("JWT verified successfully");
 
-    return PR_PASS;
-}
+//     return PR_PASS;
+// }
 
 enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     struct ds_conn_state *s = bpf_map_lookup_elem(&ds_conns, dkey);
@@ -541,10 +541,24 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     ctx->ft.direction = PR_UPSTREAM;
     ctx->ft.num_bytes_min = true;
 
+    // at this point we have to ask the plugin how it wants to route
+    // this request back to the client
+    struct frwd_token ft_inv = { 0 };
+    ft_inv.direction = PR_DOWNSTREAM;
+    ft_inv.conn_id = dkey->local.port;
+
+    if (_fib_insert(&ft_inv, dkey) < 0) {
+        bpf_err("ERROR: Failed to set downstream forwarding token");
+    }
+    else {
+        bpf_log("Set downstream forwarding token {%d, %d, %d, %d}", ft_inv.conn_id, ft_inv.direction, ft_inv.backend, ft_inv.num_bytes_min);
+    }
+
     return PR_PASS;
 }
 
 enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    bpf_log("U2D insert: [%pI4:%u->%pI4:%u]", &ukey->local.ip4, ukey->local.port, &ukey->remote.ip4, ukey->remote.port);
     if (bpf_map_update_elem(&u2d, ukey, &dkey->local.port, BPF_ANY) < 0) {
         bpf_err("ERROR: Failed to add downstream to upstream mapping");
         return PR_DROP;
@@ -554,6 +568,7 @@ enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct so
 }
 
 enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    bpf_log("U2D lookup: [%pI4:%u->%pI4:%u]", &ukey->local.ip4, ukey->local.port, &ukey->remote.ip4, ukey->remote.port);
     u16 *conn_id = bpf_map_lookup_elem(&u2d, ukey);
     if (conn_id == NULL) {
         bpf_err("ERROR: Failed to find downstream connection");
@@ -591,19 +606,6 @@ enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey,
 
     if (_modify(msg, r, conn_id, len) < 0) return PR_UTRN;
     ctx->done_idx += 16;
-
-    // at this point we have to ask the plugin how it wants to route
-    // this request back to the client
-    struct frwd_token ft_inv = { 0 };
-    ft_inv.direction = PR_DOWNSTREAM;
-    ft_inv.conn_id = dkey->local.port;
-
-    if (_fib_insert(&ft_inv, dkey) < 0) {
-        bpf_err("ERROR: Failed to set downstream forwarding token");
-    }
-    else {
-        bpf_log("Set downstream forwarding token {%d, %d, %d, %d}", ft_inv.conn_id, ft_inv.direction, ft_inv.backend, ft_inv.num_bytes_min);
-    }
 
     return PR_PASS;
 }
@@ -736,10 +738,7 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
 
         if (ctx->backend_range.len == 0) return PR_DROP;
         enum pr_action res = forward_ds_conn(ikey, ctx);
-        if (res == PR_DROP) {
-            bpf_log("PLUGIN: Drop downstream msg");
-            return PR_DROP;
-        }
+        if (res == PR_DROP) return PR_DROP;
 
         // if (write_conn_id(msg, ikey, ctx) != PR_PASS) {
         //     bpf_err("ERROR: Writing conn_id failed.");
@@ -752,10 +751,7 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
         // }
 
         enum pr_action res = forward_us_conn(ikey, ctx);
-        if (res == PR_DROP) {
-            bpf_log("PLUGIN: Drop upstream msg");
-            return PR_DROP;
-        }
+        if (res == PR_DROP) return PR_DROP;
     }
 
     return PR_PASS;
@@ -779,20 +775,6 @@ int msg_verdict(struct sk_msg_md *msg) {
     bool is_upstream_req = (ikey.local.ip4 >> 24 == 254); // TODO: identify upstream requests more safely
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d, upstream req: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream, is_upstream_req);
 
-    // in this Envoy has already decided where the packet should go
-    if (is_upstream_req) {
-        struct sock_key ekey = {
-            .local = ikey.remote,
-            .remote = ikey.local
-        };
-        post_forward_ds_conn(&ikey, &ekey, NULL);
-
-        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-            bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        }
-        return SK_PASS;
-    }
-
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
     bool pmatches[MAX_MATCHES] = { 0 };
@@ -809,36 +791,26 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_DROP;
     }
     _init_pipeline_ctx(msg, done_idx, pranges, ctx);
-    res = _pipeline(msg, ctx, &ikey);
 
     struct sock_key ekey = { 0 };
-    if (res == PR_PASS) {
-        res = _fib_query(&ikey, &ctx->ft, &ekey);
+    // in this Envoy has already decided where the packet should go
+    if (is_upstream_req) {
+        ekey.local = ikey.remote;
+        ekey.remote = ikey.local;
     }
+    else {
+        res = _pipeline(msg, ctx, &ikey);
 
-    if (res == PR_DROP) {
-        // bpf_err("Drop msg conn-id: %d, body: %s", ctx->ft.conn_id, msg->data);
-        return SK_PASS;
-    }
-
-    if (res == PR_UTRN) {
-        bpf_log("No FIB entry for {%d %d %d %d}", ctx->ft.conn_id, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
-        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->ft, BPF_ANY) < 0) {
-            bpf_err("ERROR: Failed to add uturn token to wait list");
+        if (res == PR_PASS) {
+            res = _fib_query(&ikey, &ctx->ft, &ekey);
+            if (res == PR_DROP) {
+                bpf_log("WARN: No FIB entry found for {%d %d %d %d}", ctx->ft.conn_id, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
+            }
         }
-        else {
-            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        }
-        return SK_PASS;
     }
 
-    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-        bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        return SK_PASS;
-    }
-
-    if (is_downstream) {
-        post_forward_ds_conn(&ikey, &ekey, NULL);
+    if (is_downstream || is_upstream_req) {
+        post_forward_ds_conn(&ikey, &ekey, ctx);
     }
     else {
         post_forward_us_conn(&ikey, &ekey, ctx);
@@ -848,8 +820,14 @@ int msg_verdict(struct sk_msg_md *msg) {
     bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
     bpf_msg_apply_bytes(msg, msg_len);
 
-    if (msg_len < msg->size) {
-        bpf_log("body: %s", msg->data);
+    if (res == PR_DROP || res == PR_UTRN) {
+        bpf_log("Letting msg from [%pI4:%u->%pI4:%u] pass", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        return SK_PASS;
+    }
+
+    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+        bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+        return SK_PASS;
     }
 
     bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
@@ -896,33 +874,33 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 u32 key_len = 16;
 u8 key[16] = "testtest12345678";
 
-SEC("syscall")
-int crypto_setup() {
-    struct bpf_crypto_ctx *cctx;
-    struct bpf_crypto_params params = {
-        .type = "shash",
-        .algo = "hmac(sha256)",
-        // .type = "skcipher",
-        // .algo = "ecb(aes)",
-        .key_len = key_len,
-        .authsize = 0,
-    };
-    int err = -EINVAL;
-    if (!key_len || key_len > 256) {
-        return err;
-    }
+// SEC("syscall")
+// int crypto_setup() {
+//     struct bpf_crypto_ctx *cctx;
+//     struct bpf_crypto_params params = {
+//         .type = "shash",
+//         .algo = "hmac(sha256)",
+//         // .type = "skcipher",
+//         // .algo = "ecb(aes)",
+//         .key_len = key_len,
+//         .authsize = 0,
+//     };
+//     int err = -EINVAL;
+//     if (!key_len || key_len > 256) {
+//         return err;
+//     }
 
-    // __builtin_memcpy(&params.algo, cipher, sizeof(cipher));
-    __builtin_memcpy(&params.key, key, 16);
-    cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
+//     // __builtin_memcpy(&params.algo, cipher, sizeof(cipher));
+//     __builtin_memcpy(&params.key, key, 16);
+//     cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
 
-    if (!cctx) {
-        return -err;
-    }
+//     if (!cctx) {
+//         return -err;
+//     }
 
-    err = crypto_ctx_insert(cctx);
-    if (err && err != -EEXIST)
-        return -err;
+//     err = crypto_ctx_insert(cctx);
+//     if (err && err != -EEXIST)
+//         return -err;
 
-    return 0;
-}
+//     return 0;
+// }
