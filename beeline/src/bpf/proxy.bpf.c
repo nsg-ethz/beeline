@@ -115,7 +115,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16384);
     __type(key, struct addr_key);
-    __type(value, struct opt_frwd_token);
+    __type(value, enum pr_sock_action);
 } sock_wait_list SEC(".maps");
 
 // TODO: These per-cpu maps are only necessary if the respective struct
@@ -156,6 +156,12 @@ enum pr_action {
     PR_DROP=0,
     PR_PASS,
     PR_UTRN
+};
+
+enum pr_sock_action {
+    PR_ADD_LOCAL=0,
+    PR_ADD_REMOTE,
+    PR_ADD_BOTH,
 };
 
 // TODO: this needs special care to get aligned
@@ -392,12 +398,6 @@ struct us_conn_state {
     u32 num_reqs;
 };
 
-// compiler generated
-struct opt_frwd_token {
-    u8 is_some;
-    struct frwd_token inner;
-};
-
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 8192);
@@ -418,6 +418,13 @@ struct {
     __type(key, struct addr_key);
     __type(value, struct us_conn_state);
 } us_conns SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct sock_key);
+    __type(value, u16);
+} u2d SEC(".maps");
 
 enum pr_action authorize(struct pipeline_ctx *ctx) {
     if (!ctx) return PR_DROP;
@@ -491,16 +498,6 @@ enum pr_action update_us_state(const struct sock_key *ukey, struct pipeline_ctx 
         return PR_DROP;
     }
 
-    struct frwd_token ft = {
-        .conn_id = 0,
-        .direction = PR_UPSTREAM,
-        .backend = _res_origin(ukey),
-        .num_bytes_min = true
-    };
-    if (_fib_insert(&ft, ukey) < 0) {
-        bpf_err("ERROR: Failed to reinsert upstream socket");
-    }
-
     const struct addr_key *rukey = &ukey->remote;
     struct us_conn_state *s = bpf_map_lookup_elem(&us_conns, rukey);
     if (s == NULL) {
@@ -547,9 +544,39 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     return PR_PASS;
 }
 
+enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    if (bpf_map_update_elem(&u2d, ukey, &dkey->local.port, BPF_ANY) < 0) {
+        bpf_err("ERROR: Failed to add downstream to upstream mapping");
+        return PR_DROP;
+    }
+
+    return PR_PASS;
+}
+
 enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    u16 *conn_id = bpf_map_lookup_elem(&u2d, ukey);
+    if (conn_id == NULL) {
+        bpf_err("ERROR: Failed to find downstream connection");
+        return PR_DROP;
+    }
+
     ctx->ft.direction = PR_DOWNSTREAM;
-    ctx->ft.conn_id = ctx->conn_id;
+    ctx->ft.conn_id = *conn_id;
+
+    return PR_PASS;
+}
+
+enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    // make upstream connection available for new requests
+    struct frwd_token ft = {
+        .conn_id = 0,
+        .direction = PR_UPSTREAM,
+        .backend = _res_origin(ukey),
+        .num_bytes_min = true
+    };
+    if (_fib_insert(&ft, ukey) < 0) {
+        bpf_err("ERROR: Failed to reinsert upstream socket");
+    }
 
     return PR_PASS;
 }
@@ -697,15 +724,15 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     enum pr_action res = PR_DROP;
 
     if (is_downstream) {
-        res = authorize(ctx);
-        if (res == PR_DROP) {
-            bpf_log("PLUGIN: Drop downstream msg");
-            return PR_DROP;
-        }
+        // res = authorize(ctx);
+        // if (res == PR_DROP) {
+        //     bpf_log("PLUGIN: Drop downstream msg");
+        //     return PR_DROP;
+        // }
 
-        if (update_ds_state(ikey, ctx) != PR_PASS) {
-            bpf_err("ERROR: Updating downstream connection state failed.");
-        }
+        // if (update_ds_state(ikey, ctx) != PR_PASS) {
+        //     bpf_err("ERROR: Updating downstream connection state failed.");
+        // }
 
         if (ctx->backend_range.len == 0) return PR_DROP;
         enum pr_action res = forward_ds_conn(ikey, ctx);
@@ -714,15 +741,15 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
             return PR_DROP;
         }
 
-        if (write_conn_id(msg, ikey, ctx) != PR_PASS) {
-            bpf_err("ERROR: Writing conn_id failed.");
-        }
+        // if (write_conn_id(msg, ikey, ctx) != PR_PASS) {
+        //     bpf_err("ERROR: Writing conn_id failed.");
+        // }
     }
     else {
-        struct us_conn_state state = { 0 };
-        if (update_us_state(ikey, ctx) != PR_PASS) {
-            bpf_err("ERROR: Updating upstream connection state failed.");
-        }
+        // struct us_conn_state state = { 0 };
+        // if (update_us_state(ikey, ctx) != PR_PASS) {
+        //     bpf_err("ERROR: Updating upstream connection state failed.");
+        // }
 
         enum pr_action res = forward_us_conn(ikey, ctx);
         if (res == PR_DROP) {
@@ -749,7 +776,22 @@ int msg_verdict(struct sk_msg_md *msg) {
     };
 
     bool is_downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
-    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
+    bool is_upstream_req = (ikey.local.ip4 >> 24 == 254); // TODO: identify upstream requests more safely
+    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d, upstream req: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream, is_upstream_req);
+
+    // in this Envoy has already decided where the packet should go
+    if (is_upstream_req) {
+        struct sock_key ekey = {
+            .local = ikey.remote,
+            .remote = ikey.local
+        };
+        post_forward_ds_conn(&ikey, &ekey, NULL);
+
+        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+            bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+        }
+        return SK_PASS;
+    }
 
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
@@ -775,8 +817,8 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
 
     if (res == PR_DROP) {
-        bpf_err("Drop msg conn-id: %d, body: %s", ctx->ft.conn_id, msg->data);
-        return SK_DROP;
+        // bpf_err("Drop msg conn-id: %d, body: %s", ctx->ft.conn_id, msg->data);
+        return SK_PASS;
     }
 
     if (res == PR_UTRN) {
@@ -793,6 +835,13 @@ int msg_verdict(struct sk_msg_md *msg) {
     if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
         bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
         return SK_PASS;
+    }
+
+    if (is_downstream) {
+        post_forward_ds_conn(&ikey, &ekey, NULL);
+    }
+    else {
+        post_forward_us_conn(&ikey, &ekey, ctx);
     }
 
     u32 msg_len = ctx->content_length+ctx->done_idx+2;
@@ -824,24 +873,20 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             }
         };
 
-        struct opt_frwd_token *ft = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
-        if (ft != NULL) {
+        bpf_log("Established socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+
+        enum pr_sock_action *remote = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
+        enum pr_sock_action *local = bpf_map_lookup_elem(&sock_wait_list, &skey.local);
+        bool add_remote = (remote != NULL && (*remote == PR_ADD_REMOTE || *remote == PR_ADD_BOTH));
+        bool add_local = (local != NULL && (*local == PR_ADD_LOCAL || *local == PR_ADD_BOTH));
+
+        if (add_remote || add_local) {
             if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
 
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
-
-            // add the socket before the forwarding token to avoid a race condition
-            if (ft->is_some) {
-                if (_fib_insert(&ft->inner, &skey) < 0) {
-                    bpf_err("ERROR: Failed to set forwarding token");
-                }
-                else {
-                    bpf_log("Set forwarding token [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
-                }
-            }
         }
     }
 

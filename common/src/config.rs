@@ -19,9 +19,14 @@ impl Config {
     }
 
     pub fn select_backend_instance(&self, backend: &str) -> Option<&SocketAddr> {
+        self.all_backend_instances(backend)?
+            .choose(&mut rand::thread_rng())
+    }
+
+    pub fn all_backend_instances(&self, backend: &str) -> Option<&Vec<SocketAddr>> {
         let host = self.hosts.iter().find(|host| host.name == *backend)?;
 
-        host.instances.choose(&mut rand::thread_rng())
+        Some(&host.instances)
     }
 }
 

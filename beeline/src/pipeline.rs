@@ -175,6 +175,7 @@ impl NewUpstream for ConnectToBackend {
             })
             .collect::<Vec<_>>()
     }
+
     fn new_upstream_connection(&mut self, ft: &frwd_token) -> Result<SocketAddr> {
         if ft.direction != 2 {
             bail!("Invalid direction: {}", ft.direction);
