@@ -15,9 +15,56 @@ sns.color_palette("tab10")
 
 np.random.seed(1)
 
-REWRITE_LEGEND = False
+parser = argparse.ArgumentParser()
+parser.add_argument("-n", "--name", help="Name of the experiment")
+parser.add_argument("-l", "--legend", default=False, action=argparse.BooleanOptionalAction, help="Rename the legend labels")
+parser.add_argument("-o", "--output", default="res/vis", help="Can be an output directory or file")
 
-def thousand_label(x, pos): 
+subparsers = parser.add_subparsers(dest="command")
+
+box_plot = subparsers.add_parser("bp")
+box_plot.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+
+line = subparsers.add_parser("line")
+line.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+line.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+
+bar = subparsers.add_parser("bar")
+bar.add_argument("-m", "--metric", default="data_received", help="The recorded metric to visualize")
+bar.add_argument("-a", "--agg", default="rate", help="The aggregation func")
+
+speedup = subparsers.add_parser("speedup")
+speedup.add_argument("-b", "--base", required=False, help="The data that serves as the critical path")
+speedup.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)", "max"], help="The aggregation funcs")
+
+duration = subparsers.add_parser("duration")
+duration.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
+duration.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+
+overhead = subparsers.add_parser("overhead")
+overhead.add_argument("-b", "--base", default="none", help="The data that serves as the critical path")
+overhead.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+overhead.add_argument("--absolute", default=False, help="Report the overhead in absolute numbers")
+
+cdf = subparsers.add_parser("cdf")
+cdf.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
+cdf.add_argument("-c", "--crop", default=0, help="Crop the given number of seconds from the beginning of the trace")
+
+scatter = subparsers.add_parser("scatter")
+scatter.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
+scatter.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
+scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
+
+surface = subparsers.add_parser("surface")
+surface.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
+surface.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+
+args = parser.parse_args()
+
+def thousand_label(x, pos):
     return "%1.0fK" % (x * 1e-3) if x >= 1e3 else "%1.0f" % x
 
 def _parse_path(path):
@@ -134,6 +181,47 @@ def _rename_legend_labels(g):
         if len(new_name) > 0:
             text.set_text(new_name)
 
+def box_plot(name, metric, dst):
+    paths = _get_file_paths(name)
+    df = _load_summary_data(paths)
+    df = df.xs(metric, level="metric_name")
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+
+    plots = []
+    for proxy in order:
+        lw = df.loc[proxy, 1024]["min"]
+        lq = df.loc[proxy, 1024]["p(25)"]
+        uw = df.loc[proxy, 1024]["max"]
+        uq = df.loc[proxy, 1024]["p(75)"]
+        med = df.loc[proxy, 1024]["med"]
+
+        plot = f"""\\addplot+ [
+            boxplot prepared={{
+                lower whisker={lw}, lower quartile={lq},
+                median={med},
+                upper whisker={uw}, upper quartile={uq},
+            }},
+        ] coordinates {{}};"""
+        plots.append(plot)
+
+    tick_labels = ", ".join(order)
+    ticks = ", ".join([str(i) for i in range(1, len(order)+1)])
+    plots = "\n".join(plots)
+
+    tikz = f"""\\begin{{tikzpicture}}
+    \\begin{{axis}}[
+        ytick={{{ticks}}},
+        yticklabels={{{tick_labels}}},
+    ]
+
+    {plots}
+
+    \\end{{axis}}
+\\end{{tikzpicture}}"""
+    print(tikz)
+
 
 def line_graph(name, metric, agg, dst):
     paths = _get_file_paths(name)
@@ -150,7 +238,7 @@ def line_graph(name, metric, agg, dst):
     g = sns.lineplot(data=df, x="payload_size", y=agg, hue="proxy", marker="o", hue_order=order)
     sizes = set(df.index.get_level_values("payload_size"))
     sizes = sorted(sizes)
-    
+
     g.set_xscale("log")
     g.set_xlabel("payload size [B]")
     g.set_xticks(sizes)
@@ -165,9 +253,9 @@ def line_graph(name, metric, agg, dst):
     g.set_yticks(np.linspace(min_y, max_y, 5))
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
-    if REWRITE_LEGEND:
+    if args.legend:
         _rename_legend_labels(g)
-    
+
     _save_to_path(f"line-{metric}-{agg}", os.path.join(dst, name))
 
 
@@ -182,12 +270,12 @@ def bar_graph(name, metric, agg, dst):
     order = sorted(order)
 
     g = sns.catplot(data=df, kind="bar", x="payload_size", y=agg, hue="proxy", errorbar="sd", hue_order=order)
-    
+
     sizes = set(df.index.get_level_values("payload_size"))
     sizes = sorted(sizes)
 
     g.set(xlabel="payload size [B]", ylabel="throughput [MB/s]")
-    
+
     # g.set_xscale("log")
     # g.set_xlabel("payload size [B]")
     # g.set_xticks(sizes)
@@ -204,10 +292,10 @@ def bar_graph(name, metric, agg, dst):
 
     # sns.move_legend(g, "upper center")
 
-    if REWRITE_LEGEND:
+    if args.legend:
         _rename_legend_labels(g)
-    
-    _save_to_path(f"bar-{metric}-{agg}", os.path.join(dst, name))           
+
+    _save_to_path(f"bar-{metric}-{agg}", os.path.join(dst, name))
 
 
 def speedup_graph(name, base, metric, aggs, dst):
@@ -238,8 +326,8 @@ def speedup_graph(name, base, metric, aggs, dst):
     # plt.title(metric)
     g.set_axis_labels("payload size [B]", "speedup")
     g.legend.set_title(None)
-    
-    if REWRITE_LEGEND:
+
+    if args.legend:
         _rename_legend_labels(g)
 
     sns.move_legend(g, "upper right")
@@ -260,10 +348,10 @@ def duration_graph(name, proxy, agg, dst):
     g = df.plot(kind="bar", stacked=True)
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]")
-    
-    if REWRITE_LEGEND:
+
+    if args.legend:
         _rename_legend_labels(g)
-    
+
     _save_to_path(f"duration-{proxy}-{agg}", os.path.join(dst, name))
 
 
@@ -298,10 +386,10 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
     g = df.plot(kind="bar")
     g.set_xlabel("payload size [B]")
     g.set_ylabel("time [ms]" if absolute else "overhead [%]")
-    
-    if REWRITE_LEGEND:
+
+    if args.legend:
         _rename_legend_labels(g)
-    
+
     _save_to_path(f"overhead-{metric}-{agg}", os.path.join(dst, name))
 
 
@@ -322,8 +410,8 @@ def cdf_graph(name, metric, crop, dst):
 
     g.set_xlabel(metric)
     # g.set_ybound(lower=0.9, upper=1.0)
-    
-    if REWRITE_LEGEND:
+
+    if args.legend:
         _rename_legend_labels(g)
 
     plt.xscale("log")
@@ -353,9 +441,9 @@ def scatter_graph(name, proxy, metric, drop_rate, dst):
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
     g.set_ylabel(f"{metric} [ms]")
 
-    if REWRITE_LEGEND:
+    if args.legend:
         _rename_legend_labels(g)
-    
+
     _save_to_path(f"scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", os.path.join(dst, name))
 
 
@@ -396,62 +484,14 @@ def surface_graph(name, proxy, metric, agg, dst):
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
     ax.set_xlim([16384, 128])
     ax.set_zlabel("latency [ms]")
-    
+
     _save_to_path(f"surface-{proxy}-{metric}-{agg}", os.path.join(dst, name))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-n", "--name", help="Name of the experiment")
-    parser.add_argument("-l", "--legend", default=False, action=argparse.BooleanOptionalAction, help="Rename the legend labels")
-    parser.add_argument("-o", "--output", default="res/vis", help="Can be an output directory or file")
-
-    subparsers = parser.add_subparsers(dest="command")
-    
-    line = subparsers.add_parser("line")
-    line.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-    line.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-
-    bar = subparsers.add_parser("bar")
-    bar.add_argument("-m", "--metric", default="data_received", help="The recorded metric to visualize")
-    bar.add_argument("-a", "--agg", default="rate", help="The aggregation func")
-
-    speedup = subparsers.add_parser("speedup")
-    speedup.add_argument("-b", "--base", required=False, help="The data that serves as the critical path")
-    speedup.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-    speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)", "max"], help="The aggregation funcs")
-
-    duration = subparsers.add_parser("duration")
-    duration.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
-    duration.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-
-    overhead = subparsers.add_parser("overhead")
-    overhead.add_argument("-b", "--base", default="none", help="The data that serves as the critical path")
-    overhead.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-    overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-    overhead.add_argument("--absolute", default=False, help="Report the overhead in absolute numbers")
-
-    cdf = subparsers.add_parser("cdf")
-    cdf.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
-    cdf.add_argument("-c", "--crop", default=0, help="Crop the given number of seconds from the beginning of the trace")
-
-    scatter = subparsers.add_parser("scatter")
-    scatter.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
-    scatter.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
-    scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
-
-    surface = subparsers.add_parser("surface")
-    surface.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
-    surface.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-    surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-    
-    args = parser.parse_args()
-
-    if args.legend is not False:
-        # global REWRITE_LEGEND
-        REWRITE_LEGEND = args.legend
-
-    if args.command == "line":
+    if args.command == "bp":
+        box_plot(args.name, args.metric, args.output)
+    elif args.command == "line":
         line_graph(args.name, args.metric, args.agg, args.output)
     elif args.command == "bar":
         bar_graph(args.name, args.metric, args.agg, args.output)
