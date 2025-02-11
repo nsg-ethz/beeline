@@ -18,6 +18,7 @@ const backends = [
     new Counter("backend2"),
     new Counter("backend3"),
     new Counter("backend4"),
+    new Counter("envoy"),
 ];
 const authorized = new Counter("authorized");
 
@@ -105,7 +106,7 @@ export function requestTo(url, server) {
 
     if (!passed && res.body != null) {
         console.log(
-            `Failed request to ${url}: req = ${payload}, res = ${res.body}`,
+            `Failed request to ${url}:\nreq = ${payload},\nres = ${res.body},\nheaders = ${JSON.stringify(res.headers)}`,
         );
     }
 
