@@ -147,8 +147,6 @@ const u16 s_any = 1;
 
 volatile const u32 ip4;
 volatile const u32 port;
-const u32 local_port = 12345;
-const u32 local_gw = 254;
 volatile const u32 s2ts[128][256];
 const u32 percpu_key = 0;
 
@@ -167,7 +165,7 @@ enum pr_sock_action {
 // TODO: this needs special care to get aligned
 // user generated
 struct frwd_token {
-    u32 conn_id;
+    struct addr_key addr;
     u8 direction;
     u8 backend;
     u8 num_bytes_min;
@@ -243,7 +241,7 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
 }
 
 static __always_inline int _fib_insert(const struct frwd_token *ft, const struct sock_key *key) {
-    bpf_log("Insert to FIB {%d %d %d %d}", ft->conn_id, ft->direction, ft->backend, ft->num_bytes_min);
+    bpf_log("Insert to FIB {%pI4:%u %d %d %d}", ft->addr.ip4, ft->addr.port, ft->direction, ft->backend, ft->num_bytes_min);
     if (!ft->num_bytes_min) {
         return bpf_map_update_elem(&fib_direct, ft, key, BPF_ANY);
     }
@@ -295,7 +293,6 @@ struct pipeline_ctx {
     u32 done_idx;
     struct prange backend_range;
     struct prange content_length_range;
-    struct prange conn_id_range;
     struct prange jwt_claims_range;
     struct prange jwt_sig_range;
 
@@ -303,7 +300,6 @@ struct pipeline_ctx {
     // TODO: back this by a single buffer, with pointers to the correct data path
     char backend[4096];
     u32 content_length;
-    u32 conn_id;
     char jwt_claims[4096];
     char jwt_sig[64];
 
@@ -341,27 +337,19 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     ctx->content_length = tmp;
     ctx->content_length_range = r1;
 
-    struct prange r2 = pranges[2];
-    r2.len &= 0x3f;
-    bpf_probe_read_kernel(buf, r2.len, data + r2.idx);
-    buf[r2.len] = '\0'; // this way, we don't need an if-clause
-    bpf_strtoul(buf, r2.len + 1, 10, &tmp);
-    ctx->conn_id = tmp;
-    ctx->conn_id_range = r2;
-
     // TODO: we should not load the val if it exceeds the string length
-    struct prange r3 = pranges[3];
-    r3.len &= 0xfff;
-    bpf_probe_read_kernel(ctx->jwt_claims, r3.len, data + r3.idx);
-    ctx->jwt_claims_range = r3;
+    struct prange r2 = pranges[2];
+    r2.len &= 0xfff;
+    bpf_probe_read_kernel(ctx->jwt_claims, r2.len, data + r2.idx);
+    ctx->jwt_claims_range = r2;
 
-    struct prange r4 = pranges[4];
+    struct prange r3 = pranges[3];
     // TODO: this is a haaackkk
-    r4.idx += 1;
-    r4.len -= 1;
-    r4.len &= 0x3f;
-    bpf_probe_read_kernel(ctx->jwt_sig, r4.len, data + r4.idx);
-    ctx->jwt_sig_range = r4;
+    r3.idx += 1;
+    r3.len -= 1;
+    r3.len &= 0x3f;
+    bpf_probe_read_kernel(ctx->jwt_sig, r3.len, data + r3.idx);
+    ctx->jwt_sig_range = r3;
 
     ctx->done_idx = done_idx;
     ctx->ft = (struct frwd_token){ 0 };
@@ -418,13 +406,6 @@ struct {
     __type(key, struct addr_key);
     __type(value, struct us_conn_state);
 } us_conns SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
-    __type(key, struct sock_key);
-    __type(value, u16);
-} u2d SEC(".maps");
 
 // enum pr_action authorize(struct pipeline_ctx *ctx) {
 //     if (!ctx) return PR_DROP;
@@ -541,42 +522,31 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     ctx->ft.direction = PR_UPSTREAM;
     ctx->ft.num_bytes_min = true;
 
+    return PR_PASS;
+}
+
+enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    if (ukey->local.ip4 == 0 && ukey->remote.ip4 == 0) return PR_PASS;
+
     // at this point we have to ask the plugin how it wants to route
     // this request back to the client
     struct frwd_token ft_inv = { 0 };
     ft_inv.direction = PR_DOWNSTREAM;
-    ft_inv.conn_id = dkey->local.port;
+    ft_inv.addr = ukey->remote;
 
     if (_fib_insert(&ft_inv, dkey) < 0) {
         bpf_err("ERROR: Failed to set downstream forwarding token");
     }
     else {
-        bpf_log("Set downstream forwarding token {%d, %d, %d, %d}", ft_inv.conn_id, ft_inv.direction, ft_inv.backend, ft_inv.num_bytes_min);
-    }
-
-    return PR_PASS;
-}
-
-enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
-    bpf_log("U2D insert: [%pI4:%u->%pI4:%u]", &ukey->local.ip4, ukey->local.port, &ukey->remote.ip4, ukey->remote.port);
-    if (bpf_map_update_elem(&u2d, ukey, &dkey->local.port, BPF_ANY) < 0) {
-        bpf_err("ERROR: Failed to add downstream to upstream mapping");
-        return PR_DROP;
+        bpf_log("Set downstream forwarding token {%pI4:%u, %d, %d, %d}", &ft_inv.addr.ip4, ft_inv.addr.port, ft_inv.direction, ft_inv.backend, ft_inv.num_bytes_min);
     }
 
     return PR_PASS;
 }
 
 enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
-    bpf_log("U2D lookup: [%pI4:%u->%pI4:%u]", &ukey->local.ip4, ukey->local.port, &ukey->remote.ip4, ukey->remote.port);
-    u16 *conn_id = bpf_map_lookup_elem(&u2d, ukey);
-    if (conn_id == NULL) {
-        bpf_err("ERROR: Failed to find downstream connection");
-        return PR_DROP;
-    }
-
     ctx->ft.direction = PR_DOWNSTREAM;
-    ctx->ft.conn_id = *conn_id;
+    ctx->ft.addr = ukey->remote;
 
     return PR_PASS;
 }
@@ -584,28 +554,14 @@ enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx 
 enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     // make upstream connection available for new requests
     struct frwd_token ft = {
-        .conn_id = 0,
+        .addr = { 0 },
         .direction = PR_UPSTREAM,
         .backend = _res_origin(ukey),
         .num_bytes_min = true
     };
     if (_fib_insert(&ft, ukey) < 0) {
-        bpf_err("ERROR: Failed to reinsert upstream socket");
+        bpf_err("ERROR: Failed to reinsert upstream socket to FIB");
     }
-
-    return PR_PASS;
-}
-
-enum pr_action write_conn_id(struct sk_msg_md *msg, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
-    if (msg == NULL || dkey == NULL || ctx == NULL) return PR_DROP;
-
-    struct prange r = (ctx->conn_id_range.len > 0) ? ctx->conn_id_range : (struct prange) { .idx = ctx->done_idx, .len = 0 };
-    char conn_id[20];
-    u32 len = BPF_SNPRINTF(conn_id, 20, "conn-id: %d\r\n", dkey->local.port);
-    bpf_clamp_uminmax(len, 0, 16);
-
-    if (_modify(msg, r, conn_id, len) < 0) return PR_UTRN;
-    ctx->done_idx += 16;
 
     return PR_PASS;
 }
@@ -732,23 +688,19 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
         //     return PR_DROP;
         // }
 
-        // if (update_ds_state(ikey, ctx) != PR_PASS) {
-        //     bpf_err("ERROR: Updating downstream connection state failed.");
-        // }
+        if (update_ds_state(ikey, ctx) != PR_PASS) {
+            bpf_err("ERROR: Updating downstream connection state failed.");
+        }
 
         if (ctx->backend_range.len == 0) return PR_DROP;
         enum pr_action res = forward_ds_conn(ikey, ctx);
         if (res == PR_DROP) return PR_DROP;
-
-        // if (write_conn_id(msg, ikey, ctx) != PR_PASS) {
-        //     bpf_err("ERROR: Writing conn_id failed.");
-        // }
     }
     else {
-        // struct us_conn_state state = { 0 };
-        // if (update_us_state(ikey, ctx) != PR_PASS) {
-        //     bpf_err("ERROR: Updating upstream connection state failed.");
-        // }
+        struct us_conn_state state = { 0 };
+        if (update_us_state(ikey, ctx) != PR_PASS) {
+            bpf_err("ERROR: Updating upstream connection state failed.");
+        }
 
         enum pr_action res = forward_us_conn(ikey, ctx);
         if (res == PR_DROP) return PR_DROP;
@@ -772,8 +724,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     };
 
     bool is_downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
-    bool is_upstream_req = (ikey.local.ip4 >> 24 == 254); // TODO: identify upstream requests more safely
-    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d, upstream req: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream, is_upstream_req);
+    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
@@ -792,45 +743,57 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
     _init_pipeline_ctx(msg, done_idx, pranges, ctx);
 
+    res = _pipeline(msg, ctx, &ikey);
+
+    u32 msg_len = ctx->content_length+ctx->done_idx+2;
+    bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
+    bpf_msg_apply_bytes(msg, msg_len);
+
+    if (res == PR_DROP) {
+        bpf_err("PLUGIN: Drop msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        return SK_DROP;
+    }
+    if (res == PR_UTRN) {
+        bpf_err("PLUGIN: Invalid UTRN");
+        return SK_DROP;
+    }
+
     struct sock_key ekey = { 0 };
-    // in this Envoy has already decided where the packet should go
-    if (is_upstream_req) {
-        ekey.local = ikey.remote;
-        ekey.remote = ikey.local;
-    }
-    else {
-        res = _pipeline(msg, ctx, &ikey);
+    res = _fib_query(&ikey, &ctx->ft, &ekey);
 
-        if (res == PR_PASS) {
-            res = _fib_query(&ikey, &ctx->ft, &ekey);
-            if (res == PR_DROP) {
-                bpf_log("WARN: No FIB entry found for {%d %d %d %d}", ctx->ft.conn_id, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
-            }
-        }
-    }
-
-    if (is_downstream || is_upstream_req) {
+    if (is_downstream) {
         post_forward_ds_conn(&ikey, &ekey, ctx);
     }
     else {
         post_forward_us_conn(&ikey, &ekey, ctx);
     }
 
-    u32 msg_len = ctx->content_length+ctx->done_idx+2;
-    bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
-    bpf_msg_apply_bytes(msg, msg_len);
-
-    if (res == PR_DROP || res == PR_UTRN) {
-        bpf_log("Letting msg from [%pI4:%u->%pI4:%u] pass", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        return SK_PASS;
+    if (res == PR_DROP) {
+        bpf_err("No FIB entry found for {%pI4:%u %d %d %d}. Dropping.", &ctx->ft.addr.ip4, ctx->ft.addr.port, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
+        return SK_DROP;
     }
 
-    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-        bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        return SK_PASS;
+    if (res == PR_PASS) {
+        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+            bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            // res = PR_UTRN;
+            return SK_DROP;
+        }
+        else {
+            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            return SK_PASS;
+        }
     }
 
-    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+    if (res == PR_UTRN) {
+        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->ft, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add uturn token to wait list");
+        }
+        else {
+            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        }
+    }
+
     return SK_PASS;
 }
 

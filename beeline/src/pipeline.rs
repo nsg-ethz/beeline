@@ -14,7 +14,7 @@ impl Eq for frwd_token {}
 
 impl PartialEq for frwd_token {
     fn eq(&self, other: &Self) -> bool {
-        self.conn_id == other.conn_id
+        self.addr == other.addr
             && self.direction == other.direction
             && self.backend == other.backend
             && self.num_bytes_min == other.num_bytes_min
@@ -23,7 +23,7 @@ impl PartialEq for frwd_token {
 
 impl Hash for frwd_token {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.conn_id.hash(state);
+        self.addr.hash(state);
         self.direction.hash(state);
         self.backend.hash(state);
         self.num_bytes_min.hash(state);
@@ -169,7 +169,7 @@ impl NewUpstream for ConnectToBackend {
             .map(|(idx, _)| frwd_token {
                 direction: 2,
                 backend: (idx + 1) as u8,
-                conn_id: 0,
+                addr: addr_key { ip4: 0, port: 0 },
                 num_bytes_min: 1,
                 padding: 0,
             })

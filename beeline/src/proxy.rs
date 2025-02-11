@@ -24,12 +24,10 @@ use std::{
         unix::fs::OpenOptionsExt,
     },
     sync::{Arc, Mutex},
-    time::Duration,
 };
 use tokio::{
     io::{self, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
-    task, time,
 };
 
 pub mod bpf;
@@ -121,6 +119,14 @@ fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
     }
 }
 
+fn fib_insert_direct<M: MapCore>(map: &M, ft: frwd_token, val: &sock_key) -> Result<()> {
+    let key = unsafe { ft.as_bytes() };
+    let val = unsafe { val.as_bytes() };
+
+    map.update(&key, &val, MapFlags::ANY)?;
+    Ok(())
+}
+
 fn print(level: PrintLevel, msg: String) {
     let msg = msg.trim_start_matches("libbpf:").trim();
 
@@ -175,7 +181,6 @@ impl<'obj> Proxy<'obj> {
         );
         parser.match_http_hdr("backend")?;
         parser.match_http_hdr("content-length")?;
-        parser.match_http_hdr("conn-id")?;
         parser.match_http_hdr_auth()?;
 
         // this is necessary so that the DFA won't
@@ -256,7 +261,11 @@ impl<'obj> Proxy<'obj> {
     }
 
     pub async fn listen(self) -> Result<()> {
-        // self.trigger_timers()?;
+        let fib = self.get_fib()?;
+        let fts = self.new_upstream.lock().unwrap().all_upstream_fts();
+        for ft in fts {
+            add_pqueue_to_fib(&fib, ft)?;
+        }
 
         let sock_wait_list = self.get_sock_wait_list()?;
         add_socket_to_wait_list(
@@ -265,183 +274,157 @@ impl<'obj> Proxy<'obj> {
             pr_sock_action::PR_ADD_REMOTE,
             MapFlags::ANY,
         )?;
-        debug!("Monitoring socket {}", self.address);
 
-        let fib = self.get_fib()?;
-        let fts = self.new_upstream.lock().unwrap().all_upstream_fts();
-        for ft in fts {
-            add_pqueue_to_fib(&fib, ft)?;
+        info!("Listening on {}", self.address);
 
-            let backend = format!("server{}", ft.backend);
-            let us_remote_addrs = self
-                .config
-                .all_backend_instances(&backend)
-                .cloned()
-                .unwrap_or_default();
+        let socket = TcpSocket::new_v4()?;
+        socket.set_reuseaddr(true)?;
+        socket.bind(self.address)?;
+        let listener = socket.listen(4096)?;
 
-            for us_remote_addr in us_remote_addrs {
-                debug!("Monitoring socket {}", us_remote_addr);
+        loop {
+            self.accept(&listener).await?;
+        }
+    }
+
+    async fn accept(&self, listener: &TcpListener) -> Result<()> {
+        let (downstream, downstream_addr) = listener.accept().await?;
+        debug!("Accepted connection on port {:?}", downstream_addr.port());
+
+        if let Err(e) = self.handle_downstream(downstream).await {
+            error!("Error handling downstream connection: {:?}", e);
+        }
+
+        Ok(())
+    }
+
+    async fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
+        let addr = self.address.clone();
+        let sock_wait_list = self.get_sock_wait_list()?;
+        let utrn_wait_list = self.get_utrn_wait_list()?;
+        let fib_direct = self.get_direct_fib()?;
+        let binder = self.binder.clone();
+        let new_upstream = self.new_upstream.clone();
+
+        tokio::spawn(async move {
+            let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr)).unwrap();
+            let mut buf = Vec::with_capacity(8192);
+            let mut upstreams = Vec::new();
+
+            let res = loop {
+                // wait until the downstream connection is readable
+                match downstream.readable().await {
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    Err(e) => break Err(anyhow!(e)),
+                    Ok(()) => {}
+                }
+
+                match downstream.try_read_buf(&mut buf) {
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    Err(e) => break Err(anyhow!(e)),
+                    Ok(0) => break Ok(()),
+                    Ok(len) => len,
+                };
+
+                let mut headers = [httparse::EMPTY_HEADER; 64];
+                let mut req = httparse::Request::new(&mut headers);
+                let hdr_len = req.parse(&buf);
+                if let Err(e) = hdr_len {
+                    break Err(anyhow!(e));
+                }
+
+                let con_len = req
+                    .headers
+                    .iter()
+                    .find(|h| h.name.eq_ignore_ascii_case("content-length"))
+                    .and_then(|h| std::str::from_utf8(h.value).ok())
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(0);
+
+                let hdr_len = match hdr_len.unwrap() {
+                    httparse::Status::Complete(len) => len,
+                    httparse::Status::Partial => continue,
+                };
+
+                let req_len = hdr_len + con_len;
+                if buf.len() < req_len {
+                    debug!("Request not fully read: {}/{}", buf.len(), req_len);
+                    let req = String::from_utf8(buf.clone());
+                    debug!("{:?}", req);
+                    continue;
+                }
+
+                // check if there is a forwarding token in the waiting list
+                let ft: Option<frwd_token> = utrn_wait_list
+                    .lookup_and_delete_as(&dkey)
+                    .expect("Failed to lookup utrn_wait_list");
+
+                let Some(ft) = ft else {
+                    warn!(
+                        "No forwarding token found in wait list for downstream connection: [{:?}->{:?}]",
+                        &downstream.peer_addr().unwrap(), &addr
+                    );
+                    continue;
+                };
+
+                let us_remote_addr = new_upstream
+                    .lock()
+                    .unwrap()
+                    .new_upstream_connection(&ft)
+                    .unwrap();
+                let us_sock = binder.bind(us_remote_addr.ip()).unwrap();
+                let us_local_addr = us_sock.local_addr().unwrap();
+
+                debug!("Bound to socket: {}", us_local_addr);
+
+                // TODO: the eBPF program should give us the FT to use
+                let ft_inv = frwd_token {
+                    addr: addr_key::try_from(&us_local_addr).unwrap(),
+                    direction: 1,
+                    ..Default::default()
+                };
+                fib_insert_direct(&fib_direct, ft_inv, &dkey).expect("Failed to insert into FIB");
 
                 // don't add the forwarding token here, otherwise the connection is instantly used by another
                 // incoming connection. This way, the connection will be automatically added once the connection
                 // is free to use again
-                add_socket_to_wait_list(
+                if let Err(e) = add_socket_to_wait_list(
                     &sock_wait_list,
-                    &us_remote_addr,
-                    pr_sock_action::PR_ADD_BOTH,
+                    &us_local_addr,
+                    pr_sock_action::PR_ADD_REMOTE,
                     MapFlags::NO_EXIST,
-                )?;
+                ) {
+                    error!(
+                        "Failed to add socket [{:?}->{:?}] to wait list: {:?}",
+                        us_local_addr, us_remote_addr, e
+                    );
+                    break Err(e);
+                }
+
+                debug!(
+                    "Opening upstream connection [{}->{}] for port {}",
+                    us_local_addr,
+                    us_remote_addr,
+                    downstream.peer_addr().unwrap().port()
+                );
+                let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
+
+                let msg = buf.drain(..req_len).collect::<Vec<u8>>();
+                let mut req_buf = Cursor::new(&msg);
+                upstream.write_all_buf(&mut req_buf).await.unwrap();
+
+                // upstream connections are automatically reused by the eBPF program
+                // adding them to this shared vector allows us to keep them alive
+                upstreams.push(upstream);
+            };
+
+            if let Err(e) = res {
+                error!("Error handling downstream connection: {:?}", e);
             }
-        }
-
-        info!("Listening on {}", self.address);
-
-        tokio::signal::ctrl_c().await.unwrap();
+        });
 
         Ok(())
-
-        // let socket = TcpSocket::new_v4()?;
-        // socket.set_reuseaddr(true)?;
-        // socket.bind(self.address)?;
-        // let listener = socket.listen(4096)?;
-
-        // loop {
-        //     self.accept(&listener).await?;
-        // }
     }
-
-    // async fn accept(&self, listener: &TcpListener) -> Result<()> {
-    //     let sock_wait_list = self.get_sock_wait_list()?;
-    //     add_socket_to_wait_list(&sock_wait_list, &self.address, None, MapFlags::ANY)?;
-
-    //     let (downstream, downstream_addr) = listener.accept().await?;
-    //     debug!("Accepted connection on port {:?}", downstream_addr.port());
-
-    //     if let Err(e) = self.handle_downstream(downstream).await {
-    //         error!("Error handling downstream connection: {:?}", e);
-    //     }
-
-    //     Ok(())
-    // }
-
-    // async fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
-    //     let addr = self.address.clone();
-    //     let sock_wait_list = self.get_sock_wait_list()?;
-    //     let utrn_wait_list = self.get_utrn_wait_list()?;
-    //     let binder = self.binder.clone();
-    //     let new_upstream = self.new_upstream.clone();
-
-    //     tokio::spawn(async move {
-    //         let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr)).unwrap();
-    //         let mut buf = Vec::with_capacity(8192);
-    //         let mut upstreams = Vec::new();
-
-    //         let res = loop {
-    //             // wait until the downstream connection is readable
-    //             match downstream.readable().await {
-    //                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-    //                 Err(e) => break Err(anyhow!(e)),
-    //                 Ok(()) => {}
-    //             }
-
-    //             match downstream.try_read_buf(&mut buf) {
-    //                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-    //                 Err(e) => break Err(anyhow!(e)),
-    //                 Ok(0) => break Ok(()),
-    //                 Ok(len) => len,
-    //             };
-
-    //             let mut headers = [httparse::EMPTY_HEADER; 64];
-    //             let mut req = httparse::Request::new(&mut headers);
-    //             let hdr_len = req.parse(&buf);
-    //             if let Err(e) = hdr_len {
-    //                 break Err(anyhow!(e));
-    //             }
-
-    //             let con_len = req
-    //                 .headers
-    //                 .iter()
-    //                 .find(|h| h.name.eq_ignore_ascii_case("content-length"))
-    //                 .and_then(|h| std::str::from_utf8(h.value).ok())
-    //                 .and_then(|v| v.parse::<usize>().ok())
-    //                 .unwrap_or(0);
-
-    //             let hdr_len = match hdr_len.unwrap() {
-    //                 httparse::Status::Complete(len) => len,
-    //                 httparse::Status::Partial => continue,
-    //             };
-
-    //             let req_len = hdr_len + con_len;
-    //             if buf.len() < req_len {
-    //                 debug!("Request not fully read: {}/{}", buf.len(), req_len);
-    //                 let req = String::from_utf8(buf.clone());
-    //                 debug!("{:?}", req);
-    //                 continue;
-    //             }
-
-    //             // check if there is a forwarding token in the waiting list
-    //             let ft: Option<frwd_token> = utrn_wait_list
-    //                 .lookup_and_delete_as(&dkey)
-    //                 .expect("Failed to lookup utrn_wait_list");
-
-    //             let Some(ft) = ft else {
-    //                 warn!(
-    //                     "No forwarding token found in wait list for downstream connection: {:?}",
-    //                     dkey
-    //                 );
-    //                 continue;
-    //             };
-
-    //             let us_remote_addr = new_upstream
-    //                 .lock()
-    //                 .unwrap()
-    //                 .new_upstream_connection(&ft)
-    //                 .unwrap();
-    //             let us_sock = binder.bind(us_remote_addr.ip()).unwrap();
-    //             let us_local_addr = us_sock.local_addr().unwrap();
-
-    //             debug!("Bound to socket: {}", us_local_addr);
-
-    //             // don't add the forwarding token here, otherwise the connection is instantly used by another
-    //             // incoming connection. This way, the connection will be automatically added once the connection
-    //             // is free to use again
-    //             if let Err(e) = add_socket_to_wait_list(
-    //                 &sock_wait_list,
-    //                 &us_local_addr,
-    //                 None,
-    //                 MapFlags::NO_EXIST,
-    //             ) {
-    //                 error!(
-    //                     "Failed to add socket [{:?}->{:?}] to wait list: {:?}",
-    //                     us_local_addr, us_remote_addr, e
-    //                 );
-    //                 break Err(e);
-    //             }
-
-    //             debug!(
-    //                 "Opening upstream connection [{}->{}] for port {}",
-    //                 us_local_addr,
-    //                 us_remote_addr,
-    //                 downstream.peer_addr().unwrap().port()
-    //             );
-    //             let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
-
-    //             let msg = buf.drain(..req_len).collect::<Vec<u8>>();
-    //             let mut req_buf = Cursor::new(&msg);
-    //             upstream.write_all_buf(&mut req_buf).await.unwrap();
-
-    //             // upstream connections are automatically reused by the eBPF program
-    //             // adding them to this shared vector allows us to keep them alive
-    //             upstreams.push(upstream);
-    //         };
-
-    //         if let Err(e) = res {
-    //             error!("Error handling downstream connection: {:?}", e);
-    //         }
-    //     });
-
-    //     Ok(())
-    // }
 
     // fn trigger_timers(&self) -> Result<()> {
     //     // TODO: timers can have their own frequency
@@ -478,6 +461,11 @@ impl<'obj> Proxy<'obj> {
 
     fn get_fib(&self) -> Result<MapHandle> {
         let id = self.skel.maps.fib.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_direct_fib(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.fib_direct.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 }
