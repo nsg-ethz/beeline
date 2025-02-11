@@ -309,7 +309,8 @@ struct pipeline_ctx {
 
 enum ft_direction {
     PR_DOWNSTREAM = 1,
-    PR_UPSTREAM
+    PR_UPSTREAM,
+    PR_REVERSE_PROXY,
 };
 
 enum ft_backend {
@@ -511,7 +512,10 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     bool backend_is_server4 = bpf_strncmp(ctx->backend, 7, server4) == 0;
 
     if (!backend_is_server1 && !backend_is_server2 && !backend_is_server3 && !backend_is_server4) {
-        return PR_DROP;
+        ctx->ft.direction = PR_REVERSE_PROXY;
+        ctx->ft.num_bytes_min = true;
+
+        return PR_PASS;
     }
 
     if (backend_is_server1) ctx->ft.backend = PR_SERVER1;
@@ -552,10 +556,12 @@ enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx 
 }
 
 enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    u8 dir = (ukey->local.port == 3333) ? PR_REVERSE_PROXY : PR_UPSTREAM;
+
     // make upstream connection available for new requests
     struct frwd_token ft = {
         .addr = { 0 },
-        .direction = PR_UPSTREAM,
+        .direction = PR_REVERSE_PROXY,
         .backend = _res_origin(ukey),
         .num_bytes_min = true
     };
@@ -772,20 +778,17 @@ int msg_verdict(struct sk_msg_md *msg) {
         bpf_err("No FIB entry found for {%pI4:%u %d %d %d}. Dropping.", &ctx->ft.addr.ip4, ctx->ft.addr.port, ctx->ft.direction, ctx->ft.backend, ctx->ft.num_bytes_min);
         return SK_DROP;
     }
-
-    if (res == PR_PASS) {
+    else if (res == PR_PASS) {
         if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
             bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            // res = PR_UTRN;
-            return SK_DROP;
+            res = PR_UTRN;
         }
         else {
             bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             return SK_PASS;
         }
     }
-
-    if (res == PR_UTRN) {
+    else if (res == PR_UTRN) {
         if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->ft, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }
@@ -814,7 +817,7 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             }
         };
 
-        bpf_log("Established socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+        // bpf_log("Established socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
 
         enum pr_sock_action *remote = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
         enum pr_sock_action *local = bpf_map_lookup_elem(&sock_wait_list, &skey.local);

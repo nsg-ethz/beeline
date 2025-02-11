@@ -166,7 +166,7 @@ impl<'obj> Proxy<'obj> {
         let address = address
             .to_socket_addrs()?
             .next()
-            .expect("Failed to resolve address");
+            .expect("Failed to parse address");
 
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
@@ -266,6 +266,7 @@ impl<'obj> Proxy<'obj> {
         for ft in fts {
             add_pqueue_to_fib(&fib, ft)?;
         }
+        add_pqueue_to_fib(&fib, self.new_upstream.lock().unwrap().reverse_proxy_ft())?;
 
         let sock_wait_list = self.get_sock_wait_list()?;
         add_socket_to_wait_list(

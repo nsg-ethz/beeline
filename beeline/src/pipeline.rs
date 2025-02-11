@@ -161,6 +161,16 @@ impl ConnectToBackend {
 }
 
 impl NewUpstream for ConnectToBackend {
+    fn reverse_proxy_ft(&self) -> frwd_token {
+        frwd_token {
+            direction: 3,
+            backend: 0,
+            addr: addr_key { ip4: 0, port: 0 },
+            num_bytes_min: 1,
+            padding: 0,
+        }
+    }
+
     fn all_upstream_fts(&self) -> Vec<frwd_token> {
         self.config
             .hosts
@@ -177,14 +187,16 @@ impl NewUpstream for ConnectToBackend {
     }
 
     fn new_upstream_connection(&mut self, ft: &frwd_token) -> Result<SocketAddr> {
-        if ft.direction != 2 {
-            bail!("Invalid direction: {}", ft.direction);
-        }
-
-        let backend = format!("server{}", ft.backend);
-        match self.config.select_backend_instance(&backend) {
-            Some(addr) => Ok(*addr),
-            None => bail!("Backend not found: {}", backend),
+        match ft.direction {
+            2 => {
+                let backend = format!("server{}", ft.backend);
+                match self.config.select_backend_instance(&backend) {
+                    Some(addr) => Ok(*addr),
+                    None => bail!("Backend not found: {}", backend),
+                }
+            }
+            3 => Ok("127.0.0.1:3333".parse()?),
+            _ => bail!("Invalid direction: {}", ft.direction),
         }
     }
 }
