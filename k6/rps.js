@@ -1,6 +1,6 @@
 import { randomRequest } from "./common.js";
 
-const rate = __ENV.RATE || 10000;
+const rate = __ENV.RATE || 20000;
 const vus = __ENV.VUS || 3000;
 
 export const options = {
