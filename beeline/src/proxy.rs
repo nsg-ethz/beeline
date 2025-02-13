@@ -350,8 +350,6 @@ impl<'obj> Proxy<'obj> {
                 let req_len = hdr_len + con_len;
                 if buf.len() < req_len {
                     debug!("Request not fully read: {}/{}", buf.len(), req_len);
-                    let req = String::from_utf8(buf.clone());
-                    debug!("{:?}", req);
                     continue;
                 }
 
@@ -386,9 +384,6 @@ impl<'obj> Proxy<'obj> {
                 };
                 fib_insert_direct(&fib_direct, ft_inv, &dkey).expect("Failed to insert into FIB");
 
-                // don't add the forwarding token here, otherwise the connection is instantly used by another
-                // incoming connection. This way, the connection will be automatically added once the connection
-                // is free to use again
                 if let Err(e) = add_socket_to_wait_list(
                     &sock_wait_list,
                     &us_local_addr,

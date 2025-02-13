@@ -458,7 +458,9 @@ struct {
 //     return PR_PASS;
 // }
 
-enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+__noinline enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    if (dkey == NULL || ctx == NULL) return PR_DROP;
+
     struct ds_conn_state *s = bpf_map_lookup_elem(&ds_conns, dkey);
     if (s == NULL) {
         struct ds_conn_state ns = (struct ds_conn_state) {
@@ -475,10 +477,8 @@ enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx 
     return PR_PASS;
 }
 
-enum pr_action update_us_state(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
-    if (ukey == NULL || ctx == NULL) {
-        return PR_DROP;
-    }
+__noinline enum pr_action update_us_state(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    if (ukey == NULL || ctx == NULL) return PR_DROP;
 
     const struct addr_key *rukey = &ukey->remote;
     struct us_conn_state *s = bpf_map_lookup_elem(&us_conns, rukey);
@@ -498,9 +498,7 @@ enum pr_action update_us_state(const struct sock_key *ukey, struct pipeline_ctx 
 }
 
 __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
-    if (dkey == NULL || ctx == NULL) {
-        return PR_DROP;
-    }
+    if (dkey == NULL || ctx == NULL) return PR_DROP;
 
     const char *server1 = "server1";
     bool backend_is_server1 = bpf_strncmp(ctx->backend, 7, server1) == 0;
@@ -529,7 +527,17 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     return PR_PASS;
 }
 
-enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+__noinline enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    if (ukey == NULL || ctx == NULL) return PR_DROP;
+
+    ctx->ft.direction = PR_DOWNSTREAM;
+    ctx->ft.addr = ukey->remote;
+
+    return PR_PASS;
+}
+
+__noinline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+    if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
     if (ukey->local.ip4 == 0 && ukey->remote.ip4 == 0) return PR_PASS;
 
     // at this point we have to ask the plugin how it wants to route
@@ -548,20 +556,14 @@ enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct so
     return PR_PASS;
 }
 
-enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
-    ctx->ft.direction = PR_DOWNSTREAM;
-    ctx->ft.addr = ukey->remote;
-
-    return PR_PASS;
-}
-
-enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+__noinline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
     u8 dir = (ukey->local.port == 3333) ? PR_REVERSE_PROXY : PR_UPSTREAM;
 
     // make upstream connection available for new requests
     struct frwd_token ft = {
         .addr = { 0 },
-        .direction = PR_REVERSE_PROXY,
+        .direction = dir,
         .backend = _res_origin(ukey),
         .num_bytes_min = true
     };
