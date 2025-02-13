@@ -389,7 +389,7 @@ struct us_conn_state {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, 16384);
     __type(key, struct sock_key);
     __type(value, struct frwd_token);
 } utrn_wait_list SEC(".maps");
