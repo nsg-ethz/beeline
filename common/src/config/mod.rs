@@ -2,12 +2,25 @@ use rand::{self, seq::SliceRandom};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr};
 
+mod envoy;
+
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
     pub hosts: Vec<Host>,
 
     #[serde(alias = "parse")]
     pub patterns: Patterns,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
+pub struct Patterns {
+    pub http: HashMap<String, String>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub struct Host {
+    pub name: String,
+    pub instances: Vec<SocketAddr>,
 }
 
 impl Config {
@@ -30,13 +43,17 @@ impl Config {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
-pub struct Patterns {
-    pub http: HashMap<String, String>,
-}
+impl From<envoy::Config> for Config {
+    fn from(config: envoy::Config) -> Self {
+        let mut hosts = Vec::new();
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-pub struct Host {
-    pub name: String,
-    pub instances: Vec<SocketAddr>,
+        // for cluster in config.clusters {
+        //     hosts.push(Host { name, instances });
+        // }
+
+        Config {
+            hosts,
+            patterns: Patterns::default(),
+        }
+    }
 }
