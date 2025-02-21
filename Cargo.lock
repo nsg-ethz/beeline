@@ -346,6 +346,7 @@ dependencies = [
  "jwt",
  "rand",
  "serde",
+ "serde_yaml",
  "sha2",
  "tokio",
 ]
