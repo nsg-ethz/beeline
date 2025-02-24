@@ -9,7 +9,7 @@ worker_processes  auto;
 # error_log  logs/error.log;
 
 # Checklist: Make sure that worker_connections * worker_processes
-# is greater than the total connections between the client and Nginx. 
+# is greater than the total connections between the client and Nginx.
 events {
   use epoll;
   worker_connections  1024;
@@ -28,7 +28,7 @@ http {
   proxy_read_timeout 5000;
   proxy_connect_timeout 5000;
   proxy_send_timeout 5000;
-  
+
   log_format main '$remote_addr - $remote_user [$time_local] "$request"'
                   '$status $body_bytes_sent "$http_referer" '
                   '"$http_user_agent" "$http_x_forwarded_for"';

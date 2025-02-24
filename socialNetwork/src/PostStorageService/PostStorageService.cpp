@@ -3,6 +3,7 @@
 #include <thrift/server/TThreadedServer.h>
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TServerSocket.h>
+#include <thrift/transport/THttpServer.h>
 
 #include "../utils.h"
 #include "../utils_memcached.h"
@@ -14,6 +15,7 @@ using apache::thrift::protocol::TBinaryProtocolFactory;
 using apache::thrift::server::TThreadedServer;
 using apache::thrift::transport::TFramedTransportFactory;
 using apache::thrift::transport::TServerSocket;
+using apache::thrift::transport::THttpServerTransportFactory;
 using namespace social_network;
 
 static memcached_pool_st* memcached_client_pool;
@@ -75,7 +77,7 @@ int main(int argc, char* argv[]) {
                              std::make_shared<PostStorageHandler>(
                                  memcached_client_pool, mongodb_client_pool)),
                          server_socket,
-                         std::make_shared<TFramedTransportFactory>(),
+                         std::make_shared<THttpServerTransportFactory>(),
                          std::make_shared<TBinaryProtocolFactory>());
 
   LOG(info) << "Starting the post-storage-service server...";
