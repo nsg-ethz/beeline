@@ -64,7 +64,8 @@ ThriftClient<TThriftClient>::ThriftClient(
   _port = port;
   _socket = std::shared_ptr<TSocket>(new TSocket(addr, port));
   _socket->setKeepAlive(true);
-  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), "localhost"));
+  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, "/"));
+  // _transport = std::shared_ptr<TTransport>(new TFramedTransport(_socket));
   _protocol = std::shared_ptr<TProtocol>(new TBinaryProtocol(_transport));
   _client = new TThriftClient(_protocol);
   _connect_timestamp = 0;
@@ -100,7 +101,8 @@ ThriftClient<TThriftClient>::ThriftClient(
     _socket = std::shared_ptr<TSocket>(new TSocket(addr, port));
   }
   _socket->setKeepAlive(true);
-  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), "localhost"));
+  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, "/"));
+  // _transport = std::shared_ptr<TTransport>(new TFramedTransport(_socket));
   _protocol = std::shared_ptr<TProtocol>(new TBinaryProtocol(_transport));
   _client = new TThriftClient(_protocol);
   _connect_timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
