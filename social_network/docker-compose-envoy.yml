@@ -1,0 +1,406 @@
+services:
+    social-graph-app:
+        build: .
+        hostname: social-graph-app
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+            social-graph-mongodb:
+                condition: service_started
+        restart: always
+        entrypoint: SocialGraphService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    social-graph-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: social-graph-service
+        depends_on:
+            social-graph-app:
+                condition: service_started
+        restart: always
+        volumes:
+            - ./config/social-graph-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    social-graph-mongodb:
+        image: mongo:4.4.6
+        hostname: social-graph-mongodb
+        restart: always
+
+    social-graph-redis:
+        image: redis
+        hostname: social-graph-redis
+        restart: always
+
+    # ---
+
+    home-timeline-app:
+        build: .
+        hostname: home-timeline-app
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+        restart: always
+        entrypoint: HomeTimelineService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    home-timeline-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: home-timeline-service
+        depends_on:
+            home-timeline-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/home-timeline-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    home-timeline-redis:
+        image: redis
+        hostname: home-timeline-redis
+        restart: always
+
+    # ---
+
+    compose-post-app:
+        build: .
+        hostname: compose-post-app
+        restart: always
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+        entrypoint: ComposePostService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    compose-post-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: compose-post-service
+        depends_on:
+            compose-post-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/compose-post-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    # ---
+
+    post-storage-app:
+        build: .
+        hostname: post-storage-app
+        ports:
+            - 10002:9090
+        restart: always
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+            post-storage-mongodb:
+                condition: service_started
+        entrypoint: PostStorageService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    post-storage-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: post-storage-service
+        depends_on:
+            post-storage-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/post-storage-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    post-storage-memcached:
+        image: memcached
+        hostname: post-storage-memcached
+        restart: always
+
+    post-storage-mongodb:
+        image: mongo:4.4.6
+        hostname: post-storage-mongodb
+        restart: always
+
+    # ---
+
+    user-timeline-app:
+        build: .
+        hostname: user-timeline-app
+        restart: always
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+            user-timeline-mongodb:
+                condition: service_started
+        entrypoint: UserTimelineService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    user-timeline-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: user-timeline-service
+        depends_on:
+            user-timeline-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/user-timeline-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    user-timeline-redis:
+        image: redis
+        hostname: user-timeline-redis
+        restart: always
+
+    user-timeline-mongodb:
+        image: mongo:4.4.6
+        hostname: user-timeline-mongodb
+        restart: always
+
+    # ---
+
+    url-shorten-app:
+        build: .
+        hostname: url-shorten-app
+        restart: always
+        entrypoint: UrlShortenService
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+            url-shorten-mongodb:
+                condition: service_started
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    url-shorten-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: url-shorten-service
+        depends_on:
+            url-shorten-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/url-shorten-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    url-shorten-memcached:
+        image: memcached
+        hostname: url-shorten-memcached
+        restart: always
+
+    url-shorten-mongodb:
+        image: mongo:4.4.6
+        hostname: url-shorten-mongodb
+        restart: always
+
+    # ---
+
+    user-app:
+        build: .
+        hostname: user-app
+        restart: always
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+            user-mongodb:
+                condition: service_started
+        entrypoint: UserService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    user-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: user-service
+        depends_on:
+            user-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/user-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    user-memcached:
+        image: memcached
+        hostname: user-memcached
+        restart: always
+
+    user-mongodb:
+        image: mongo:4.4.6
+        hostname: user-mongodb
+        restart: always
+
+    # ---
+
+    media-app:
+        build: .
+        hostname: media-app
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+            media-mongodb:
+                condition: service_started
+        restart: always
+        entrypoint: MediaService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    media-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: media-service
+        depends_on:
+            media-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/media-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    media-memcached:
+        image: memcached
+        hostname: media-memcached
+        restart: always
+
+    media-mongodb:
+        image: mongo:4.4.6
+        hostname: media-mongodb
+        restart: always
+
+    # ---
+
+    text-app:
+        build: .
+        hostname: text-app
+        restart: always
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+        entrypoint: TextService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    text-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: text-service
+        depends_on:
+            text-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/text-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    # ---
+
+    unique-id-app:
+        build: .
+        hostname: unique-id-app
+        restart: always
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+        entrypoint: UniqueIdService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    unique-id-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: unique-id-service
+        depends_on:
+            unique-id-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/unique-id-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    # ---
+
+    user-mention-app:
+        build: .
+        hostname: user-mention-app
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+        restart: always
+        entrypoint: UserMentionService
+        volumes:
+            - ./config:/social-network-microservices/config
+
+    user-mention-service:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: user-mention-service
+        depends_on:
+            user-mention-app:
+                condition: service_started
+        restart: always
+        command:
+            - "--log-level info"
+            - "--config-path /etc/envoy/envoy.yaml"
+        volumes:
+            - ./config/user-mention-sidecar.yaml:/etc/envoy/envoy.yaml
+
+    # ---
+
+    nginx-thrift:
+        image: yg397/openresty-thrift:xenial
+        hostname: nginx-thrift
+        ports:
+            - 8080:8080
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+        restart: always
+        volumes:
+            - ./nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
+            - ./nginx-web-server/pages:/usr/local/openresty/nginx/pages
+            - ./nginx-web-server/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+            - ./nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
+            - ./gen-lua:/gen-lua
+            - ./docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
+
+    media-frontend:
+        image: yg397/media-frontend:xenial
+        hostname: media-frontend
+        ports:
+            - 8081:8080
+        restart: always
+        depends_on:
+            jaeger-agent:
+                condition: service_started
+        volumes:
+            - ./media-frontend/lua-scripts:/usr/local/openresty/nginx/lua-scripts
+            - ./media-frontend/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+
+    jaeger-agent:
+        image: jaegertracing/all-in-one:1.62.0
+        ports:
+            #      - 5775:5775/udp
+            #      - 6831:6831/udp
+            #      - 6832:6832/udp
+            #      - 5778:5778
+            - 16686:16686
+            #      - 14268:14268
+            #      - 9411:9411
+        restart: always
+        environment:
+            - COLLECTOR_ZIPKIN_HTTP_PORT=9411
