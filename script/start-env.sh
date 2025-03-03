@@ -24,11 +24,11 @@ function create_veth {
     sudo ip -netns ns${i} link set dev veth${i}_ up
 
     # setup local interfaces
-    sudo ip addr add 10.0.${i}.254/24 dev veth${i}
+    sudo ip addr add 10.0.${i}.1/24 dev veth${i}
     sudo ip link set dev veth${i} up
 
     # add route so ns can reach each other
-    sudo ip -netns ns${i} route add default via 10.0.${i}.254 dev veth${i}_
+    sudo ip -netns ns${i} route add default via 10.0.${i}.1 dev veth${i}_
 
     echo -e "${COLOR_GREEN}Namespace ns${i} created${COLOR_OFF}"
 

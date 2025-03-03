@@ -1,0 +1,9 @@
+hosts:
+    - name: server1
+      instances:
+          - 172.18.0.9:9090
+
+parse:
+    http:
+        backend: str,
+        content-length: u32

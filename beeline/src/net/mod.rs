@@ -11,7 +11,7 @@ fn get_gw_ip(ip: Ipv4Addr) -> Ipv4Addr {
         ip
     } else {
         let octets = ip.octets();
-        Ipv4Addr::new(octets[0], octets[1], octets[2], 254)
+        Ipv4Addr::new(octets[0], octets[1], octets[2], 1)
     }
 }
 
