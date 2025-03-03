@@ -232,7 +232,7 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     char *data_end = (char *)(long)msg->data_end;
 
     u32 i;
-    bpf_for(i, 0, str_len) {
+    bpf_for(i, 0, str_len+1) {
         if (data + i + 1 > data_end) return -1;
         data[i] = str[i];
     }
@@ -270,7 +270,7 @@ static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, st
 
     struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
     if (pqueue == NULL) {
-        bpf_log("WARN: No pqueue found for forwarding token");
+        bpf_log("WARN: No pqueue found for forwarding token {%pI4:%u, %d, %d, %d}", &ft->addr.ip4, ft->addr.port, ft->direction, ft->backend, ft->num_bytes_min);
         return PR_UTRN;
     }
 
@@ -606,7 +606,7 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
 
     u16 s = s_init;
     u32 i;
-    bpf_for(i, 0, len) {
+    bpf_for(i, 0, len+1) {
         if (data + i + 1 > data_end) return -1;
         char c = data[i];
 
@@ -676,7 +676,7 @@ static __always_inline int _log_msg_range(struct sk_msg_md *msg, u16 idx, u16 le
     char *data_end = (char *)(long)msg->data_end;
 
     u16 j;
-    bpf_for(j, 0, len) {
+    bpf_for(j, 0, len+1) {
         if (data + j + 1 > data_end) return -1;
         bpf_log("data[%d]=%c", idx+j, data[j]);
     }
@@ -700,7 +700,7 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
             bpf_err("ERROR: Updating downstream connection state failed.");
         }
 
-        if (ctx->backend_range.len == 0) return PR_DROP;
+        // if (ctx->backend_range.len == 0) return PR_DROP;
         enum pr_action res = forward_ds_conn(ikey, ctx);
         if (res == PR_DROP) return PR_DROP;
     }
@@ -819,7 +819,7 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             }
         };
 
-        // bpf_log("Established socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+        bpf_log("Established socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
 
         enum pr_sock_action *remote = bpf_map_lookup_elem(&sock_wait_list, &skey.remote);
         enum pr_sock_action *local = bpf_map_lookup_elem(&sock_wait_list, &skey.local);
