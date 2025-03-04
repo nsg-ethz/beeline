@@ -66,6 +66,7 @@ int main(int argc, char *argv[]) {
 
   int post_storage_port = config_json["post-storage-service"]["port"];
   std::string post_storage_addr = config_json["post-storage-service"]["addr"];
+  std::string post_storage_path = config_json["post-storage-service"]["path"];
   int post_storage_conns = config_json["post-storage-service"]["connections"];
   int post_storage_timeout = config_json["post-storage-service"]["timeout_ms"];
   int post_storage_keepalive =
@@ -73,6 +74,7 @@ int main(int argc, char *argv[]) {
 
   int social_graph_port = config_json["social-graph-service"]["port"];
   std::string social_graph_addr = config_json["social-graph-service"]["addr"];
+  std::string social_graph_path = config_json["social-graph-service"]["path"];
   int social_graph_conns = config_json["social-graph-service"]["connections"];
   int social_graph_timeout = config_json["social-graph-service"]["timeout_ms"];
   int social_graph_keepalive =
@@ -84,12 +86,12 @@ int main(int argc, char *argv[]) {
   }
 
   ClientPool<ThriftClient<PostStorageServiceClient>> post_storage_client_pool(
-      "post-storage-client", post_storage_addr, post_storage_port, 0,
+      "post-storage-client", post_storage_addr, post_storage_port, post_storage_path, 0,
       post_storage_conns, post_storage_timeout, post_storage_keepalive,
       config_json);
 
   ClientPool<ThriftClient<SocialGraphServiceClient>> social_graph_client_pool(
-      "social-graph-client", social_graph_addr, social_graph_port, 0,
+      "social-graph-client", social_graph_addr, social_graph_port, social_graph_path, 0,
       social_graph_conns, social_graph_timeout, social_graph_keepalive,
       config_json);
 

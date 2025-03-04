@@ -4,9 +4,9 @@ networks:
             config:
                 - subnet: 172.18.0.0/24
 services:
-    social-graph-app:
+    social-graph-service:
         build: .
-        hostname: social-graph-app
+        hostname: social-graph-service
         networks:
             default:
                 ipv4_address: 172.18.0.2
@@ -18,20 +18,7 @@ services:
         restart: always
         entrypoint: SocialGraphService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    social-graph-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: social-graph-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.3
-        depends_on:
-            social-graph-app:
-                condition: service_started
-        restart: always
-        volumes:
-            - ./config/social-graph-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     social-graph-mongodb:
         image: mongo:4.4.6
@@ -51,9 +38,9 @@ services:
 
     # ---
 
-    home-timeline-app:
+    home-timeline-service:
         build: .
-        hostname: home-timeline-app
+        hostname: home-timeline-service
         networks:
             default:
                 ipv4_address: 172.18.0.6
@@ -63,23 +50,7 @@ services:
         restart: always
         entrypoint: HomeTimelineService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    home-timeline-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: home-timeline-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.7
-        depends_on:
-            home-timeline-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/home-timeline-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     home-timeline-redis:
         image: redis
@@ -91,9 +62,9 @@ services:
 
     # ---
 
-    compose-post-app:
+    compose-post-service:
         build: .
-        hostname: compose-post-app
+        hostname: compose-post-service
         networks:
             default:
                 ipv4_address: 172.18.0.9
@@ -103,29 +74,13 @@ services:
                 condition: service_started
         entrypoint: ComposePostService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    compose-post-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: compose-post-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.10
-        depends_on:
-            compose-post-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/compose-post-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     # ---
 
-    post-storage-app:
+    post-storage-service:
         build: .
-        hostname: post-storage-app
+        hostname: post-storage-service
         networks:
             default:
                 ipv4_address: 172.18.0.11
@@ -139,23 +94,7 @@ services:
                 condition: service_started
         entrypoint: PostStorageService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    post-storage-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: post-storage-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.12
-        depends_on:
-            post-storage-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/post-storage-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     post-storage-memcached:
         image: memcached
@@ -175,9 +114,9 @@ services:
 
     # ---
 
-    user-timeline-app:
+    user-timeline-service:
         build: .
-        hostname: user-timeline-app
+        hostname: user-timeline-service
         networks:
             default:
                 ipv4_address: 172.18.0.15
@@ -189,23 +128,7 @@ services:
                 condition: service_started
         entrypoint: UserTimelineService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    user-timeline-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: user-timeline-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.16
-        depends_on:
-            user-timeline-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/user-timeline-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     user-timeline-redis:
         image: redis
@@ -225,9 +148,9 @@ services:
 
     # ---
 
-    url-shorten-app:
+    url-shorten-service:
         build: .
-        hostname: url-shorten-app
+        hostname: url-shorten-service
         networks:
             default:
                 ipv4_address: 172.18.0.19
@@ -239,23 +162,7 @@ services:
             url-shorten-mongodb:
                 condition: service_started
         volumes:
-            - ./config:/social-network-microservices/config
-
-    url-shorten-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: url-shorten-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.20
-        depends_on:
-            url-shorten-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/url-shorten-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     url-shorten-memcached:
         image: memcached
@@ -275,9 +182,9 @@ services:
 
     # ---
 
-    user-app:
+    user-service:
         build: .
-        hostname: user-app
+        hostname: user-service
         networks:
             default:
                 ipv4_address: 172.18.0.23
@@ -289,23 +196,7 @@ services:
                 condition: service_started
         entrypoint: UserService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    user-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: user-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.24
-        depends_on:
-            user-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/user-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     user-memcached:
         image: memcached
@@ -325,9 +216,9 @@ services:
 
     # ---
 
-    media-app:
+    media-service:
         build: .
-        hostname: media-app
+        hostname: media-service
         networks:
             default:
                 ipv4_address: 172.18.0.27
@@ -339,23 +230,7 @@ services:
         restart: always
         entrypoint: MediaService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    media-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: media-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.28
-        depends_on:
-            media-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/media-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     media-memcached:
         image: memcached
@@ -375,9 +250,9 @@ services:
 
     # ---
 
-    text-app:
+    text-service:
         build: .
-        hostname: text-app
+        hostname: text-service
         networks:
             default:
                 ipv4_address: 172.18.0.31
@@ -387,29 +262,13 @@ services:
                 condition: service_started
         entrypoint: TextService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    text-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: text-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.32
-        depends_on:
-            text-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/text-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     # ---
 
-    unique-id-app:
+    unique-id-service:
         build: .
-        hostname: unique-id-app
+        hostname: unique-id-service
         networks:
             default:
                 ipv4_address: 172.18.0.33
@@ -419,29 +278,13 @@ services:
                 condition: service_started
         entrypoint: UniqueIdService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    unique-id-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: unique-id-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.34
-        depends_on:
-            unique-id-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/unique-id-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     # ---
 
-    user-mention-app:
+    user-mention-service:
         build: .
-        hostname: user-mention-app
+        hostname: user-mention-service
         networks:
             default:
                 ipv4_address: 172.18.0.35
@@ -451,23 +294,7 @@ services:
         restart: always
         entrypoint: UserMentionService
         volumes:
-            - ./config:/social-network-microservices/config
-
-    user-mention-service:
-        image: envoyproxy/envoy:v1.31-latest
-        hostname: user-mention-service
-        networks:
-            default:
-                ipv4_address: 172.18.0.36
-        depends_on:
-            user-mention-app:
-                condition: service_started
-        restart: always
-        command:
-            - "--log-level info"
-            - "--config-path /etc/envoy/envoy.yaml"
-        volumes:
-            - ./config/user-mention-sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-envoy:/social-network-microservices/config
 
     # ---
 
@@ -486,7 +313,7 @@ services:
         volumes:
             - ./nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
             - ./nginx-web-server/pages:/usr/local/openresty/nginx/pages
-            - ./nginx-web-server/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+            - ./nginx-web-server/conf/nginx-envoy.conf:/usr/local/openresty/nginx/conf/nginx.conf
             - ./nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
             - ./gen-lua:/gen-lua
             - ./docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
@@ -523,3 +350,13 @@ services:
         restart: always
         environment:
             - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+
+    sidecar:
+        image: envoyproxy/envoy:v1.31-latest
+        hostname: sidecar
+        networks:
+            default:
+                ipv4_address: 172.18.0.40
+        restart: always
+        volumes:
+            - ./config-envoy/sidecar.yaml:/etc/envoy/envoy.yaml

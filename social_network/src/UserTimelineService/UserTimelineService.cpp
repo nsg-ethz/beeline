@@ -65,6 +65,7 @@ int main(int argc, char *argv[]) {
 
   int post_storage_port = config_json["post-storage-service"]["port"];
   std::string post_storage_addr = config_json["post-storage-service"]["addr"];
+  std::string post_storage_path = config_json["post-storage-service"]["path"];
   int post_storage_conns = config_json["post-storage-service"]["connections"];
   int post_storage_timeout = config_json["post-storage-service"]["timeout_ms"];
   int post_storage_keepalive =
@@ -89,7 +90,7 @@ int main(int argc, char *argv[]) {
   }
 
   ClientPool<ThriftClient<PostStorageServiceClient>> post_storage_client_pool(
-      "post-storage-client", post_storage_addr, post_storage_port, 0,
+      "post-storage-client", post_storage_addr, post_storage_port, post_storage_path, 0,
       post_storage_conns, post_storage_timeout, post_storage_keepalive,
       config_json);
 

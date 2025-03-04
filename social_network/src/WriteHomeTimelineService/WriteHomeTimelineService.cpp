@@ -174,6 +174,8 @@ int main(int argc, char *argv[]) {
 
   std::string social_graph_service_addr =
       config_json["social-graph-service"]["addr"];
+      std::string social_graph_service_path =
+          config_json["social-graph-service"]["path"];
   int social_graph_service_port = config_json["social-graph-service"]["port"];
   int social_graph_service_conns =
       config_json["social-graph-service"]["connections"];
@@ -188,7 +190,7 @@ int main(int argc, char *argv[]) {
 
   ClientPool<ThriftClient<SocialGraphServiceClient>> social_graph_client_pool(
       "social-graph-service", social_graph_service_addr,
-      social_graph_service_port, 0, social_graph_service_conns,
+      social_graph_service_port, social_graph_service_path, 0, social_graph_service_conns,
       social_graph_service_timeout, social_graph_service_keepalive, config_json);
 
   _redis_client_pool = &redis_client_pool;

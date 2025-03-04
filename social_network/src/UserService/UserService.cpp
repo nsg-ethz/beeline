@@ -36,6 +36,7 @@ int main(int argc, char *argv[]) {
   int port = config_json["user-service"]["port"];
 
   std::string social_graph_addr = config_json["social-graph-service"]["addr"];
+  std::string social_graph_path = config_json["social-graph-service"]["path"];
   int social_graph_port = config_json["social-graph-service"]["port"];
   int social_graph_conns = config_json["social-graph-service"]["connections"];
   int social_graph_timeout = config_json["social-graph-service"]["timeout_ms"];
@@ -67,7 +68,7 @@ int main(int argc, char *argv[]) {
   std::mutex thread_lock;
 
   ClientPool<ThriftClient<SocialGraphServiceClient>> social_graph_client_pool(
-      "social-graph", social_graph_addr, social_graph_port, 0,
+      "social-graph", social_graph_addr, social_graph_port, social_graph_path, 0,
       social_graph_conns, social_graph_timeout, social_graph_keepalive, config_json);
 
   mongoc_client_t *mongodb_client = mongoc_client_pool_pop(mongodb_client_pool);

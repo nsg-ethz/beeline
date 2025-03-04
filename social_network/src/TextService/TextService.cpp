@@ -28,12 +28,14 @@ int main(int argc, char *argv[]) {
     int port = config_json["text-service"]["port"];
 
     std::string url_addr = config_json["url-shorten-service"]["addr"];
+    std::string url_path = config_json["url-shorten-service"]["path"];
     int url_port = config_json["url-shorten-service"]["port"];
     int url_conns = config_json["url-shorten-service"]["connections"];
     int url_timeout = config_json["url-shorten-service"]["timeout_ms"];
     int url_keepalive = config_json["url-shorten-service"]["keepalive_ms"];
 
     std::string user_mention_addr = config_json["user-mention-service"]["addr"];
+    std::string user_mention_path = config_json["user-mention-service"]["path"];
     int user_mention_port = config_json["user-mention-service"]["port"];
     int user_mention_conns = config_json["user-mention-service"]["connections"];
     int user_mention_timeout =
@@ -42,11 +44,11 @@ int main(int argc, char *argv[]) {
         config_json["user-mention-service"]["keepalive_ms"];
 
     ClientPool<ThriftClient<UrlShortenServiceClient>> url_client_pool(
-        "url-shorten-service", url_addr, url_port, 0, url_conns, url_timeout,
+        "url-shorten-service", url_addr, url_port, url_path, 0, url_conns, url_timeout,
         url_keepalive, config_json);
 
     ClientPool<ThriftClient<UserMentionServiceClient>> user_mention_pool(
-        "user-mention-service", user_mention_addr, user_mention_port, 0,
+        "user-mention-service", user_mention_addr, user_mention_port, user_mention_path, 0,
         user_mention_conns, user_mention_timeout, user_mention_keepalive, config_json);
 
     std::shared_ptr<TServerSocket> server_socket = get_server_socket(config_json, "0.0.0.0", port);

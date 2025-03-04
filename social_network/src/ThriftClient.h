@@ -33,8 +33,8 @@ using json = nlohmann::json;
 template<class TThriftClient>
 class ThriftClient : public GenericClient {
  public:
-  ThriftClient(const std::string &addr, int port);
-  ThriftClient(const std::string &addr, int port, int keepalive_ms, const json &config_json);
+  ThriftClient(const std::string &addr, int port, const std::string &path);
+  ThriftClient(const std::string &addr, int port, const std::string &path, int keepalive_ms, const json &config_json);
 
   ThriftClient(const ThriftClient &) = delete;
   ThriftClient &operator=(const ThriftClient &) = delete;
@@ -59,12 +59,12 @@ class ThriftClient : public GenericClient {
 
 template<class TThriftClient>
 ThriftClient<TThriftClient>::ThriftClient(
-    const std::string &addr, int port) {
+    const std::string &addr, int port, const std::string &path) {
   _addr = addr;
   _port = port;
   _socket = std::shared_ptr<TSocket>(new TSocket(addr, port));
   _socket->setKeepAlive(true);
-  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, "/"));
+  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, path));
   // _transport = std::shared_ptr<TTransport>(new TFramedTransport(_socket));
   _protocol = std::shared_ptr<TProtocol>(new TBinaryProtocol(_transport));
   _client = new TThriftClient(_protocol);
@@ -74,7 +74,7 @@ ThriftClient<TThriftClient>::ThriftClient(
 
 template <class TThriftClient>
 ThriftClient<TThriftClient>::ThriftClient(
-    const std::string &addr, int port, int keepalive_ms, const json &config_json) {
+    const std::string &addr, int port, const std::string &path, int keepalive_ms, const json &config_json) {
   _addr = addr;
   _port = port;
   bool ssl_enabled = config_json["ssl"]["enabled"];
@@ -101,7 +101,7 @@ ThriftClient<TThriftClient>::ThriftClient(
     _socket = std::shared_ptr<TSocket>(new TSocket(addr, port));
   }
   _socket->setKeepAlive(true);
-  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, "/"));
+  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, path));
   // _transport = std::shared_ptr<TTransport>(new TFramedTransport(_socket));
   _protocol = std::shared_ptr<TProtocol>(new TBinaryProtocol(_transport));
   _client = new TThriftClient(_protocol);

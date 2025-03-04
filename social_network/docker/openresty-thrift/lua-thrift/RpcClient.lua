@@ -14,7 +14,7 @@ local RpcClient = Object:new({
 })
 
 --初始化RPC连接
-function RpcClient:init(ip, port, timeout, ssl)
+function RpcClient:init(ip, port, path, timeout, ssl)
     if (ssl == true) then
         socket = TSocketSSL:new {
             host = ip,
@@ -30,6 +30,7 @@ function RpcClient:init(ip, port, timeout, ssl)
     local transport = THttpTransport:new {
         trans = socket
     }
+    transport.path = path
     transport.isServer = false
     local protocol = TBinaryProtocol:new {
         trans = transport

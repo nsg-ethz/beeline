@@ -64,6 +64,7 @@ int main(int argc, char *argv[]) {
   int mongodb_timeout = config_json["social-graph-mongodb"]["timeout_ms"];
 
   std::string user_addr = config_json["user-service"]["addr"];
+  std::string user_path = config_json["user-service"]["path"];
   int user_port = config_json["user-service"]["port"];
   int user_conns = config_json["user-service"]["connections"];
   int user_timeout = config_json["user-service"]["timeout_ms"];
@@ -84,7 +85,7 @@ int main(int argc, char *argv[]) {
   }
 
   ClientPool<ThriftClient<UserServiceClient>> user_client_pool(
-      "social-graph", user_addr, user_port, 0, user_conns, user_timeout,
+      "social-graph", user_addr, user_port, user_path, 0, user_conns, user_timeout,
       user_keepalive, config_json);
 
   mongoc_client_t *mongodb_client = mongoc_client_pool_pop(mongodb_client_pool);

@@ -11,16 +11,16 @@
     "unique-id-service": {
         "keepalive_ms": 10000,
         "netif": "eth0",
-        "addr": "unique-id-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/unique-id-service",
         "connections": 512,
         "timeout_ms": 10000,
         "port": 9090
     },
     "media-service": {
         "keepalive_ms": 10000,
-        "addr": "media-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/media-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512
@@ -36,8 +36,8 @@
     },
     "social-graph-service": {
         "keepalive_ms": 10000,
-        "addr": "social-graph-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/social-graph-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512
@@ -64,8 +64,8 @@
     },
     "post-storage-service": {
         "keepalive_ms": 10000,
-        "addr": "post-storage-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/post-storage-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512
@@ -113,8 +113,8 @@
     },
     "text-service": {
         "keepalive_ms": 10000,
-        "addr": "text-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/text-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512
@@ -123,8 +123,8 @@
         "keepalive_ms": 10000,
         "workers": 32,
         "connections": 512,
-        "addr": "write-home-timeline-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/write-home-timeline-service",
         "timeout_ms": 10000,
         "port": 9090
     },
@@ -140,8 +140,8 @@
     },
     "compose-post-service": {
         "keepalive_ms": 10000,
-        "addr": "compose-post-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/compose-post-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512
@@ -149,8 +149,8 @@
     "user-service": {
         "keepalive_ms": 10000,
         "netif": "eth0",
-        "addr": "user-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/user-service",
         "connections": 512,
         "timeout_ms": 10000,
         "port": 9090
@@ -174,8 +174,8 @@
     },
     "user-mention-service": {
         "keepalive_ms": 10000,
-        "addr": "user-mention-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/user-mention-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512
@@ -190,16 +190,16 @@
     },
     "user-timeline-service": {
         "keepalive_ms": 10000,
-        "addr": "user-timeline-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/user-timeline-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512
     },
     "home-timeline-service": {
         "keepalive_ms": 10000,
-        "addr": "home-timeline-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/home-timeline-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512
@@ -214,8 +214,8 @@
     },
     "url-shorten-service": {
         "keepalive_ms": 10000,
-        "addr": "url-shorten-service",
-        "path": "/",
+        "addr": "sidecar",
+        "path": "/url-shorten-service",
         "timeout_ms": 10000,
         "port": 9090,
         "connections": 512

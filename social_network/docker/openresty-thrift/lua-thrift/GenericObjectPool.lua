@@ -4,7 +4,6 @@
 --
 local Object = require 'Object'
 local RpcClientFactory = require 'RpcClientFactory'
-local ngx = ngx
 local GenericObjectPool = Object:new({
     __type = 'GenericObjectPool',
     maxTotal = 100,
@@ -20,12 +19,15 @@ end
 --
 function GenericObjectPool:connection(thriftClient, ip, port)
     local ssl = ngx.shared.config:get("ssl")
-    local addr = ngx.shared.config:get(ip)
+
+    local addr = ngx.shared.config:get("sidecar")
+    local path = "/" .. ip;
     if addr == nil then
         addr = ip
+        path = "/"
     end
 
-    local client = RpcClientFactory:createClient(thriftClient, addr, port, self.timeout, ssl)
+    local client = RpcClientFactory:createClient(thriftClient, addr, port, path, self.timeout, ssl)
     return client
 end
 

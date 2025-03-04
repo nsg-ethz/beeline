@@ -18,7 +18,7 @@ template<class TClient>
 class ClientPool {
  public:
   ClientPool(const std::string &client_type, const std::string &addr,
-      int port, int min_size, int max_size, int timeout_ms, int keepalive_ms,
+      int port, const std::string &path, int min_size, int max_size, int timeout_ms, int keepalive_ms,
       const json &config_json);
   ~ClientPool();
 
@@ -35,6 +35,7 @@ class ClientPool {
  private:
   std::deque<TClient *> _pool;
   std::string _addr;
+  std::string _path;
   std::string _client_type;
   int _port;
   int _min_pool_size{};
@@ -50,10 +51,11 @@ class ClientPool {
 
 template<class TClient>
 ClientPool<TClient>::ClientPool(const std::string &client_type,
-    const std::string &addr, int port, int min_pool_size,
+    const std::string &addr, int port, const std::string &path, int min_pool_size,
     int max_pool_size, int timeout_ms, int keepalive_ms,
     const json &config_json) {
   _addr = addr;
+  _path = path;
   _port = port;
   _min_pool_size = min_pool_size;
   _max_pool_size = max_pool_size;
@@ -63,7 +65,7 @@ ClientPool<TClient>::ClientPool(const std::string &client_type,
   _config_json = &config_json;
 
   for (int i = 0; i < min_pool_size; ++i) {
-    TClient *client = new TClient(addr, port, keepalive_ms, config_json);
+    TClient *client = new TClient(addr, port, path, keepalive_ms, config_json);
     _pool.emplace_back(client);
   }
   _curr_pool_size = min_pool_size;
@@ -100,7 +102,7 @@ TClient * ClientPool<TClient>::Pop() {
       client = _pool.front();
       _pool.pop_front();
     } else {
-      client = new TClient(_addr, _port, _keepalive_ms, *_config_json);
+      client = new TClient(_addr, _port, _path, _keepalive_ms, *_config_json);
       _curr_pool_size++;
     }
   cv_lock.unlock();
