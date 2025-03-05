@@ -16,7 +16,7 @@ impl PartialEq for frwd_token {
     fn eq(&self, other: &Self) -> bool {
         self.addr == other.addr
             && self.direction == other.direction
-            && self.backend == other.backend
+            && self.path == other.path
             && self.num_bytes_min == other.num_bytes_min
     }
 }
@@ -25,7 +25,7 @@ impl Hash for frwd_token {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.addr.hash(state);
         self.direction.hash(state);
-        self.backend.hash(state);
+        self.path.hash(state);
         self.num_bytes_min.hash(state);
     }
 }
@@ -164,7 +164,7 @@ impl NewUpstream for ConnectToBackend {
     fn reverse_proxy_ft(&self) -> frwd_token {
         frwd_token {
             direction: 3,
-            backend: 0,
+            path: 0,
             addr: addr_key { ip4: 0, port: 0 },
             num_bytes_min: 1,
             padding: 0,
@@ -178,7 +178,7 @@ impl NewUpstream for ConnectToBackend {
             .enumerate()
             .map(|(idx, _)| frwd_token {
                 direction: 2,
-                backend: (idx + 1) as u8,
+                path: (idx + 1) as u8,
                 addr: addr_key { ip4: 0, port: 0 },
                 num_bytes_min: 1,
                 padding: 0,
@@ -189,10 +189,23 @@ impl NewUpstream for ConnectToBackend {
     fn new_upstream_connection(&mut self, ft: &frwd_token) -> Result<SocketAddr> {
         match ft.direction {
             2 => {
-                let backend = format!("server{}", ft.backend);
-                match self.config.select_backend_instance(&backend) {
+                let name = match ft.path {
+                    1 => "social-graph-service",
+                    2 => "home-timeline-service",
+                    3 => "compose-post-service",
+                    4 => "post-storage-service",
+                    5 => "user-timeline-service",
+                    6 => "url-shorten-service",
+                    7 => "user-service",
+                    8 => "media-service",
+                    9 => "text-service",
+                    10 => "unique-id-service",
+                    11 => "user-mention-service",
+                    _ => bail!("Invalid path {}", ft.path),
+                };
+                match self.config.select_backend_instance(&name) {
                     Some(addr) => Ok(*addr),
-                    None => bail!("Backend not found: {}", backend),
+                    None => bail!("Backend not found: {}", name),
                 }
             }
             3 => Ok("127.0.0.1:3333".parse()?),

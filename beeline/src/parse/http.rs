@@ -1,5 +1,5 @@
-use anyhow::{Ok, Result};
 use crate::parse::{dfa::Dfa, Action};
+use anyhow::{Ok, Result};
 
 const CRLF: &str = "\r\n";
 
@@ -12,12 +12,8 @@ pub struct HttpParser {
 
 #[allow(dead_code)]
 impl HttpParser {
-
     pub fn new(s_init: u16, s_any: u16) -> HttpParser {
-        let states = vec![
-            s_init,
-            s_any,
-        ];
+        let states = vec![s_init, s_any];
 
         HttpParser {
             s_init,
@@ -27,24 +23,29 @@ impl HttpParser {
     }
 
     pub fn done_on_http_hdr_end(&mut self) -> Result<()> {
-        self.dfa.start_pattern(self.s_any)
+        self.dfa
+            .start_pattern(self.s_any)
             .push(CRLF)?
             .done_on(CRLF)?;
 
         Ok(())
     }
 
-    // pub fn match_http_uri(&mut self, uri: &str) -> Result<()> {
-    //     self.dfa.start_pattern(self.s_init)
-    //         .push("POST ")?
-    //         .start_capturing()
-    //         .match_on(uri)?;
+    pub fn match_http_uri(&mut self) -> Result<()> {
+        self.dfa
+            .start_pattern(self.s_init)
+            .push("POST ")?
+            .start_capturing()
+            .push_optional('*')?
+            .push(" HTTP/1.1")?
+            .end_caputuring_and_restart_with(CRLF)?;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     pub fn match_http_hdr(&mut self, key: &str) -> Result<()> {
-        self.dfa.start_pattern(self.s_any)
+        self.dfa
+            .start_pattern(self.s_any)
             .push(CRLF)?
             .push(key)?
             .push_optional('\t')?
@@ -58,9 +59,10 @@ impl HttpParser {
 
         Ok(())
     }
-    
+
     pub fn match_http_hdr_val(&mut self, key: &str, val: &str) -> Result<()> {
-        self.dfa.start_pattern(self.s_any)
+        self.dfa
+            .start_pattern(self.s_any)
             .push(CRLF)?
             .push(key)?
             .push_optional('\t')?
@@ -70,14 +72,15 @@ impl HttpParser {
             .push_optional(' ')?
             .push(val)?
             .match_and_restart_with(CRLF)?;
-            
+
         Ok(())
     }
 
     pub fn match_http_hdr_auth(&mut self) -> Result<()> {
         let mut builder = self.dfa.start_pattern(self.s_any);
 
-        builder.push(CRLF)?
+        builder
+            .push(CRLF)?
             .push("Authorization")?
             .push_optional('\t')?
             .push_optional(' ')?
@@ -97,12 +100,13 @@ impl HttpParser {
         Ok(())
     }
 
-    pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16>  {
+    pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16> {
         self.dfa.iter_states()
     }
 
-    pub fn iter_transitions<'a>(&'a self) -> impl Iterator<Item = (&'a u16, &'a u16, &'a char, &'a Action)>  {
+    pub fn iter_transitions<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (&'a u16, &'a u16, &'a char, &'a Action)> {
         self.dfa.iter_transitions()
     }
-
 }

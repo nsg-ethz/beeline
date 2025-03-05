@@ -1,7 +1,37 @@
 hosts:
-    - name: server1
+    - name: social-graph-service
+      instances:
+          - 172.18.0.2:9090
+    - name: home-timeline-service
+      instances:
+          - 172.18.0.6:9090
+    - name: compose-post-service
       instances:
           - 172.18.0.9:9090
+    - name: post-storage-service
+      instances:
+          - 172.18.0.11:9090
+    - name: user-timeline-service
+      instances:
+          - 172.18.0.15:9090
+    - name: url-shorten-service
+      instances:
+          - 172.18.0.19:9090
+    - name: user-service
+      instances:
+          - 172.18.0.23:9090
+    - name: media-service
+      instances:
+          - 172.18.0.27:9090
+    - name: text-service
+      instances:
+          - 172.18.0.31:9090
+    - name: unique-id-service
+      instances:
+          - 172.18.0.33:9090
+    - name: user-mention-service
+      instances:
+          - 172.18.0.35:9090
 
 parse:
     http:

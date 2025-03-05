@@ -179,7 +179,7 @@ impl<'obj> Proxy<'obj> {
             open_skel.maps.rodata_data.s_init,
             open_skel.maps.rodata_data.s_any,
         );
-        parser.match_http_hdr("backend")?;
+        parser.match_http_uri()?;
         parser.match_http_hdr("content-length")?;
         parser.match_http_hdr_auth()?;
 

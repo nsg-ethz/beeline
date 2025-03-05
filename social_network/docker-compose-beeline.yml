@@ -357,6 +357,8 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.40
+        ports:
+            - 3333:9090
         restart: always
         volumes:
             - ./config-envoy/sidecar.yaml:/etc/envoy/envoy.yaml
