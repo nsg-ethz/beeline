@@ -7,6 +7,9 @@ services:
     social-graph-service:
         build: .
         hostname: social-graph-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.2
@@ -18,11 +21,14 @@ services:
         restart: always
         entrypoint: SocialGraphService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     social-graph-mongodb:
         image: mongo:4.4.6
         hostname: social-graph-mongodb
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.4
@@ -31,6 +37,9 @@ services:
     social-graph-redis:
         image: redis
         hostname: social-graph-redis
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.5
@@ -41,6 +50,9 @@ services:
     home-timeline-service:
         build: .
         hostname: home-timeline-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.6
@@ -50,11 +62,14 @@ services:
         restart: always
         entrypoint: HomeTimelineService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     home-timeline-redis:
         image: redis
         hostname: home-timeline-redis
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.8
@@ -65,6 +80,9 @@ services:
     compose-post-service:
         build: .
         hostname: compose-post-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.9
@@ -74,13 +92,16 @@ services:
                 condition: service_started
         entrypoint: ComposePostService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     # ---
 
     post-storage-service:
         build: .
         hostname: post-storage-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.11
@@ -94,11 +115,14 @@ services:
                 condition: service_started
         entrypoint: PostStorageService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     post-storage-memcached:
         image: memcached
         hostname: post-storage-memcached
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.13
@@ -107,6 +131,9 @@ services:
     post-storage-mongodb:
         image: mongo:4.4.6
         hostname: post-storage-mongodb
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.14
@@ -117,6 +144,9 @@ services:
     user-timeline-service:
         build: .
         hostname: user-timeline-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.15
@@ -128,11 +158,14 @@ services:
                 condition: service_started
         entrypoint: UserTimelineService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     user-timeline-redis:
         image: redis
         hostname: user-timeline-redis
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.17
@@ -141,6 +174,9 @@ services:
     user-timeline-mongodb:
         image: mongo:4.4.6
         hostname: user-timeline-mongodb
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.18
@@ -151,6 +187,9 @@ services:
     url-shorten-service:
         build: .
         hostname: url-shorten-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.19
@@ -162,11 +201,14 @@ services:
             url-shorten-mongodb:
                 condition: service_started
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     url-shorten-memcached:
         image: memcached
         hostname: url-shorten-memcached
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.21
@@ -175,6 +217,9 @@ services:
     url-shorten-mongodb:
         image: mongo:4.4.6
         hostname: url-shorten-mongodb
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.22
@@ -185,6 +230,9 @@ services:
     user-service:
         build: .
         hostname: user-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.23
@@ -196,11 +244,14 @@ services:
                 condition: service_started
         entrypoint: UserService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     user-memcached:
         image: memcached
         hostname: user-memcached
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.25
@@ -209,6 +260,9 @@ services:
     user-mongodb:
         image: mongo:4.4.6
         hostname: user-mongodb
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.26
@@ -219,6 +273,9 @@ services:
     media-service:
         build: .
         hostname: media-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.27
@@ -230,11 +287,14 @@ services:
         restart: always
         entrypoint: MediaService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     media-memcached:
         image: memcached
         hostname: media-memcached
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.29
@@ -243,6 +303,9 @@ services:
     media-mongodb:
         image: mongo:4.4.6
         hostname: media-mongodb
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.30
@@ -253,6 +316,9 @@ services:
     text-service:
         build: .
         hostname: text-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.31
@@ -262,13 +328,16 @@ services:
                 condition: service_started
         entrypoint: TextService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     # ---
 
     unique-id-service:
         build: .
         hostname: unique-id-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.33
@@ -278,13 +347,16 @@ services:
                 condition: service_started
         entrypoint: UniqueIdService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     # ---
 
     user-mention-service:
         build: .
         hostname: user-mention-service
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.35
@@ -294,13 +366,16 @@ services:
         restart: always
         entrypoint: UserMentionService
         volumes:
-            - ./config-envoy:/social-network-microservices/config
+            - ./config-beeline:/social-network-microservices/config
 
     # ---
 
     nginx-thrift:
         image: yg397/openresty-thrift:xenial
         hostname: nginx-thrift
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.37
@@ -321,6 +396,9 @@ services:
     media-frontend:
         image: yg397/media-frontend:xenial
         hostname: media-frontend
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.38
@@ -354,6 +432,9 @@ services:
     sidecar:
         image: envoyproxy/envoy:v1.31-latest
         hostname: sidecar
+        cpuset: 1-5
+        extra_hosts:
+            - "beeline:host-gateway"
         networks:
             default:
                 ipv4_address: 172.18.0.40
@@ -361,4 +442,4 @@ services:
             - 3333:9090
         restart: always
         volumes:
-            - ./config-envoy/sidecar.yaml:/etc/envoy/envoy.yaml
+            - ./config-beeline/sidecar.yaml:/etc/envoy/envoy.yaml

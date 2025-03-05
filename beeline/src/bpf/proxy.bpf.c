@@ -529,6 +529,10 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     bool path_is_user = bpf_strncmp(ctx->path, sizeof(user)-1, user);
     const char *user_timeline = "/user-timeline-service";
     bool path_is_user_timeline = bpf_strncmp(ctx->path, sizeof(user_timeline)-1, user_timeline);
+    const char *user_mention = "/user-mention-service";
+    bool path_is_user_mention = bpf_strncmp(ctx->path, sizeof(user_mention)-1, user_mention);
+
+    bpf_log("path: %s\n", ctx->path);
 
     if (path_is_compose_post == 0) ctx->ft.path = PR_COMPOSE_POST;
         else if (path_is_home_timeline == 0) ctx->ft.path = PR_HOME_TIMELINE;
@@ -540,12 +544,15 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
                                 else if (path_is_url_shorten == 0) ctx->ft.path = PR_URL_SHORTEN;
                                     else if (path_is_user == 0) ctx->ft.path = PR_USER;
                                         else if (path_is_user_timeline == 0) ctx->ft.path = PR_USER_TIMELINE;
+                                            else if (path_is_user_mention == 0) ctx->ft.path = PR_USER_MENTION;
                     else {
                         ctx->ft.direction = PR_REVERSE_PROXY;
                         ctx->ft.num_bytes_min = true;
 
                         return PR_PASS;
                     }
+
+    bpf_log("path: %d\n", ctx->ft.path);
 
     ctx->ft.direction = PR_UPSTREAM;
     ctx->ft.num_bytes_min = true;
