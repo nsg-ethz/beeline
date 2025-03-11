@@ -1,8 +1,7 @@
 use crate::bpf::types::*;
 use anyhow::Result;
 use common::Config;
-use libbpf_rs::MapHandle;
-use std::{collections::HashMap, net::SocketAddr};
+use std::net::SocketAddr;
 
 pub enum Action {
     Drop,
@@ -10,14 +9,8 @@ pub enum Action {
 }
 
 pub trait Pipeline: Sized {
-    fn new(config: Config, maps: HashMap<String, MapHandle>) -> Result<Self>;
-
-    fn create_timers(&mut self) -> Result<Vec<Box<dyn Timer>>>;
+    fn new(config: Config) -> Result<Self>;
     fn create_new_upstream(&mut self) -> Result<Box<dyn NewUpstream>>;
-}
-
-pub trait Timer: Send + Sync {
-    fn trigger(&mut self) -> Result<()>;
 }
 
 pub trait NewUpstream: Send + Sync {

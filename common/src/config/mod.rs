@@ -45,7 +45,7 @@ impl Config {
 
 impl From<envoy::Config> for Config {
     fn from(config: envoy::Config) -> Self {
-        let mut hosts = Vec::new();
+        let hosts = Vec::new();
 
         // for cluster in config.clusters {
         //     hosts.push(Host { name, instances });

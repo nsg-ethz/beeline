@@ -12,10 +12,9 @@ use libbpf_rs::{
     Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
 use log::{debug, error, info, log_enabled, warn};
-use ma::{NewUpstream, Pipeline, Timer};
+use ma::{NewUpstream, Pipeline};
 use pipeline::DebugPipeline;
 use std::{
-    collections::HashMap,
     io::Cursor,
     mem::MaybeUninit,
     net::{SocketAddr, ToSocketAddrs},
@@ -147,7 +146,7 @@ pub struct Proxy<'obj> {
 
     binder: Arc<SocketBinder>,
 
-    timers: Arc<Vec<Mutex<Box<dyn Timer>>>>,
+    upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
     new_upstream: Arc<Mutex<Box<dyn NewUpstream>>>,
 }
 
@@ -218,22 +217,7 @@ impl<'obj> Proxy<'obj> {
 
         let binder = SocketBinder::new(12345, dests)?;
 
-        let maps = HashMap::from([
-            ("us_conn_map", skel.maps.us_conns.info()?.info.id),
-            ("fib", skel.maps.fib.info()?.info.id),
-        ]);
-        let maps = maps
-            .iter()
-            .map(|(k, v)| (k.to_string(), MapHandle::from_map_id(*v).unwrap()))
-            .collect::<HashMap<_, _>>();
-
-        let mut pipeline = DebugPipeline::new(config.clone(), maps)?;
-        let timers = pipeline
-            .create_timers()?
-            .into_iter()
-            .map(|t| Mutex::new(t))
-            .collect();
-
+        let mut pipeline = DebugPipeline::new(config.clone())?;
         let new_upstream = pipeline.create_new_upstream()?;
         let new_upstream = Mutex::new(new_upstream);
 
@@ -255,7 +239,7 @@ impl<'obj> Proxy<'obj> {
             skel,
             sockops,
             binder: Arc::new(binder),
-            timers: Arc::new(timers),
+            upstream_pool: Arc::new(Mutex::new(Vec::new())),
             new_upstream: Arc::new(new_upstream),
         })
     }
@@ -292,19 +276,20 @@ impl<'obj> Proxy<'obj> {
         let (downstream, downstream_addr) = listener.accept().await?;
         debug!("Accepted connection on port {:?}", downstream_addr.port());
 
-        if let Err(e) = self.handle_downstream(downstream).await {
+        if let Err(e) = self.handle_downstream(downstream) {
             error!("Error handling downstream connection: {:?}", e);
         }
 
         Ok(())
     }
 
-    async fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
+    fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
         let addr = self.address.clone();
         let sock_wait_list = self.get_sock_wait_list()?;
         let utrn_wait_list = self.get_utrn_wait_list()?;
         let fib_direct = self.get_direct_fib()?;
         let binder = self.binder.clone();
+        let upstream_pool = self.upstream_pool.clone();
         let new_upstream = self.new_upstream.clone();
 
         tokio::spawn(async move {
@@ -417,6 +402,9 @@ impl<'obj> Proxy<'obj> {
             if let Err(e) = res {
                 error!("Error handling downstream connection: {:?}", e);
             }
+
+            let mut upstream_pool = upstream_pool.lock().unwrap();
+            upstream_pool.extend(upstreams.into_iter());
         });
 
         Ok(())

@@ -248,7 +248,7 @@ static __always_inline int _fib_insert(const struct frwd_token *ft, const struct
     else {
         struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
         if (pqueue == NULL) {
-            bpf_log("WARN: No pqueue found for forwarding token");
+            bpf_err("WARN: No pqueue found for forwarding token");
             return -1;
         }
 
@@ -270,13 +270,13 @@ static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, st
 
     struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
     if (pqueue == NULL) {
-        bpf_log("WARN: No pqueue found for forwarding token {%pI4:%u, %d, %d, %d}", &ft->addr.ip4, ft->addr.port, ft->direction, ft->path, ft->num_bytes_min);
+        bpf_err("WARN: No pqueue found for forwarding token {%pI4:%u, %d, %d, %d}", &ft->addr.ip4, ft->addr.port, ft->direction, ft->path, ft->num_bytes_min);
         return PR_UTRN;
     }
 
     struct sock_key res;
     if (bpf_map_pop_elem(pqueue, &res) < 0) {
-        bpf_log("WARN: pqueue is empty");
+        bpf_log("pqueue is empty");
         return PR_UTRN;
     }
     *ekey = res;
@@ -532,8 +532,6 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     const char *user_mention = "/user-mention-service";
     bool path_is_user_mention = bpf_strncmp(ctx->path, sizeof(user_mention)-1, user_mention);
 
-    bpf_log("path: %s\n", ctx->path);
-
     if (path_is_compose_post == 0) ctx->ft.path = PR_COMPOSE_POST;
         else if (path_is_home_timeline == 0) ctx->ft.path = PR_HOME_TIMELINE;
             else if (path_is_media == 0) ctx->ft.path = PR_MEDIA;
@@ -551,8 +549,6 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
 
                         return PR_PASS;
                     }
-
-    bpf_log("path: %d\n", ctx->ft.path);
 
     ctx->ft.direction = PR_UPSTREAM;
     ctx->ft.num_bytes_min = true;
@@ -766,6 +762,7 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     bool is_downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
+    bpf_log("payload: %s", msg->data);
 
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
