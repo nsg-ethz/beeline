@@ -17,7 +17,7 @@ from thrift.transport import TTransport
 from thrift.protocol import TBinaryProtocol
 
 def store_post():
-  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
   transport = TTransport.TFramedTransport(socket)
   protocol = TBinaryProtocol.TBinaryProtocol(transport)
   client = PostStorageService.Client(protocol)
@@ -45,7 +45,7 @@ def store_post():
   transport.close()
 
 def read_post():
-  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
   transport = TTransport.TFramedTransport(socket)
   protocol = TBinaryProtocol.TBinaryProtocol(transport)
   client = PostStorageService.Client(protocol)
@@ -57,7 +57,7 @@ def read_post():
   print(post)
 
 def read_posts():
-  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
   transport = TTransport.TFramedTransport(socket)
   protocol = TBinaryProtocol.TBinaryProtocol(transport)
   client = PostStorageService.Client(protocol)

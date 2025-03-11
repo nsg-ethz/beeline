@@ -36,7 +36,7 @@ if len(sys.argv) <= 1 or sys.argv[1] == '--help':
 
 pp = pprint.PrettyPrinter(indent=2)
 host = 'localhost'
-port = 9090
+port = 9999
 uri = ''
 framed = False
 ssl = False

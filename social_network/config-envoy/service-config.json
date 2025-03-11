@@ -15,14 +15,14 @@
         "path": "/unique-id-service",
         "connections": 512,
         "timeout_ms": 10000,
-        "port": 9090
+        "port": 9999
     },
     "media-service": {
         "keepalive_ms": 10000,
         "addr": "sidecar",
         "path": "/media-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "url-shorten-memcached": {
@@ -39,7 +39,7 @@
         "addr": "sidecar",
         "path": "/social-graph-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "user-timeline-redis": {
@@ -67,7 +67,7 @@
         "addr": "sidecar",
         "path": "/post-storage-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "compose-post-redis": {
@@ -116,7 +116,7 @@
         "addr": "sidecar",
         "path": "/text-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "write-home-timeline-service": {
@@ -126,7 +126,7 @@
         "addr": "sidecar",
         "path": "/write-home-timeline-service",
         "timeout_ms": 10000,
-        "port": 9090
+        "port": 9999
     },
     "home-timeline-redis": {
         "keepalive_ms": 10000,
@@ -143,7 +143,7 @@
         "addr": "sidecar",
         "path": "/compose-post-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "user-service": {
@@ -153,7 +153,7 @@
         "path": "/user-service",
         "connections": 512,
         "timeout_ms": 10000,
-        "port": 9090
+        "port": 9999
     },
     "write-home-timeline-rabbitmq": {
         "keepalive_ms": 10000,
@@ -177,7 +177,7 @@
         "addr": "sidecar",
         "path": "/user-mention-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "post-storage-mongodb": {
@@ -193,7 +193,7 @@
         "addr": "sidecar",
         "path": "/user-timeline-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "home-timeline-service": {
@@ -201,7 +201,7 @@
         "addr": "sidecar",
         "path": "/home-timeline-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "url-shorten-mongodb": {
@@ -217,7 +217,7 @@
         "addr": "sidecar",
         "path": "/url-shorten-service",
         "timeout_ms": 10000,
-        "port": 9090,
+        "port": 9999,
         "connections": 512
     },
     "redis-primary": {

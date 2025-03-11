@@ -28,7 +28,7 @@ local TSocketBase = TTransportBase:new{
   __type = 'TSocketBase',
   timeout = 10000,
   host = 'localhost',
-  port = 9090,
+  port = 9999,
   handle
 }
 
@@ -66,7 +66,7 @@ end
 local TSocket = TSocketBase:new{
   __type = 'TSocket',
   host = 'localhost',
-  port = 9090
+  port = 9999
 }
 
 function TSocket:isOpen()
@@ -110,7 +110,7 @@ end
 local TServerSocket = TSocketBase:new{
   __type = 'TServerSocket',
   host = 'localhost',
-  port = 9090
+  port = 9999
 }
 
 function TServerSocket:listen()
@@ -138,5 +138,3 @@ function TServerSocket:accept()
 end
 
 return TSocket
-
-

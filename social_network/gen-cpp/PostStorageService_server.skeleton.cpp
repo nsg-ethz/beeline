@@ -38,7 +38,7 @@ class PostStorageServiceHandler : virtual public PostStorageServiceIf {
 };
 
 int main(int argc, char **argv) {
-  int port = 9090;
+  int port = 9999;
   ::apache::thrift::stdcxx::shared_ptr<PostStorageServiceHandler> handler(new PostStorageServiceHandler());
   ::apache::thrift::stdcxx::shared_ptr<TProcessor> processor(new PostStorageServiceProcessor(handler));
   ::apache::thrift::stdcxx::shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
@@ -49,4 +49,3 @@ int main(int argc, char **argv) {
   server.serve();
   return 0;
 }
-

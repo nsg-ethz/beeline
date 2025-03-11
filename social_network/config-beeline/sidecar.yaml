@@ -5,7 +5,7 @@ static_resources:
               socket_address:
                   # Entrypoint for service through Envoy
                   address: 0.0.0.0
-                  port_value: 9090
+                  port_value: 9999
           filter_chains:
               - filters:
                     - name: envoy.filters.network.http_connection_manager
@@ -115,7 +115,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: compose-post-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: compose-post-redis
           type: STRICT_DNS
@@ -141,7 +141,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: write-home-timeline-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: media-service
           type: STRICT_DNS
@@ -154,7 +154,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: media-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: post-storage-service
           type: STRICT_DNS
@@ -167,7 +167,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: post-storage-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: social-graph-service
           type: STRICT_DNS
@@ -180,7 +180,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: social-graph-service
-                                      port_value: 9090
+                                      port_value: 9999
         - name: social-graph-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
@@ -218,7 +218,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: text-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: unique-id-service
           type: STRICT_DNS
@@ -231,7 +231,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: unique-id-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: url-shorten-service
           type: STRICT_DNS
@@ -244,7 +244,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: url-shorten-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: url-shorten-memcached
           type: STRICT_DNS
@@ -270,7 +270,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: user-mention-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: user-service
           type: STRICT_DNS
@@ -283,7 +283,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: user-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: user-mongodb
           type: STRICT_DNS
@@ -322,7 +322,7 @@ static_resources:
                               address:
                                   socket_address:
                                       address: user-timeline-service
-                                      port_value: 9090
+                                      port_value: 9999
 
         - name: user-timeline-mongodb
           type: STRICT_DNS
@@ -361,4 +361,4 @@ static_resources:
                               address:
                                   socket_address:
                                       address: home-timeline-service
-                                      port_value: 9090
+                                      port_value: 9999

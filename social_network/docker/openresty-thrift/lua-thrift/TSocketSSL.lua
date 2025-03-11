@@ -28,7 +28,7 @@ local terror = Thrift.terror
 local TSocketSSL = TSocket:new{
   __type = 'TSocketSSL',
   host = 'localhost',
-  port = 9090
+  port = 9999
 }
 
 function TSocketSSL:open()

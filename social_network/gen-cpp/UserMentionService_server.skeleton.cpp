@@ -28,7 +28,7 @@ class UserMentionServiceHandler : virtual public UserMentionServiceIf {
 };
 
 int main(int argc, char **argv) {
-  int port = 9090;
+  int port = 9999;
   ::apache::thrift::stdcxx::shared_ptr<UserMentionServiceHandler> handler(new UserMentionServiceHandler());
   ::apache::thrift::stdcxx::shared_ptr<TProcessor> processor(new UserMentionServiceProcessor(handler));
   ::apache::thrift::stdcxx::shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
@@ -39,4 +39,3 @@ int main(int argc, char **argv) {
   server.serve();
   return 0;
 }
-

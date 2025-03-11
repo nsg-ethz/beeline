@@ -21,7 +21,7 @@ local function _UploadUserId(req_id, post, carrier)
   local ngx = ngx
 
   local user_client = GenericObjectPool:connection(
-      UserServiceClient, "user-service.social-network.svc.cluster.local", 9090)
+      UserServiceClient, "user-service.social-network.svc.cluster.local", 9999)
   local status, err = pcall(user_client.UploadCreatorWithUserId, user_client,
       req_id, tonumber(post.user_id), post.username, carrier)
   if not status then
@@ -36,7 +36,7 @@ local function _UploadText(req_id, post, carrier)
   local ngx = ngx
 
   local text_client = GenericObjectPool:connection(
-      TextServiceClient, "text-service.social-network.svc.cluster.local", 9090)
+      TextServiceClient, "text-service.social-network.svc.cluster.local", 9999)
   local status, err = pcall(text_client.UploadText, text_client, req_id,
       post.text, carrier)
   if not status then
@@ -51,7 +51,7 @@ local function _UploadUniqueId(req_id, post, carrier)
   local ngx = ngx
 
   local unique_id_client = GenericObjectPool:connection(
-      UniqueIdServiceClient, "unique-id-service.social-network.svc.cluster.local", 9090)
+      UniqueIdServiceClient, "unique-id-service.social-network.svc.cluster.local", 9999)
   local status, err = pcall(unique_id_client.UploadUniqueId, unique_id_client,
       req_id, tonumber(post.post_type), carrier)
   if not status then
@@ -67,7 +67,7 @@ local function _UploadMedia(req_id, post, carrier)
   local ngx = ngx
 
   local media_client = GenericObjectPool:connection(
-      MediaServiceClient, "media-service.social-network.svc.cluster.local", 9090)
+      MediaServiceClient, "media-service.social-network.svc.cluster.local", 9999)
   local status, err
   if (not _StrIsEmpty(post.media_ids) and not _StrIsEmpty(post.media_types)) then
     status, err = pcall(media_client.UploadMedia, media_client,

@@ -15,7 +15,7 @@
     "secret": "secret",
     "social-graph-service": {
       "addr": "social-graph-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
@@ -38,7 +38,7 @@
     },
     "write-home-timeline-service": {
       "addr": "write-home-timeline-service",
-      "port": 9090,
+      "port": 9999,
       "workers": 32,
       "connections": 512,
       "timeout_ms": 10000,
@@ -62,7 +62,7 @@
     },
     "compose-post-service": {
       "addr": "compose-post-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
@@ -78,7 +78,7 @@
     },
     "user-timeline-service": {
       "addr": "user-timeline-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
@@ -101,7 +101,7 @@
     },
     "post-storage-service": {
       "addr": "post-storage-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
@@ -123,7 +123,7 @@
     },
     "unique-id-service": {
       "addr": "unique-id-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000,
@@ -131,7 +131,7 @@
     },
     "media-service": {
       "addr": "media-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
@@ -160,21 +160,21 @@
     },
     "text-service": {
       "addr": "text-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
     },
     "user-mention-service": {
       "addr": "user-mention-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
     },
     "url-shorten-service": {
       "addr": "url-shorten-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
@@ -196,7 +196,7 @@
     },
     "user-service": {
       "addr": "user-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000,
@@ -219,7 +219,7 @@
     },
     "home-timeline-service": {
       "addr": "home-timeline-service",
-      "port": 9090,
+      "port": 9999,
       "connections": 512,
       "timeout_ms": 10000,
       "keepalive_ms": 10000
