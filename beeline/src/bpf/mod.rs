@@ -2,9 +2,13 @@
 
 use anyhow::{bail, Result};
 use as_bytes::AsBytes;
+use common::net::TryIntoRawOctets;
 use libbpf_rs::{MapCore, MapFlags};
-use crate::net::TryIntoRawOctets;
-use std::{hash::{Hash, Hasher}, mem::size_of, net::SocketAddr};
+use std::{
+    hash::{Hash, Hasher},
+    mem::size_of,
+    net::SocketAddr,
+};
 use types::*;
 
 include!(concat!(
@@ -15,24 +19,19 @@ include!(concat!(
 impl Eq for addr_key {}
 
 impl PartialEq for addr_key {
-
     fn eq(&self, other: &Self) -> bool {
         self.ip4 == other.ip4 && self.port == other.port
     }
-
 }
 
 impl Hash for addr_key {
-
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.ip4.hash(state);
         self.port.hash(state);
     }
-
 }
 
 impl TryFrom<&SocketAddr> for addr_key {
-
     type Error = anyhow::Error;
 
     fn try_from(addr: &SocketAddr) -> Result<Self> {
@@ -41,34 +40,35 @@ impl TryFrom<&SocketAddr> for addr_key {
             port: addr.port() as u32,
         })
     }
-
 }
 
 impl TryFrom<(&SocketAddr, &SocketAddr)> for sock_key {
-    
     type Error = anyhow::Error;
 
-    fn try_from((local, remote): (&SocketAddr, &SocketAddr)) -> Result<Self> {        
+    fn try_from((local, remote): (&SocketAddr, &SocketAddr)) -> Result<Self> {
         Ok(sock_key {
             local: addr_key::try_from(local)?,
             remote: addr_key::try_from(remote)?,
         })
     }
-
 }
 
 pub trait TypedLookUp {
-
     fn lookup_as<K: AsBytes, V: Copy>(&self, key: &K, flags: MapFlags) -> Result<Option<V>>;
     fn lookup_and_delete_as<K: AsBytes, V: Copy>(&self, key: &K) -> Result<Option<V>>;
-
 }
 
-impl<M> TypedLookUp for M where M: MapCore {
-
+impl<M> TypedLookUp for M
+where
+    M: MapCore,
+{
     fn lookup_as<K: AsBytes, V: Copy>(&self, key: &K, flags: MapFlags) -> Result<Option<V>> {
         if size_of::<V>() as u32 != self.value_size() {
-            bail!("Expected value size {} but got {}", self.value_size(), size_of::<V>());
+            bail!(
+                "Expected value size {} but got {}",
+                self.value_size(),
+                size_of::<V>()
+            );
         }
 
         let key = unsafe { key.as_bytes() };
@@ -80,7 +80,11 @@ impl<M> TypedLookUp for M where M: MapCore {
 
     fn lookup_and_delete_as<K: AsBytes, V: Copy>(&self, key: &K) -> Result<Option<V>> {
         if size_of::<V>() as u32 != self.value_size() {
-            bail!("Expected value size {} but got {}", self.value_size(), size_of::<V>());
+            bail!(
+                "Expected value size {} but got {}",
+                self.value_size(),
+                size_of::<V>()
+            );
         }
 
         let key = unsafe { key.as_bytes() };
@@ -89,15 +93,12 @@ impl<M> TypedLookUp for M where M: MapCore {
 
         Ok(val)
     }
-
 }
 
 pub fn align_val_to<V: Copy>(val: &[u8]) -> Option<V> {
-    let (head, body, _tail) = unsafe {
-        val.align_to::<V>()
-    };
+    let (head, body, _tail) = unsafe { val.align_to::<V>() };
     if !head.is_empty() || body.len() != 1 {
-        return None
+        return None;
     }
 
     Some(body[0])

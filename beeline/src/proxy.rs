@@ -1,11 +1,13 @@
 use crate::{
     bpf::{types::*, TypedLookUp, *},
-    net::{SocketBinder, TryIntoRawOctets},
     parse::{http::HttpParser, Action},
 };
 use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
-use common::Config;
+use common::{
+    net::{SocketBinder, TryIntoRawOctets},
+    Config,
+};
 use libbpf_rs::{
     set_print,
     skel::{OpenSkel, SkelBuilder},
@@ -31,7 +33,6 @@ use tokio::{
 
 pub mod bpf;
 pub mod ma;
-pub mod net;
 pub mod parse;
 pub mod pipeline;
 

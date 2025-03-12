@@ -2,6 +2,7 @@
 name = "baseline"
 version = "0.1.0"
 edition = "2021"
+description = "An IPC accelerator à la Cilium"
 
 [lib]
 name = "baseline"
@@ -11,19 +12,19 @@ path = "src/proxy.rs"
 name = "baseline"
 path = "src/main.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0.93"
-clap = { version = "4.5.21", features = ["derive"] }
+anyhow = "1.0.86"
+as-bytes = "0.2.0"
+clap = { version = "4.5.17", features = ["derive"] }
 common = { path = "../common" }
 env_logger = "0.11.5"
-futures = "0.3.31"
-hmac = "0.12.1"
-httparse = "1.9.5"
-jwt = "0.16.0"
+libbpf-rs = { git = "https://github.com/libbpf/libbpf-rs.git", features = [
+    "vendored",
+], branch = "master" }
+libbpf-sys = "1.4.5"
+libc = "0.2.155"
 log = "0.4.22"
-rand = "0.8.5"
-serde_yaml = "0.9.34"
-sha2 = "0.10.8"
-tokio = { version = "1.41.1", features = ["full", "io-util"] }
+tokio = { version = "1.41.0", features = ["full"] }
+
+[build-dependencies]
+libbpf-cargo = "0.24"

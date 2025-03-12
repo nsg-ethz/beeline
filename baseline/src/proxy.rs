@@ -1,196 +1,82 @@
-use crate::pipeline::{Destination, Pipeline};
-use anyhow::{anyhow, Result};
-use common::Config;
-use futures::{
-    stream::{FuturesUnordered, StreamExt},
-    TryFutureExt,
+use crate::bpf::*;
+use anyhow::Result;
+use common::net::TryIntoRawOctets;
+use libbpf_rs::{
+    set_print,
+    skel::{OpenSkel, SkelBuilder},
+    Link, PrintLevel,
 };
-use log::{debug, error, info, trace, warn};
+use log::{debug, info, log_enabled, warn};
 use std::{
-    collections::{HashMap, VecDeque},
-    io::Cursor,
-    net::{SocketAddr, ToSocketAddrs},
-    os::fd::AsRawFd,
-    time::Duration,
-};
-use tokio::{
-    io::{self, AsyncWriteExt},
-    net::{TcpListener, TcpSocket, TcpStream},
+    mem::MaybeUninit,
+    net::IpAddr,
+    os::{
+        fd::{AsFd, AsRawFd, IntoRawFd},
+        unix::fs::OpenOptionsExt,
+    },
 };
 
-mod pipeline;
+pub mod bpf;
 
-pub struct Proxy {
-    pub address: SocketAddr,
-    config: Config,
+fn print(level: PrintLevel, msg: String) {
+    let msg = msg.trim_start_matches("libbpf:").trim();
+
+    match level {
+        PrintLevel::Debug => debug!(target: "libbpf", "{}", msg),
+        PrintLevel::Info => info!(target: "libbpf", "{}", msg),
+        PrintLevel::Warn => warn!(target: "libbpf", "{}", msg),
+    }
 }
 
-unsafe impl Send for Proxy {}
+pub struct Proxy<'obj> {
+    pub address: IpAddr,
 
-unsafe impl Sync for Proxy {}
+    #[allow(dead_code)]
+    skel: ProxySkel<'obj>,
 
-impl Proxy {
-    pub fn new<A: ToSocketAddrs>(address: A, config: Config) -> Result<Self> {
-        let address = address
-            .to_socket_addrs()?
-            .next()
-            .expect("Failed to resolve address");
+    #[allow(dead_code)]
+    sockops: Link,
+}
 
-        Ok(Proxy { address, config })
-    }
+unsafe impl<'obj> Send for Proxy<'obj> {}
 
-    pub async fn listen(self) -> Result<()> {
-        let socket = TcpSocket::new_v4()?;
-        socket.set_reuseaddr(true)?;
-        socket.bind(self.address)?;
-        let listener = socket.listen(4096)?;
+unsafe impl<'obj> Sync for Proxy<'obj> {}
 
-        info!("Listening on {}", self.address);
+impl<'obj> Proxy<'obj> {
+    pub fn attach(
+        address: &str,
+        open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>,
+    ) -> Result<Self> {
+        set_print(Some((PrintLevel::Debug, print)));
 
-        loop {
-            self.accept(&listener).await?;
-        }
-    }
+        let address: IpAddr = address.parse()?;
 
-    async fn accept(&self, listener: &TcpListener) -> Result<()> {
-        let (downstream, downstream_addr) = listener.accept().await?;
-        debug!("Accepted connection on port {:?}", downstream_addr.port());
-
-        let pipeline = Pipeline::new(self.config.clone(), Duration::from_millis(10));
-        if let Err(e) = Self::start_reading(downstream, pipeline) {
-            error!("Error handling connection: {:?}", e);
+        let skel_builder = ProxySkelBuilder::default();
+        let mut open_skel = skel_builder.open(open_obj)?;
+        if log_enabled!(log::Level::Debug) {
+            open_skel.progs.msg_verdict.set_log_level(1);
         }
 
-        Ok(())
-    }
+        open_skel.maps.rodata_data.ip4 = address.try_into_ne_octets()?;
 
-    fn start_reading(stream: TcpStream, mut pipeline: Pipeline) -> Result<()> {
-        let stream_addr = stream.peer_addr()?;
-        let stream_fd = stream.as_raw_fd();
-        let (rx, tx) = stream.into_split();
+        let skel = open_skel.load()?;
 
-        tokio::spawn(async move {
-            let mut buf = Vec::with_capacity(8192);
-            let mut rxs = VecDeque::new();
-            rxs.push_back(rx);
+        let sock_map_fd = skel.maps.sock_map.as_fd().as_raw_fd();
 
-            let mut txs = HashMap::new();
-            txs.insert(stream_addr, tx);
+        let cgroup_fd = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY)
+            .open("/sys/fs/cgroup")?
+            .into_raw_fd();
 
-            let res: Result<(), _> = loop {
-                let mut readable = rxs
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, rx)| rx.readable().map_ok(move |_| idx))
-                    .collect::<FuturesUnordered<_>>();
+        let sockops = skel.progs.monitor_sockets.attach_cgroup(cgroup_fd)?;
 
-                let rx = match readable.next().await.unwrap() {
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-                    Err(e) => break Err(anyhow!(e)),
-                    Ok(rx) => rx,
-                };
-                let rx = rxs.get(rx).unwrap();
-                drop(readable);
+        skel.progs.msg_verdict.attach_sockmap(sock_map_fd)?;
 
-                match rx.try_read_buf(&mut buf) {
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-                    Err(e) => break Err(anyhow!(e)),
-                    Ok(0) => break Ok(()),
-                    Ok(len) => len,
-                };
-
-                let is_downstream = rx.as_ref().as_raw_fd() == stream_fd;
-                let mut headers = [httparse::EMPTY_HEADER; 64];
-                let (hdr_len, hdrs) = if is_downstream {
-                    let mut req = httparse::Request::new(&mut headers);
-                    let hdr_len = req.parse(&buf);
-                    if let Err(e) = hdr_len {
-                        break Err(anyhow!(e));
-                    }
-
-                    (hdr_len, req.headers)
-                } else {
-                    let mut req = httparse::Response::new(&mut headers);
-                    let hdr_len = req.parse(&buf);
-                    if let Err(e) = hdr_len {
-                        break Err(anyhow!(e));
-                    }
-
-                    (hdr_len, req.headers)
-                };
-
-                let con_len = hdrs
-                    .iter()
-                    .find(|h| h.name.eq_ignore_ascii_case("content-length"))
-                    .and_then(|h| std::str::from_utf8(h.value).ok())
-                    .and_then(|v| v.parse::<usize>().ok())
-                    .unwrap_or(0);
-
-                let hdr_len = match hdr_len.unwrap() {
-                    httparse::Status::Complete(len) => len,
-                    httparse::Status::Partial => continue,
-                };
-
-                let req_len = hdr_len + con_len;
-                if buf.len() < req_len {
-                    debug!("Request not fully read: {}/{}", buf.len(), req_len);
-                    continue;
-                }
-
-                let origin = if is_downstream {
-                    rx.peer_addr().unwrap()
-                } else {
-                    rx.local_addr().unwrap()
-                };
-
-                let mut msg = buf.drain(..req_len).collect();
-                let dest = match pipeline.process(&mut msg, origin, is_downstream) {
-                    Ok(dest) => dest,
-                    Err(e) => break Err(e),
-                };
-
-                let addr = match dest {
-                    Destination::Exisiting(addr) => addr,
-                    Destination::New(addr, ft) => {
-                        debug!("Opening upstream connection [{}->{}]", origin, addr);
-
-                        let upstream = match TcpStream::connect(addr).await {
-                            Ok(upstream) => upstream,
-                            Err(e) => break Err(anyhow!(e)),
-                        };
-
-                        let addr = upstream.local_addr().unwrap();
-                        let (rx, tx) = upstream.into_split();
-
-                        rxs.push_back(rx);
-                        txs.insert(addr, tx);
-                        pipeline.add_sock(ft, addr);
-
-                        addr
-                    }
-                };
-
-                trace!("Forward msg {} -> {}", origin, addr);
-                let start = std::time::Instant::now();
-
-                let tx = txs.get_mut(&addr).unwrap();
-                let mut req_buf = Cursor::new(&msg);
-                tx.write_all_buf(&mut req_buf).await.unwrap();
-
-                let end = std::time::Instant::now();
-                let delta = end.duration_since(start);
-                if delta.as_millis() > 500 {
-                    warn!("Forwarding took {}µs", delta.as_micros());
-                };
-            };
-
-            if let Err(e) = res {
-                error!("Error handling connection: {:?}", e);
-            } else {
-                debug!("Connection closed: {}", stream_addr);
-            }
-        });
-
-        Ok(())
+        Ok(Self {
+            address,
+            skel,
+            sockops,
+        })
     }
 }

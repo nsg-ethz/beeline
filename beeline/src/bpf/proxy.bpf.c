@@ -762,7 +762,6 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     bool is_downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
-    bpf_log("payload: %s", msg->data);
 
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
