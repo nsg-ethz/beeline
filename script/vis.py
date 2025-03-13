@@ -62,12 +62,16 @@ surface.add_argument("-p", "--proxy", required=True, help="The recorded proxy to
 surface.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
 surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
+sn = subparsers.add_parser("sn")
+sn.add_argument("-a", "--agg", default="p(90)", help="The aggregation func")
+
 args = parser.parse_args()
 
 def thousand_label(x, pos):
     return "%1.0fK" % (x * 1e-3) if x >= 1e3 else "%1.0f" % x
 
-def _parse_path(path):
+
+def _parse_k6_path(path):
     match = re.search(r"(\w+)-(\d+)B.*", path)
     proxy = match.group(1)
     size = match.group(2)
@@ -75,10 +79,18 @@ def _parse_path(path):
     return proxy, int(size)
 
 
-def _load_summary_data(paths):
+def _parse_wrk_path(path):
+    match = re.search(r"(\w+)-(\d+).*", path)
+    proxy = match.group(1)
+    rate = match.group(2)
+
+    return proxy, int(rate)
+
+
+def _load_k6_data(paths):
     rows = []
     for p in paths:
-        proxy, payload_size = _parse_path(p)
+        proxy, payload_size = _parse_k6_path(p)
         with open(p, "r") as file:
             data = json.load(file)
             data = data["metrics"]
@@ -97,12 +109,67 @@ def _load_summary_data(paths):
 
     return df
 
+def _load_wrk_data(paths):
+    rows = []
+    for p in paths:
+        proxy, rate = _parse_wrk_path(p)
+        with open(p, "r") as file:
+            text = file.read()
+            ps = ["50.000%",
+                "75.000%",
+                "90.000%",
+                "99.000%",
+                "99.900%",
+                "99.990%",
+                "99.999%",
+                "100.000%"]
+
+            ps_map = {
+                "50.000%": "p(50)",
+                "75.000%": "p(75)",
+                "90.000%": "p(90)",
+                "99.000%": "p(99)",
+                "99.900%": "p(99.9)",
+                "99.990%": "p(99.99)",
+                "99.999%": "p(99.999)",
+                "100.000%": "p(100)"
+            }
+
+            for percentile in ps:
+                pattern = rf"{percentile}\s+(\d+\.\d+)(\w+)"
+                match = re.search(pattern, text)
+
+                if match is None:
+                    raise ValueError(f"Could not find {percentile} in {p}")
+
+                latency = match.group(1)
+                unit = match.group(2)
+
+                if unit == "s":
+                    latency = float(latency) * 1000
+                elif unit == "ms":
+                    latency = float(latency)
+                else:
+                    raise ValueError(f"Unknown unit: {unit}")
+
+                rows.append({
+                    "proxy": proxy,
+                    "rate": rate,
+                    "metric_name": "http_req_duration",
+                    "file": os.path.basename(p),
+                    ps_map[percentile]: latency
+                })
+
+    df = pd.DataFrame.from_dict(rows)
+    df.set_index(["proxy", "rate", "metric_name"], inplace=True)
+
+    return df
 
 def _load_log_data(paths):
     dfs = []
 
     for p in paths:
-        proxy, payload_size = _parse_path(p)
+        proxy, payload_size = _parse_k6_path(p)
         df = pd.read_csv(p, engine="pyarrow")
         df["proxy"] = proxy
         df["payload_size"] = payload_size
@@ -117,7 +184,7 @@ def _load_log_data(paths):
 
 def _load_data(paths, aggs):
     if all("summary" in p for p in paths):
-        df = _load_summary_data(paths)
+        df = _load_k6_data(paths)
 
         return df, True
     else:
@@ -140,7 +207,7 @@ def _save_to_path(name, dst):
     name = name.replace("(", "")
     name = name.replace(")", "")
 
-    # plt.tight_layout()
+    plt.tight_layout()
     path = os.path.join(dst, name)
     if os.path.splitext(path)[1] == "":
         path += ".png"
@@ -181,9 +248,10 @@ def _rename_legend_labels(g):
         if len(new_name) > 0:
             text.set_text(new_name)
 
+
 def box_plot(name, metric, dst):
     paths = _get_file_paths(name)
-    df = _load_summary_data(paths)
+    df = _load_k6_data(paths)
     df = df.xs(metric, level="metric_name")
 
     order = df.index.get_level_values("proxy").unique()
@@ -225,7 +293,7 @@ def box_plot(name, metric, dst):
 
 def line_graph(name, metric, agg, dst):
     paths = _get_file_paths(name)
-    df = _load_summary_data(paths)
+    df = _load_k6_data(paths)
     df = df.xs(metric, level="metric_name")
 
     order = df.index.get_level_values("proxy").unique()
@@ -261,7 +329,7 @@ def line_graph(name, metric, agg, dst):
 
 def bar_graph(name, metric, agg, dst):
     paths = _get_file_paths(name)
-    df = _load_summary_data(paths)
+    df = _load_k6_data(paths)
     df = df.xs(metric, level="metric_name")
 
     df[agg] = df[agg] / 1e6
@@ -300,7 +368,7 @@ def bar_graph(name, metric, agg, dst):
 
 def speedup_graph(name, base, metric, aggs, dst):
     paths = _get_file_paths(name)
-    df = _load_summary_data(paths)
+    df = _load_k6_data(paths)
     ebpf = df.xs("ebpf", level="proxy")
     envoy = df.xs("envoy", level="proxy")
 
@@ -336,7 +404,7 @@ def speedup_graph(name, base, metric, aggs, dst):
 
 def duration_graph(name, proxy, agg, dst):
     paths = _get_file_paths(name)
-    df = _load_summary_data(paths)
+    df = _load_k6_data(paths)
     df = df.xs(proxy, level="proxy")
 
     columns = ["http_req_sending", "http_req_waiting", "http_req_receiving"]
@@ -365,7 +433,7 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
 
         return df
 
-    df = _preprocess(_load_summary_data(paths))
+    df = _preprocess(_load_k6_data(paths))
 
     base = df.drop((c for c in df.columns if c != base), axis=1)
     df.drop(base, axis=1, inplace=True)
@@ -449,7 +517,7 @@ def scatter_graph(name, proxy, metric, drop_rate, dst):
 
 def surface_graph(name, proxy, metric, agg, dst):
     paths = _get_file_paths(name)
-    df = _load_summary_data(paths)
+    df = _load_k6_data(paths)
     df = df[df.index.get_level_values("proxy") == proxy]
     df = df.reset_index().set_index("payload_size")
 
@@ -488,6 +556,37 @@ def surface_graph(name, proxy, metric, agg, dst):
     _save_to_path(f"surface-{proxy}-{metric}-{agg}", os.path.join(dst, name))
 
 
+def sn_graph(name, agg, dst):
+    paths = _get_file_paths(name, "*.log")
+    df = _load_wrk_data(paths)
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+
+    g = sns.lineplot(data=df, x="rate", y=agg, hue="proxy", marker="o", hue_order=order)
+    rates = set(df.index.get_level_values("rate"))
+    rates = sorted(rates)
+
+    shown_rates = rates[::5]  # Take every 5th element
+
+    g.set_xlabel("rate [req/s]")
+    g.set_xticks(shown_rates)  # Set ticks only for the selected rates
+    g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
+    g.set_xbound(lower=rates[0], upper=rates[-1])
+
+    g.set_yscale("log")
+    g.set_ylabel("latency [ms]")
+    # min_y = df[agg].min()
+    # max_y = df[agg].max()
+    # g.set_yticks(np.linspace(min_y, max_y, 5))
+    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+
+    if args.legend:
+        _rename_legend_labels(g)
+
+    _save_to_path(f"sn-latency-{agg}", os.path.join(dst, name))
+
+
 if __name__ == "__main__":
     if args.command == "bp":
         box_plot(args.name, args.metric, args.output)
@@ -507,3 +606,5 @@ if __name__ == "__main__":
         scatter_graph(args.name, args.proxy, args.metric, float(args.drop), args.output)
     elif args.command == "surface":
         surface_graph(args.name, args.proxy, args.metric, args.agg, args.output)
+    elif args.command == "sn":
+        sn_graph(args.name, args.agg, args.output)
