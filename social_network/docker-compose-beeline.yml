@@ -438,8 +438,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.40
-        ports:
-            - 3333:9999
         restart: always
         volumes:
             - ./config-beeline/sidecar.yaml:/etc/envoy/envoy.yaml

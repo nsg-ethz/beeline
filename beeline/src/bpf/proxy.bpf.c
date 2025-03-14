@@ -587,7 +587,7 @@ __noinline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, cons
 
 __noinline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
-    u8 dir = (ukey->local.port == 3333) ? PR_REVERSE_PROXY : PR_UPSTREAM;
+    u8 dir = (ukey->local.ip4 >> 24 == 40) ? PR_REVERSE_PROXY : PR_UPSTREAM;
 
     // make upstream connection available for new requests
     struct frwd_token ft = {

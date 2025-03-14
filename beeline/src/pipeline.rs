@@ -100,7 +100,7 @@ impl NewUpstream for ConnectToBackend {
                     None => bail!("Backend not found: {}", name),
                 }
             }
-            3 => Ok("127.0.0.1:3333".parse()?),
+            3 => Ok("172.18.0.40:9999".parse()?),
             _ => bail!("Invalid direction: {}", ft.direction),
         }
     }
