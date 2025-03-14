@@ -44,17 +44,10 @@ struct sock_key {
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 16384);
+    __uint(max_entries, 32768);
     __type(key, struct sock_key);
     __type(value, int);
 } sock_map SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 32768);
-    __type(key, struct sock_key);
-    __type(value, struct sock_key);
-} ekey_map SEC(".maps");
 
 volatile const u32 ip4;
 
@@ -82,32 +75,14 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u]", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
 
-    // struct sock_key ekey = _invert_sock_key(&ikey);
-    // int *cnt = bpf_map_lookup_elem(&req_count, &ekey);
-
-    // if (cnt == NULL || *cnt <= 10) {
-    //     int new_cnt = (cnt == NULL) ? 1 : *cnt + 1;
-    //     bpf_map_update_elem(&req_count, &ekey, &new_cnt, BPF_ANY);
-    //     return SK_PASS;
-    // }
-
-    struct sock_key *ekey = bpf_map_lookup_elem(&ekey_map, &ikey);
-    if (!ekey) {
-        struct sock_key new_ekey = _invert_sock_key(&ikey);
-        if (bpf_map_update_elem(&ekey_map, &ikey, &new_ekey, BPF_ANY) < 0) {
-            bpf_err("Failed to update ekey_map");
-        }
-        return SK_PASS;
+    struct sock_key ekey = _invert_sock_key(&ikey);
+    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+        // It's possible that this fails because we haven't added the egress socket to the sockmap yet
+        // In this case we will have to traverse the network stack
+        bpf_log("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
     }
     else {
-        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-            // It's possible that this fails because we haven't added the egress socket to the sockmap yet
-            // In this case we will have to traverse the network stack
-            bpf_log("WARN: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        }
-        else {
-            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        }
+        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
     }
 
     return SK_PASS;
