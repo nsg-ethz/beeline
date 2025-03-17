@@ -2,7 +2,7 @@ services:
     social-graph-service:
         build: .
         hostname: social-graph-service
-        cpuset: 1-17
+        cpuset: 1-23
         depends_on:
             jaeger-agent:
                 condition: service_started
@@ -16,25 +16,25 @@ services:
     social-graph-mongodb:
         image: mongo:4.4.6
         hostname: social-graph-mongodb
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     social-graph-redis:
         image: redis
         hostname: social-graph-redis
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     home-timeline-redis:
         image: redis
         hostname: home-timeline-redis
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     compose-post-service:
         build: .
         hostname: compose-post-service
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
         depends_on:
             jaeger-agent:
@@ -46,7 +46,7 @@ services:
     post-storage-service:
         build: .
         hostname: post-storage-service
-        cpuset: 1-17
+        cpuset: 1-23
         ports:
             - 10002:9999
         restart: always
@@ -62,19 +62,19 @@ services:
     post-storage-memcached:
         image: memcached
         hostname: post-storage-memcached
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     post-storage-mongodb:
         image: mongo:4.4.6
         hostname: post-storage-mongodb
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     user-timeline-service:
         build: .
         hostname: user-timeline-service
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
         depends_on:
             jaeger-agent:
@@ -88,19 +88,19 @@ services:
     user-timeline-redis:
         image: redis
         hostname: user-timeline-redis
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     user-timeline-mongodb:
         image: mongo:4.4.6
         hostname: user-timeline-mongodb
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     url-shorten-service:
         build: .
         hostname: url-shorten-service
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
         entrypoint: UrlShortenService
         depends_on:
@@ -114,19 +114,19 @@ services:
     url-shorten-memcached:
         image: memcached
         hostname: url-shorten-memcached
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     url-shorten-mongodb:
         image: mongo:4.4.6
         hostname: url-shorten-mongodb
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     user-service:
         build: .
         hostname: user-service
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
         depends_on:
             jaeger-agent:
@@ -140,19 +140,19 @@ services:
     user-memcached:
         image: memcached
         hostname: user-memcached
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     user-mongodb:
         image: mongo:4.4.6
         hostname: user-mongodb
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     media-service:
         build: .
         hostname: media-service
-        cpuset: 1-17
+        cpuset: 1-23
         depends_on:
             jaeger-agent:
                 condition: service_started
@@ -166,19 +166,19 @@ services:
     media-memcached:
         image: memcached
         hostname: media-memcached
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     media-mongodb:
         image: mongo:4.4.6
         hostname: media-mongodb
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
 
     text-service:
         build: .
         hostname: text-service
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
         depends_on:
             jaeger-agent:
@@ -190,7 +190,7 @@ services:
     unique-id-service:
         build: .
         hostname: unique-id-service
-        cpuset: 1-17
+        cpuset: 1-23
         restart: always
         depends_on:
             jaeger-agent:
@@ -202,7 +202,7 @@ services:
     user-mention-service:
         build: .
         hostname: user-mention-service
-        cpuset: 1-17
+        cpuset: 1-23
         depends_on:
             jaeger-agent:
                 condition: service_started
@@ -214,7 +214,7 @@ services:
     home-timeline-service:
         build: .
         hostname: home-timeline-service
-        cpuset: 1-17
+        cpuset: 1-23
         depends_on:
             jaeger-agent:
                 condition: service_started
@@ -226,7 +226,7 @@ services:
     nginx-thrift:
         image: yg397/openresty-thrift:xenial
         hostname: nginx-thrift
-        cpuset: 1-17
+        cpuset: 1-23
         ports:
             - 8080:8080
         depends_on:
@@ -244,7 +244,7 @@ services:
     media-frontend:
         image: yg397/media-frontend:xenial
         hostname: media-frontend
-        cpuset: 1-17
+        cpuset: 1-23
         ports:
             - 8081:8080
         restart: always

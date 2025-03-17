@@ -27,7 +27,7 @@ mkdir -p ${SUMMARY_DIR}
 
 for RATE in ${RATE_LIST}; do
     FILE=${SUMMARY_DIR}/${PROXY}-${RATE}.log
-    BENCH_CMD="taskset --cpu-list 18-23 wrk -t 10 -c 100 -d 30s -L -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://localhost:8080/wrk2-api/post/compose -R ${RATE} > ${FILE}"
+    BENCH_CMD="taskset --cpu-list 24-31 wrk -t 10 -c 100 -d 30s -L -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://localhost:8080/wrk2-api/post/compose -R ${RATE} > ${FILE}"
     echo ${BENCH_CMD}
     eval ${BENCH_CMD}
     RET=$?
