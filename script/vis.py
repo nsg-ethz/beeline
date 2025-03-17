@@ -115,50 +115,37 @@ def _load_wrk_data(paths):
         proxy, rate = _parse_wrk_path(p)
         with open(p, "r") as file:
             text = file.read()
-            ps = ["50.000%",
-                "75.000%",
-                "90.000%",
-                "99.000%",
-                "99.900%",
-                "99.990%",
-                "99.999%",
-                "100.000%"]
+            ps = [
+                "p(10)",
+                "p(25)",
+                "p(50)",
+                "p(75)",
+                "p(90)",
+                "p(99)",
+                "p(99.9)",
+                "p(99.99)",
+                "p(99.999)",
+            ]
 
-            ps_map = {
-                "50.000%": "p(50)",
-                "75.000%": "p(75)",
-                "90.000%": "p(90)",
-                "99.000%": "p(99)",
-                "99.900%": "p(99.9)",
-                "99.990%": "p(99.99)",
-                "99.999%": "p(99.999)",
-                "100.000%": "p(100)"
-            }
-
+            aggs = {}
             for percentile in ps:
-                pattern = rf"{percentile}\s+(\d+\.\d+)(\w+)"
+                escaped_percentile = re.escape(percentile)
+                pattern = rf"{escaped_percentile}:\s*(\d+\.\d+)"
                 match = re.search(pattern, text)
 
                 if match is None:
                     raise ValueError(f"Could not find {percentile} in {p}")
 
                 latency = match.group(1)
-                unit = match.group(2)
+                aggs[percentile] = float(latency)
 
-                if unit == "s":
-                    latency = float(latency) * 1000
-                elif unit == "ms":
-                    latency = float(latency)
-                else:
-                    raise ValueError(f"Unknown unit: {unit}")
-
-                rows.append({
-                    "proxy": proxy,
-                    "rate": rate,
-                    "metric_name": "http_req_duration",
-                    "file": os.path.basename(p),
-                    ps_map[percentile]: latency
-                })
+            rows.append({
+                "proxy": proxy,
+                "rate": rate,
+                "metric_name": "http_req_duration",
+                "file": os.path.basename(p),
+                **aggs
+            })
 
     df = pd.DataFrame.from_dict(rows)
     df.set_index(["proxy", "rate", "metric_name"], inplace=True)
@@ -287,7 +274,7 @@ def box_plot(name, metric, dst):
     {plots}
 
     \\end{{axis}}
-\\end{{tikzpicture}}"""
+    \\end{{tikzpicture}}"""
     print(tikz)
 
 
@@ -587,6 +574,67 @@ def sn_graph(name, agg, dst):
     _save_to_path(f"sn-latency-{agg}", os.path.join(dst, name))
 
 
+def sn_graph_tikz(name, agg):
+    paths = _get_file_paths(name, "*.log")
+    df = _load_wrk_data(paths)
+    df = df.xs("http_req_duration", level="metric_name", drop_level=True)
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+
+    plots = []
+    for i, proxy in enumerate(order):
+        color = f"{proxy}color" # predefined in latex
+        low = f"low{proxy}"
+        high = f"high{proxy}"
+        median = f"median{proxy}"
+
+        lines = [
+            (low, "p(10)", 0),
+            (high, "p(90)", 0),
+            (median, "p(50)", 1)
+        ]
+        for (line, agg, opacity) in lines:
+            vals = df[agg].xs(proxy, level="proxy")
+
+            coordinates = [(rate, val) for rate, val in zip(vals.index, vals)]
+            coordinates = sorted(coordinates)
+            coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
+
+            plot = f"""\\addplot[{color},name path={line},opacity={opacity}] coordinates {{
+                {coordinates}
+            }};"""
+            plots.append(plot)
+
+        fill = f"""\\addplot[{color},fill opacity=0.2] fill between[of={low} and {high}];"""
+        plots.append(fill)
+
+    tick_labels = ", ".join(order)
+    ticks = ", ".join([str(i) for i in range(1, len(order)+1)])
+    plots = "\n".join(plots)
+
+    tikz = f"""\\begin{{tikzpicture}}
+    \\begin{{axis}}[
+        xlabel={{requests per second}},
+        ylabel={{latency [ms]}},
+        xmin=200, xmax=2600,
+        ymode=log,
+        axis lines=left,
+        xticklabel style={{rotate=-0, yshift=-0.4ex}},
+        xlabel style={{anchor=north}},
+        xmajorgrids=true,
+        grid style=dashed,
+        legend pos=outer north east,
+        height=6cm,
+    ]
+
+    {plots}
+
+    \\end{{axis}}
+    \\end{{tikzpicture}}"""
+    print(tikz)
+
+
 if __name__ == "__main__":
     if args.command == "bp":
         box_plot(args.name, args.metric, args.output)
@@ -607,4 +655,4 @@ if __name__ == "__main__":
     elif args.command == "surface":
         surface_graph(args.name, args.proxy, args.metric, args.agg, args.output)
     elif args.command == "sn":
-        sn_graph(args.name, args.agg, args.output)
+        sn_graph_tikz(args.name, args.agg)

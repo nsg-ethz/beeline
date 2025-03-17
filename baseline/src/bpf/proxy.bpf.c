@@ -49,6 +49,13 @@ struct {
     __type(value, int);
 } sock_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 32768);
+    __type(key, struct sock_key);
+    __type(value, int);
+} contains_sock SEC(".maps");
+
 volatile const u32 ip4;
 
 static __always_inline struct sock_key _invert_sock_key(const struct sock_key *key) {
@@ -76,13 +83,20 @@ int msg_verdict(struct sk_msg_md *msg) {
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u]", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
 
     struct sock_key ekey = _invert_sock_key(&ikey);
-    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-        // It's possible that this fails because we haven't added the egress socket to the sockmap yet
-        // In this case we will have to traverse the network stack
-        bpf_log("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-    }
-    else {
-        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+    int *flag = bpf_map_lookup_elem(&contains_sock, &ekey);
+    if (flag != NULL) {
+        // if (*flag > 1) {
+            if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+                // It's possible that this fails because we haven't added the egress socket to the sockmap yet
+                // In this case we will have to traverse the network stack
+                bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            }
+            else {
+                bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            }
+        // }
+
+        // *flag += 1;
     }
 
     return SK_PASS;
@@ -112,6 +126,9 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
+
+            int flag = 1;
+            bpf_map_update_elem(&contains_sock, &skey, &flag, BPF_ANY);
 
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
         }
