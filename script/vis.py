@@ -655,4 +655,6 @@ if __name__ == "__main__":
     elif args.command == "surface":
         surface_graph(args.name, args.proxy, args.metric, args.agg, args.output)
     elif args.command == "sn":
+        sn_graph(args.name, args.agg, args.output)
+    elif args.command == "sn_tikz":
         sn_graph_tikz(args.name, args.agg)
