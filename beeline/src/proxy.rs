@@ -315,10 +315,7 @@ impl<'obj> Proxy<'obj> {
 
                 let mut headers = [httparse::EMPTY_HEADER; 64];
                 let mut req = httparse::Request::new(&mut headers);
-                let hdr_len = req.parse(&buf);
-                if let Err(e) = hdr_len {
-                    break Err(anyhow!(e));
-                }
+                let hdr_len = req.parse(&buf).expect("Failed to parse HTTP request");
 
                 let con_len = req
                     .headers
@@ -328,7 +325,7 @@ impl<'obj> Proxy<'obj> {
                     .and_then(|v| v.parse::<usize>().ok())
                     .unwrap_or(0);
 
-                let hdr_len = match hdr_len.unwrap() {
+                let hdr_len = match hdr_len {
                     httparse::Status::Complete(len) => len,
                     httparse::Status::Partial => continue,
                 };
