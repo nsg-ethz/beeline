@@ -57,6 +57,10 @@ scatter.add_argument("-p", "--proxy", required=True, help="The recorded proxy to
 scatter.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
 scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
 
+time_profile = subparsers.add_parser("time_profile")
+time_profile.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
+time_profile.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+
 surface = subparsers.add_parser("surface")
 surface.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
 surface.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
@@ -74,7 +78,7 @@ def thousand_label(x, pos):
 
 
 def _parse_k6_path(path):
-    match = re.search(r"(\w+)-(\d+)B.*", path)
+    match = re.search(r"(\w+)-(\d+)B*.*", path)
     proxy = match.group(1)
     size = match.group(2)
 
@@ -451,7 +455,7 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
 
 
 def cdf_graph(name, metric, crop, dst):
-    paths = _get_file_paths(name, "*.gz")
+    paths = _get_file_paths(name, "*.csv")
     df = _load_log_data(paths)
     df = df[df["metric_name"] == metric]
 
@@ -476,7 +480,7 @@ def cdf_graph(name, metric, crop, dst):
 
 
 def scatter_graph(name, proxy, metric, drop_rate, dst):
-    paths = _get_file_paths(name, "*.gz")
+    paths = _get_file_paths(name, "*.csv")
     df = _load_log_data(paths)
     df = df[df["metric_name"] == metric]
 
@@ -502,6 +506,61 @@ def scatter_graph(name, proxy, metric, drop_rate, dst):
         _rename_legend_labels(g)
 
     _save_to_path(f"scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", os.path.join(dst, name))
+
+
+def time_profile_graph_tikz(name, metric, agg):
+    paths = _get_file_paths(name, "*.csv")
+    df = _load_log_data(paths)
+    df = df[df["metric_name"] == metric]
+
+    df = df[["proxy", "timestamp", "metric_value"]]
+    agg_fn = {"metric_value": _aggregate_fn(agg)}
+    df = df.groupby(by=["proxy", "timestamp"]).agg(agg_fn)
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+    order.remove("beeline")
+    order.insert(0, "beeline")
+    legend = ",".join(order)
+
+    plots = []
+    for i, proxy in enumerate(order):
+        color = f"{proxy}color" # predefined in latex
+        ys = df["metric_value"].xs(proxy, level="proxy")
+        xs = ys.index
+        xs -= xs.min()
+
+        coordinates = list(sorted(zip(xs, ys)))
+        coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
+
+        plot = f"""\\addplot[{color},line width=0.3mm] coordinates {{
+            {coordinates}
+        }};"""
+        plots.append(plot)
+
+    plots = "\n".join(plots)
+    tikz = f"""\\begin{{tikzpicture}}
+    \\begin{{axis}}[
+        ylabel={{latency [ms]}},
+        xlabel={{time [s]}},
+        xmin=0, xmax=30,
+        axis lines=left,
+        xticklabel style={{rotate=-0, yshift=-0.4ex}},
+        xlabel style={{anchor=north}},
+        xmajorgrids=true,
+        grid style=dashed,
+        legend pos=north east,
+        height=6cm,
+        width=\\linewidth
+    ]
+
+    {plots}
+
+    \\legend{{{legend}}}
+    \\end{{axis}}
+    \\end{{tikzpicture}}"""
+    print(tikz)
+
 
 
 def surface_graph(name, proxy, metric, agg, dst):
@@ -609,7 +668,7 @@ def sn_graph_tikz(name):
             coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
             visibility = "" if visible else ",draw=none"
-            plot = f"""\\addplot[{color},name path={line},{visibility}, forget plot] coordinates {{
+            plot = f"""\\addplot[{color},name path={line},{visibility}, line width=0.3mm, forget plot] coordinates {{
                 {coordinates}
             }};"""
             plots.append(plot)
@@ -617,10 +676,7 @@ def sn_graph_tikz(name):
         fill = f"""\\addplot[{color},fill opacity=0.2] fill between[of={low} and {high}];"""
         plots.append(fill)
 
-    tick_labels = ", ".join(order)
-    ticks = ", ".join([str(i) for i in range(1, len(order)+1)])
     plots = "\n".join(plots)
-
     tikz = f"""\\begin{{tikzpicture}}
     \\begin{{axis}}[
         xlabel={{requests per second}},
@@ -662,6 +718,8 @@ if __name__ == "__main__":
         cdf_graph(args.name, args.metric, float(args.crop), args.output)
     elif args.command == "scatter":
         scatter_graph(args.name, args.proxy, args.metric, float(args.drop), args.output)
+    elif args.command == "time_profile":
+        time_profile_graph_tikz(args.name, args.metric, args.agg)
     elif args.command == "surface":
         surface_graph(args.name, args.proxy, args.metric, args.agg, args.output)
     elif args.command == "sn":
