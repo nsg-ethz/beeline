@@ -65,6 +65,8 @@ surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func"
 sn = subparsers.add_parser("sn")
 sn.add_argument("-a", "--agg", default="p(90)", help="The aggregation func")
 
+sn = subparsers.add_parser("sn_tikz")
+
 args = parser.parse_args()
 
 def thousand_label(x, pos):
@@ -574,13 +576,18 @@ def sn_graph(name, agg, dst):
     _save_to_path(f"sn-latency-{agg}", os.path.join(dst, name))
 
 
-def sn_graph_tikz(name, agg):
+def sn_graph_tikz(name):
     paths = _get_file_paths(name, "*.log")
     df = _load_wrk_data(paths)
     df = df.xs("http_req_duration", level="metric_name", drop_level=True)
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
+
+    order.remove("beeline")
+    order.insert(0, "beeline")
+
+    legend = ",".join(order)
 
     plots = []
     for i, proxy in enumerate(order):
@@ -590,18 +597,19 @@ def sn_graph_tikz(name, agg):
         median = f"median{proxy}"
 
         lines = [
-            (low, "p(10)", 0),
-            (high, "p(90)", 0),
-            (median, "p(50)", 1)
+            (low, "p(10)", False),
+            (high, "p(90)", False),
+            (median, "p(50)", True)
         ]
-        for (line, agg, opacity) in lines:
+        for (line, agg, visible) in lines:
             vals = df[agg].xs(proxy, level="proxy")
 
             coordinates = [(rate, val) for rate, val in zip(vals.index, vals)]
             coordinates = sorted(coordinates)
             coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
-            plot = f"""\\addplot[{color},name path={line},opacity={opacity}] coordinates {{
+            visibility = "" if visible else ",draw=none"
+            plot = f"""\\addplot[{color},name path={line},{visibility}, forget plot] coordinates {{
                 {coordinates}
             }};"""
             plots.append(plot)
@@ -624,12 +632,14 @@ def sn_graph_tikz(name, agg):
         xlabel style={{anchor=north}},
         xmajorgrids=true,
         grid style=dashed,
-        legend pos=outer north east,
+        legend pos=south east,
         height=6cm,
+        width=\\linewidth
     ]
 
     {plots}
 
+    \\legend{{{legend}}}
     \\end{{axis}}
     \\end{{tikzpicture}}"""
     print(tikz)
@@ -657,4 +667,4 @@ if __name__ == "__main__":
     elif args.command == "sn":
         sn_graph(args.name, args.agg, args.output)
     elif args.command == "sn_tikz":
-        sn_graph_tikz(args.name, args.agg)
+        sn_graph_tikz(args.name)
