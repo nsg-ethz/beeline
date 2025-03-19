@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 from github import Github, Auth
 import os
 from numpy import fix
@@ -25,45 +26,38 @@ token = os.environ.get("GITHUB_API")
 auth = Auth.Token(token)
 g = Github(auth=auth)
 
-
-def validate_yaml(config):
-    try:
-        result = subprocess.run(["envoy", "--mode", "validate", "--config-yaml", config],
-            capture_output=True,
-            text=True
-        )
-
-        # Check if validation was successful (return code 0)
-        if result.returncode == 0:
-            return True
-        else:
-            print(f"Validation failed: {result.stderr}")
-            return False
-
-    except subprocess.CalledProcessError as e:
-        print(f"Error running Envoy validator: {e}")
-        return False
-    except Exception as e:
-        print(f"Unexpected error during validation: {e}")
-        return False
-
-
 def search():
     db.connect()
     db.create_tables([File])
 
-    res = g.search_code("filename:envoy.yml OR filename:envoy.yaml")
-    for file in res:
-        print(file.download_url)
+    step = 1000
+    size = 0
+    while size < 20000:
+        size_range = f"{size}..{size+step}"
+        print(f"Searching for files with size {size_range}")
 
-        try:
-            file = File(name=file.name, download_url=file.download_url, content=file.decoded_content)
-            file.save()
-        except IntegrityError:
-            print(f"File {file.name} already exists in the database. Continuing...")
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
+        res = g.search_code(f"http_filters filename:envoy.yml OR filename:envoy.yaml size:{size_range}")
+        print(f"Found {res.totalCount} files")
+
+        if res.totalCount >= 1000 and step > 1:
+            print(f"Too many files for size range {size_range}")
+            step = max(step / 2, 1)
             continue
+        else:
+            step = 1000
+            size += step
+
+        for file in res:
+            print(file.download_url)
+
+            try:
+                file = File(name=file.name, download_url=file.download_url, content=file.decoded_content)
+                file.save()
+            except IntegrityError:
+                print(f"File {file.name} already exists in the database. Continuing...")
+            except Exception as e:
+                print(f"An unexpected error occurred: {e}")
+                continue
 
 
 def sanitize_config(text):
