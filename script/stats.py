@@ -60,6 +60,14 @@ def search():
                 continue
 
 
+def sanitize_filter_name(name):
+    name = name.replace("envoy.", "")
+    name = name.replace("http.", "")
+    name = name.replace("filters.", "")
+
+    return name
+
+
 def sanitize_config(text):
     text = re.sub(r"{%.*?%}", "", text, flags=re.DOTALL)
     text = re.sub(r"{{-.*?}}", "", text, flags=re.DOTALL)
@@ -114,7 +122,7 @@ def count():
                                         http_configs.add(file.download_url)
 
                                     for http_filter in http_filters:
-                                        http_filter_type = http_filter.get("name")
+                                        http_filter_type = sanitize_filter_name(http_filter.get("name"))
                                         if http_filter_type not in filters:
                                             filters[http_filter_type] = 1
                                         filters[http_filter_type] += 1
