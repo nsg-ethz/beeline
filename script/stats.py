@@ -76,6 +76,7 @@ def count():
 
     filters = dict()
     http_configs = set()
+    num_errors = 0
 
     for file in files:
         if "filter_chains" in file.content:
@@ -118,10 +119,11 @@ def count():
                                             filters[http_filter_type] = 1
                                         filters[http_filter_type] += 1
             except yaml.YAMLError as e:
-                print(f"Error parsing YAML in file {file.download_url}: {e}")
+                # print(f"Error parsing YAML in file {file.download_url}: {e}")
+                num_errors += 1
                 continue
 
-    print(f"Evaluated {len(http_configs)}/{len(files)} configs")
+    print(f"Evaluated {len(http_configs)}/{len(files)} configs, {num_errors} errors occurred")
     print(filters)
 
 
