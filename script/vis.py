@@ -66,6 +66,8 @@ surface.add_argument("-p", "--proxy", required=True, help="The recorded proxy to
 surface.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
 surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
+stats = subparsers.add_parser("stats")
+
 sn = subparsers.add_parser("sn")
 sn.add_argument("-a", "--agg", default="p(90)", help="The aggregation func")
 
@@ -701,6 +703,34 @@ def sn_graph_tikz(name):
     print(tikz)
 
 
+def stats_graph(dst):
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.join(dir_path, "..", "res", "stats", "filters.json")
+    df = pd.read_json(path).set_index("name")
+
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.join(dir_path, "..", "res", "stats", "classification.json")
+    cl = pd.read_json(path).transpose()
+
+    df["stateless"] = cl["stateless"].astype(bool)
+    df["compatible"] = cl["compatible"].astype(bool)
+
+    other_mask = df["count"] < 10
+    other = df[other_mask]
+    df = df[~other_mask]
+    other = pd.DataFrame({"count": [other["count"].sum()], "stateless": [False], "compatible": [False]}, index=["other"])
+    df = pd.concat([df, other])
+
+    df["color"] = "not supported"
+    df.loc[df["compatible"] & df["stateless"], "color"] = "compatible & stateless"
+
+    g = sns.barplot(data=df, x=df.index, y="count", hue="color")
+    g.legend_.set_title(None)
+    g.set_yscale("log")
+    plt.xticks(rotation=90)
+    _save_to_path("stats", dst)
+
+
 if __name__ == "__main__":
     if args.command == "bp":
         box_plot(args.name, args.metric, args.output)
@@ -726,3 +756,5 @@ if __name__ == "__main__":
         sn_graph(args.name, args.agg, args.output)
     elif args.command == "sn_tikz":
         sn_graph_tikz(args.name)
+    elif args.command == "stats":
+        stats_graph(args.output)

@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime
 from http.client import HTTP_PORT
 from github import Github, Auth
+import json
 import os
 from numpy import fix
 from pandas.core.generic import T
@@ -11,8 +12,18 @@ import subprocess
 import time
 import yaml
 
-db_path = "res/github.db"
-db = SqliteDatabase(db_path)
+parser = argparse.ArgumentParser()
+subparsers = parser.add_subparsers(dest="command")
+
+search_cmd = subparsers.add_parser("search")
+search_cmd.add_argument("--db", default="res/stats/github.db", help="Path to the SQLite database")
+
+count_cmd = subparsers.add_parser("count")
+count_cmd.add_argument("--db", default="res/stats/github.db", help="Path to the SQLite database")
+count_cmd.add_argument("-p", "--path", help="Path to write the statistics in JSON")
+args = parser.parse_args()
+
+db = SqliteDatabase(args.db)
 
 class BaseModel(Model):
     class Meta:
@@ -66,6 +77,28 @@ def sanitize_filter_name(name):
     name = name.replace("envoy.", "")
     name = name.replace("http.", "")
     name = name.replace("filters.", "")
+    name = name.replace("extensions.", "")
+    name = name.replace("rate_limit", "ratelimit")
+
+    if "extproc" in name:
+        name = "ext_proc"
+
+    if name == "rewrite":
+        name = "header_mutation"
+
+    if name == "gzip":
+        name = "compressor"
+
+    generic_filters = ["lua", "wasm", "header_mutation", "basic_auth", "ext_authz", "ext_proc", "jwt", "router", "oauth2", "grpc_json_transcoder"]
+    for gf in generic_filters:
+        if gf in name:
+            name = gf
+            break
+
+        if "decompressor" in name and "compressor" not in name:
+            name = "decompressor"
+        elif "compressor" in name and "decompressor" not in name:
+            name = "compressor"
 
     return name
 
@@ -78,11 +111,10 @@ def sanitize_config(text):
     return text
 
 
-def count():
+def count(path):
     db.connect()
 
     files = File.select()
-    # files = File.select().where(File.download_url == "https://raw.githubusercontent.com/iKubernetes/servicemesh_in_practise/ee63762b8c7e6ee5bee4d70d992133de87412225/envoy-alpine/envoy.yaml")
     print(f"Analysing {len(files)} files...")
 
     filters = dict()
@@ -146,22 +178,21 @@ def count():
 
     print(f"Evaluated {len(http_configs)}/{len(files)} configs, {num_errors} errors occurred")
 
-    filters = [(num, name) for (name, num) in filters.items()]
-    filters = sorted(filters, reverse=True)
-    for num, name in filters:
-        print(f"{name}: {num}")
+    filters = [{"name": name, "count": num} for (name, num) in filters.items()]
+    filters = sorted(filters, key=lambda x: x["count"], reverse=True)
+    for filter in filters:
+        print(f"{filter['name']}: {filter['count']}")
 
+    if path:
+        try:
+            with open(args.path, 'w') as f:
+                json.dump(filters, f)
+        except Exception as e:
+            print(f"Error writing statistics to {args.path}: {e}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="command")
-
-    subparsers.add_parser("search")
-    subparsers.add_parser("count")
-    args = parser.parse_args()
-
     if args.command == "search":
         search()
     elif args.command == "count":
-        count()
+        count(args.path)
