@@ -89,6 +89,17 @@ def count():
     http_configs = set()
     num_errors = 0
 
+    def _iter_http_filters(config):
+        if isinstance(config, dict):
+            for (key, val) in config.items():
+                if key == "http_filters" and isinstance(val, list):
+                    yield val
+                elif isinstance(val, dict) or isinstance(val, list):
+                    yield from _iter_http_filters(val)
+        elif isinstance(config, list):
+            for item in config:
+                yield from _iter_http_filters(item)
+
     def _parse(content):
         nonlocal num_errors
 
@@ -99,13 +110,7 @@ def count():
                 if not isinstance(config, dict):
                     continue
 
-                listeners = []
-
-                if "static_resources" in config:
-                    listeners = config.get("static_resources").get("listeners", [])
-                elif "listeners" in config:
-                    listeners = config.get("listeners", [])
-                elif "data" in config:
+                if "data" in config:
                     keys = [k for k in config.get("data").keys() if "envoy" in k]
                     if len(keys) != 1:
                         # print(f"Could not find envoy config: {config.get("data").keys()} in {file.download_url}")
@@ -114,57 +119,19 @@ def count():
                     _parse(config.get("data").get(keys[0]))
                     continue
 
-                if isinstance(listeners, dict):
-                    listeners = [listeners]
+                for http_filters in _iter_http_filters(config):
+                    if len(http_filters) > 0:
+                        http_configs.add(file.download_url)
 
-                # listeners = [l for l in listeners if len(l) > 0]
-                # if len(listeners) == 0:
-                #     print(content)
-                #     exit()
-
-                for listener in listeners:
-                    chains = listener.get("filter_chains", {})
-                    if isinstance(chains, dict):
-                        chains = [chains]
-
-                    default_chain = listener.get("default_filter_chain", {})
-                    if isinstance(default_chain, dict):
-                        chains.append(default_chain)
-
-                    # chains = [c for c in chains if len(c) > 0]
-                    # if len(chains) == 0:
-                    #     print(content)
-
-                    for chain in chains:
-                        http_filters = []
-                        chain_filters = chain.get("filters", [])
-                        if isinstance(chain_filters, dict):
-                            chain_filters = [chain_filters]
-
-                        for filter in chain_filters:
-                            name = filter.get("name")
-                            if "http_connection_manager" in name.lower():
-                                if "config" in filter:
-                                    filter_config = filter.get("config", {})
-                                    http_filters = filter_config.get("http_filters", [])
-                                elif "typed_config" in filter:
-                                    filter_config = filter.get("typed_config", {})
-                                    http_filters = filter_config.get("http_filters", [])
-                                else:
-                                    print(f"Could not parse http_connection_manager in {file.download_url}")
-                                    continue
-
-                        if http_filters == "placeholder":
+                    for http_filter in http_filters:
+                        name = http_filter.get("name")
+                        if not name:
+                            print(f"Unknown http_filter format: {http_filter}")
                             continue
-
-                        if len(http_filters) > 0:
-                            http_configs.add(file.download_url)
-
-                        for http_filter in http_filters:
-                            http_filter_type = sanitize_filter_name(http_filter.get("name"))
-                            if http_filter_type not in filters:
-                                filters[http_filter_type] = 1
-                            filters[http_filter_type] += 1
+                        http_filter_type = sanitize_filter_name(name)
+                        if http_filter_type not in filters:
+                            filters[http_filter_type] = 1
+                        filters[http_filter_type] += 1
 
             if file.download_url not in http_configs:
                 print(f"No http_filters found in {file.download_url}")
@@ -178,7 +145,12 @@ def count():
         _parse(content)
 
     print(f"Evaluated {len(http_configs)}/{len(files)} configs, {num_errors} errors occurred")
-    print(filters)
+
+    filters = [(num, name) for (name, num) in filters.items()]
+    filters = sorted(filters, reverse=True)
+    for num, name in filters:
+        print(f"{name}: {num}")
+
 
 
 if __name__ == "__main__":
