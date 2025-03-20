@@ -1,8 +1,10 @@
 import argparse
 from datetime import datetime
+from http.client import HTTP_PORT
 from github import Github, Auth
 import os
 from numpy import fix
+from pandas.core.generic import T
 from peewee import *
 import re
 import subprocess
@@ -19,7 +21,7 @@ class BaseModel(Model):
 class File(BaseModel):
     name = CharField()
     download_url = CharField(unique=True)
-    content = CharField()
+    content = CharField(unique=True)
 
 
 token = os.environ.get("GITHUB_API")
@@ -41,7 +43,7 @@ def search():
 
         if res.totalCount >= 1000 and step > 1:
             print(f"Too many files for size range {size_range}")
-            step = max(step / 2, 1)
+            step = max(int(step / 2), 1)
             continue
         else:
             step = 1000
@@ -80,56 +82,100 @@ def count():
     db.connect()
 
     files = File.select()
+    # files = File.select().where(File.download_url == "https://raw.githubusercontent.com/iKubernetes/servicemesh_in_practise/ee63762b8c7e6ee5bee4d70d992133de87412225/envoy-alpine/envoy.yaml")
     print(f"Analysing {len(files)} files...")
 
     filters = dict()
     http_configs = set()
     num_errors = 0
 
-    for file in files:
-        if "filter_chains" in file.content:
-            content = sanitize_config(file.content)
+    def _parse(content):
+        nonlocal num_errors
 
-            try:
-                configs = yaml.safe_load_all(content)
+        try:
+            configs = yaml.safe_load_all(content)
 
-                for config in configs:
-                    if not isinstance(config, dict):
+            for config in configs:
+                if not isinstance(config, dict):
+                    continue
+
+                listeners = []
+
+                if "static_resources" in config:
+                    listeners = config.get("static_resources").get("listeners", [])
+                elif "listeners" in config:
+                    listeners = config.get("listeners", [])
+                elif "data" in config:
+                    keys = [k for k in config.get("data").keys() if "envoy" in k]
+                    if len(keys) != 1:
+                        # print(f"Could not find envoy config: {config.get("data").keys()} in {file.download_url}")
                         continue
 
-                    static_resources = config.get("static_resources", {})
-                    listeners = static_resources.get("listeners", [])
-                    if isinstance(listeners, dict):
-                        listeners = [listeners]
+                    _parse(config.get("data").get(keys[0]))
+                    continue
 
-                    for listener in listeners:
-                        chains = listener.get("filter_chains", {})
-                        if isinstance(chains, dict):
-                            chains = [chains]
+                if isinstance(listeners, dict):
+                    listeners = [listeners]
 
-                        for chain in chains:
-                            chain_filters = chain.get("filters", [])
-                            if isinstance(chain_filters, dict):
-                                chain_filters = [chain_filters]
+                # listeners = [l for l in listeners if len(l) > 0]
+                # if len(listeners) == 0:
+                #     print(content)
+                #     exit()
 
-                            for filter in chain_filters:
-                                name = filter.get("name")
-                                if "http_connection_manager" in name.lower():
+                for listener in listeners:
+                    chains = listener.get("filter_chains", {})
+                    if isinstance(chains, dict):
+                        chains = [chains]
+
+                    default_chain = listener.get("default_filter_chain", {})
+                    if isinstance(default_chain, dict):
+                        chains.append(default_chain)
+
+                    # chains = [c for c in chains if len(c) > 0]
+                    # if len(chains) == 0:
+                    #     print(content)
+
+                    for chain in chains:
+                        http_filters = []
+                        chain_filters = chain.get("filters", [])
+                        if isinstance(chain_filters, dict):
+                            chain_filters = [chain_filters]
+
+                        for filter in chain_filters:
+                            name = filter.get("name")
+                            if "http_connection_manager" in name.lower():
+                                if "config" in filter:
                                     filter_config = filter.get("config", {})
                                     http_filters = filter_config.get("http_filters", [])
+                                elif "typed_config" in filter:
+                                    filter_config = filter.get("typed_config", {})
+                                    http_filters = filter_config.get("http_filters", [])
+                                else:
+                                    print(f"Could not parse http_connection_manager in {file.download_url}")
+                                    continue
 
-                                    if len(http_filters) > 0:
-                                        http_configs.add(file.download_url)
+                        if http_filters == "placeholder":
+                            continue
 
-                                    for http_filter in http_filters:
-                                        http_filter_type = sanitize_filter_name(http_filter.get("name"))
-                                        if http_filter_type not in filters:
-                                            filters[http_filter_type] = 1
-                                        filters[http_filter_type] += 1
-            except yaml.YAMLError as e:
-                # print(f"Error parsing YAML in file {file.download_url}: {e}")
-                num_errors += 1
-                continue
+                        if len(http_filters) > 0:
+                            http_configs.add(file.download_url)
+
+                        for http_filter in http_filters:
+                            http_filter_type = sanitize_filter_name(http_filter.get("name"))
+                            if http_filter_type not in filters:
+                                filters[http_filter_type] = 1
+                            filters[http_filter_type] += 1
+
+            if file.download_url not in http_configs:
+                print(f"No http_filters found in {file.download_url}")
+
+        except yaml.YAMLError as e:
+            # print(f"Error parsing YAML in file {file.download_url}: {e}")
+            num_errors += 1
+
+    for file in files:
+        content = sanitize_config(file.content)
+        _parse(content)
 
     print(f"Evaluated {len(http_configs)}/{len(files)} configs, {num_errors} errors occurred")
     print(filters)
