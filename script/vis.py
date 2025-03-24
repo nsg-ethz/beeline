@@ -67,6 +67,7 @@ surface.add_argument("-m", "--metric", default="http_req_duration{expected_respo
 surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
 stats = subparsers.add_parser("stats")
+stats = subparsers.add_parser("stats_tikz")
 
 sn = subparsers.add_parser("sn")
 sn.add_argument("-a", "--agg", default="p(90)", help="The aggregation func")
@@ -642,6 +643,17 @@ def sn_graph_tikz(name):
     df = _load_wrk_data(paths)
     df = df.xs("http_req_duration", level="metric_name", drop_level=True)
 
+    strawman = df[df.index.get_level_values("proxy") == "strawman"].droplevel("proxy")
+    baseline = df[df.index.get_level_values("proxy") == "baseline"].droplevel("proxy")
+    beeline = df[df.index.get_level_values("proxy") == "beeline"].droplevel("proxy")
+
+    # print(strawman)
+    # print(baseline)
+    # print(beeline)
+
+    print("Speedup vs baseline:\n", baseline["p(90)"] / beeline["p(90)"])
+    exit()
+
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
 
@@ -680,26 +692,25 @@ def sn_graph_tikz(name):
 
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
-    \\begin{{axis}}[
-        xlabel={{requests per second}},
-        ylabel={{latency [ms]}},
-        xmin=200, xmax=2600,
-        ymode=log,
-        axis lines=left,
-        xticklabel style={{rotate=-0, yshift=-0.4ex}},
-        xlabel style={{anchor=north}},
-        xmajorgrids=true,
-        grid style=dashed,
-        legend pos=south east,
-        height=6cm,
-        width=\\linewidth
-    ]
+\\begin{{axis}}[
+xlabel={{requests per second}},
+ylabel={{latency [ms]}},
+xmin=200, xmax=2600,
+ymode=log,
+axis lines=left,
+xticklabel style={{rotate=-0, yshift=-0.4ex}},
+xlabel style={{anchor=north}},
+xmajorgrids=true,
+grid style=dashed,
+legend pos=south east,
+height=6cm,
+width=\\linewidth]
 
-    {plots}
+{plots}
 
-    \\legend{{{legend}}}
-    \\end{{axis}}
-    \\end{{tikzpicture}}"""
+\\legend{{{legend}}}
+\\end{{axis}}
+\\end{{tikzpicture}}"""
     print(tikz)
 
 
@@ -716,19 +727,95 @@ def stats_graph(dst):
     df["compatible"] = cl["compatible"].astype(bool)
 
     other_mask = df["count"] < 10
-    other = df[other_mask]
+    # other = df[other_mask]
     df = df[~other_mask]
-    other = pd.DataFrame({"count": [other["count"].sum()], "stateless": [False], "compatible": [False]}, index=["other"])
-    df = pd.concat([df, other])
+    # other = pd.DataFrame({"count": [other["count"].sum()], "stateless": [False], "compatible": [False]}, index=["other"])
+    # df = pd.concat([df, other])
+
+    df["count"] = (df["count"] / df["count"].sum()) * 100
 
     df["color"] = "not supported"
     df.loc[df["compatible"] & df["stateless"], "color"] = "compatible & stateless"
 
     g = sns.barplot(data=df, x=df.index, y="count", hue="color")
     g.legend_.set_title(None)
-    g.set_yscale("log")
+    # g.set_yscale("log")
     plt.xticks(rotation=90)
     _save_to_path("stats", dst)
+
+
+def stats_graph_tikz():
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.join(dir_path, "..", "res", "stats", "filters.json")
+    df = pd.read_json(path).set_index("name")
+
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.join(dir_path, "..", "res", "stats", "classification.json")
+    cl = pd.read_json(path).transpose()
+
+    df["stateless"] = cl["stateless"].astype(bool)
+    df["compatible"] = cl["compatible"].astype(bool)
+
+    names = df.index.tolist()
+    names[names.index("http1bridge")] = "grpc_http1"
+    names[names.index("grpc_json_transcoder")] = "grpc_json"
+    names[names.index("dynamic_forward_proxy")] = "forward_proxy"
+    df = df.reset_index()
+    df["name"] = names
+
+    other = df.tail(len(df)-10)
+    df = df.head(10)
+    other = pd.DataFrame({"count": [other["count"].sum()], "stateless": [False], "compatible": [False], "name": ["other"]}, index=[len(df)])
+    df = pd.concat([df, other])
+    df["count"] = (df["count"] / df["count"].sum()) * 100
+
+    cnt = len(df)
+    def _coords(df):
+        coords = [f"({count: .2f},{cnt-idx-1})" for (idx, count) in zip(df.index, df["count"])]
+
+        return coords
+
+    mask = df["compatible"] & df["stateless"]
+    supported = df[mask]
+    supported = "\n".join(_coords(supported))
+
+    unsupported = df[~mask]
+    unsupported = "\n".join(_coords(unsupported))
+
+    labels = [name.replace("_", "\\_") for name in df["name"]]
+    labels = ",".join(reversed(labels))
+
+    # colors = ["uchu-green-5" if ok else "uchu-red-5" for ok in beelineable]
+    # colors = ",".join(colors)
+
+    legend = "Supported, Unsupported"
+
+    supported = f"""\\addplot[uchu-green-5, fill=uchu-green-5, fill opacity=0.2] coordinates {{
+{supported}
+}};"""
+    unsupported = f"""\\addplot[uchu-red-5, fill=uchu-red-5,fill opacity=0.2] coordinates {{
+{unsupported}
+}};"""
+    plots = "\n".join([supported, unsupported])
+
+    tikz = f"""\\begin{{tikzpicture}}
+\\begin{{axis}}[xbar,
+height=9cm,
+width=\\linewidth-45pt,
+bar shift=0pt,
+axis lines=left,
+enlarge x limits={{abs=10pt,upper}},
+enlarge y limits={{abs=10pt}},
+legend pos=south east,
+yticklabels={{{labels}}},
+ytick={{0, ..., {cnt}}}]
+
+{plots}
+
+\\legend{{{legend}}}
+\\end{{axis}}
+\\end{{tikzpicture}}"""
+    print(tikz)
 
 
 if __name__ == "__main__":
@@ -758,3 +845,5 @@ if __name__ == "__main__":
         sn_graph_tikz(args.name)
     elif args.command == "stats":
         stats_graph(args.output)
+    elif args.command == "stats_tikz":
+        stats_graph_tikz()
