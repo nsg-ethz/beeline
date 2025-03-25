@@ -754,7 +754,6 @@ def stats_graph_tikz():
     cl = pd.read_json(path).transpose()
 
     df["stateless"] = cl["stateless"].astype(bool)
-    df["compatible"] = cl["compatible"].astype(bool)
 
     names = df.index.tolist()
     names[names.index("http1bridge")] = "grpc_http1"
@@ -763,40 +762,45 @@ def stats_graph_tikz():
     df = df.reset_index()
     df["name"] = names
 
-    other = df.tail(len(df)-10)
-    df = df.head(10)
-    other = pd.DataFrame({"count": [other["count"].sum()], "stateless": [False], "compatible": [False], "name": ["other"]}, index=[len(df)])
-    df = pd.concat([df, other])
     df["count"] = (df["count"] / df["count"].sum()) * 100
 
-    cnt = len(df)
+    other = df.tail(len(df)-10)
+    df = df.head(10)
+    other = pd.DataFrame({"count": [other["count"].sum()], "stateless": [False], "name": ["other"]}, index=[len(df)])
+
+    cnt = len(df) + 1
     def _coords(df):
-        coords = [f"({count: .2f},{cnt-idx-1})" for (idx, count) in zip(df.index, df["count"])]
+        coords = [f"({count: .1f},{cnt-idx-1})" for (idx, count) in zip(df.index, df["count"])]
 
         return coords
 
-    mask = df["compatible"] & df["stateless"]
-    supported = df[mask]
+    supported = df.loc[df["stateless"] == True]
+    print(f"Pure filters: {supported["count"].sum()}")
     supported = "\n".join(_coords(supported))
 
-    unsupported = df[~mask]
+    unsupported = df.loc[df["stateless"] == False]
     unsupported = "\n".join(_coords(unsupported))
 
-    labels = [name.replace("_", "\\_") for name in df["name"]]
+    other = "\n".join(_coords(other))
+
+    labels = [name.replace("_", "\\_") for name in list(df["name"]) + ["other"]]
     labels = ",".join(reversed(labels))
 
     # colors = ["uchu-green-5" if ok else "uchu-red-5" for ok in beelineable]
     # colors = ",".join(colors)
 
-    legend = "Supported, Unsupported"
+    legend = "Pure, With side effects"
 
-    supported = f"""\\addplot[uchu-green-5, fill=uchu-green-5, fill opacity=0.2] coordinates {{
+    supported = f"""\\addplot[draw=uchu-green-5, fill=uchu-green-1] coordinates {{
 {supported}
 }};"""
-    unsupported = f"""\\addplot[uchu-red-5, fill=uchu-red-5,fill opacity=0.2] coordinates {{
+    unsupported = f"""\\addplot[draw=uchu-red-5, fill=uchu-red-1] coordinates {{
 {unsupported}
 }};"""
-    plots = "\n".join([supported, unsupported])
+    other = f"""\\addplot[draw=uchu-gray-5, fill=uchu-gray-1, forget plot] coordinates {{
+    {other}
+}};"""
+    plots = "\n".join([supported, unsupported, other])
 
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[xbar,
@@ -806,9 +810,11 @@ bar shift=0pt,
 axis lines=left,
 enlarge x limits={{abs=10pt,upper}},
 enlarge y limits={{abs=10pt}},
+nodes near coords={{\\pgfmathprintnumber\\pgfplotspointmeta\\%}},
 legend pos=south east,
 yticklabels={{{labels}}},
-ytick={{0, ..., {cnt}}}]
+ytick={{0, ..., {cnt}}},
+xticklabel={{\\pgfmathprintnumber{{\\tick}}\\%}}]
 
 {plots}
 
