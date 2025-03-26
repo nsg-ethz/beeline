@@ -797,14 +797,14 @@ def stats_graph_tikz():
     unsupported = f"""\\addplot[draw=uchu-red-5, fill=uchu-red-1] coordinates {{
 {unsupported}
 }};"""
-    other = f"""\\addplot[draw=uchu-gray-5, fill=uchu-gray-1, forget plot] coordinates {{
-    {other}
-}};"""
-    plots = "\n".join([supported, unsupported, other])
+#    other = f"""\\addplot[draw=uchu-gray-5, fill=uchu-gray-1, forget plot] coordinates {{
+#    {other}
+#}};"""
+    plots = "\n".join([supported, unsupported])
 
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[xbar,
-height=9cm,
+height=7.5cm,
 width=\\linewidth-45pt,
 bar shift=0pt,
 axis lines=left,
