@@ -20,11 +20,14 @@ script/bench.sh -u 1000 -s 1024 vu
 
 ## Requirements
 
-This project requires kernel version 6.11.
+This project is tested and evaluated on Linux kernel version 6.11.
+However, older versions should work as well if the `jwt` filter is disabled.
+If you want to install kernel 6.11, make sure to set the `CONFIG_DEBUG_INFO_BTF="y"` config option before compiling.
+
 Install the following packets:
 
 ```
-sudo apt install autoconf autopoint binutils-dev bison clang dwarves flex libc6-dev-i386 libcap-dev libdwarf-dev libdw-dev libelf-dev llvm pkg-config
+sudo apt install autoconf autopoint binutils-dev bison clang dwarves flex libc6-dev-i386 libcap-dev libdwarf-dev libdw-dev libelf-dev llvm pkg-config liblua5.1-dev
 ```
 
 Note: depending on your kernel version, you'll have to install [dwarves](https://github.com/acmel/dwarves) from source.
