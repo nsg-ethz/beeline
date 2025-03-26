@@ -789,7 +789,7 @@ def stats_graph_tikz():
     # colors = ["uchu-green-5" if ok else "uchu-red-5" for ok in beelineable]
     # colors = ",".join(colors)
 
-    legend = "Pure, With side effects"
+    legend = "Stateless, Stateful"
 
     supported = f"""\\addplot[draw=uchu-green-5, fill=uchu-green-1] coordinates {{
 {supported}
