@@ -73,6 +73,8 @@ sn = subparsers.add_parser("sn")
 sn.add_argument("-a", "--agg", default="p(90)", help="The aggregation func")
 
 sn = subparsers.add_parser("sn_tikz")
+cpu = subparsers.add_parser("cpu")
+cpu_tikz = subparsers.add_parser("cpu_tikz")
 
 args = parser.parse_args()
 
@@ -94,6 +96,14 @@ def _parse_wrk_path(path):
     rate = match.group(2)
 
     return proxy, int(rate)
+
+
+def _parse_cpu_path(path):
+    match = re.search(r"(\w+)-(\d+).*", path)
+    proxy = match.group(1)
+    timestamp = match.group(2)
+
+    return proxy, int(timestamp)
 
 
 def _load_k6_data(paths):
@@ -121,7 +131,7 @@ def _load_k6_data(paths):
 def _load_wrk_data(paths):
     rows = []
     for p in paths:
-        proxy, rate = _parse_wrk_path(p)
+        proxy, target_rate = _parse_wrk_path(p)
         with open(p, "r") as file:
             text = file.read()
             ps = [
@@ -148,8 +158,16 @@ def _load_wrk_data(paths):
                 latency = match.group(1)
                 aggs[percentile] = float(latency)
 
+            pattern = r"Requests/sec:\s*(\d+\.\d+)"
+            match = re.search(pattern, text)
+            if match is None:
+                raise ValueError(f"Could not find rate in {p}")
+
+            rate = float(match.group(1))
+
             rows.append({
                 "proxy": proxy,
+                "target_rate": target_rate,
                 "rate": rate,
                 "metric_name": "http_req_duration",
                 "file": os.path.basename(p),
@@ -157,9 +175,25 @@ def _load_wrk_data(paths):
             })
 
     df = pd.DataFrame.from_dict(rows)
-    df.set_index(["proxy", "rate", "metric_name"], inplace=True)
+    df.set_index(["proxy", "target_rate", "metric_name"], inplace=True)
 
     return df
+
+
+def _load_cpu_data(paths):
+    dfs = []
+    for p in paths:
+        proxy, timestamp = _parse_cpu_path(p)
+        df = pd.read_json(p, lines=True)
+        df["proxy"] = proxy
+        df["timestamp"] = timestamp
+        df["file"] = os.path.basename(p)
+        df["CPUPerc"] = df["CPUPerc"].str.rstrip('%').astype('float') / 100.0
+
+        dfs.append(df)
+
+    return pd.concat(dfs)
+
 
 def _load_log_data(paths):
     dfs = []
@@ -615,15 +649,12 @@ def sn_graph(name, agg, dst):
     order = sorted(order)
 
     g = sns.lineplot(data=df, x="rate", y=agg, hue="proxy", marker="o", hue_order=order)
-    rates = set(df.index.get_level_values("rate"))
-    rates = sorted(rates)
 
-    shown_rates = rates[::5]  # Take every 5th element
+    # shown_rates = rates[::5]  # Take every 5th element
 
     g.set_xlabel("rate [req/s]")
-    g.set_xticks(shown_rates)  # Set ticks only for the selected rates
-    g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-    g.set_xbound(lower=rates[0], upper=rates[-1])
+    # g.set_xticks(shown_rates)  # Set ticks only for the selected rates
+    # g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
 
     g.set_yscale("log")
     g.set_ylabel("latency [ms]")
@@ -652,7 +683,6 @@ def sn_graph_tikz(name):
     # print(beeline)
 
     print("Speedup vs baseline:\n", baseline["p(90)"] / beeline["p(90)"])
-    exit()
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
@@ -675,9 +705,10 @@ def sn_graph_tikz(name):
             (median, "p(50)", True)
         ]
         for (line, agg, visible) in lines:
-            vals = df[agg].xs(proxy, level="proxy")
+            ys = df[agg].xs(proxy, level="proxy")
+            xs = df["rate"].xs(proxy, level="proxy")
 
-            coordinates = [(rate, val) for rate, val in zip(vals.index, vals)]
+            coordinates = [(rate, val) for rate, val in zip(xs, ys)]
             coordinates = sorted(coordinates)
             coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
@@ -690,19 +721,22 @@ def sn_graph_tikz(name):
         fill = f"""\\addplot[{color},fill opacity=0.2] fill between[of={low} and {high}];"""
         plots.append(fill)
 
+    xmin = 50
+    xmax = df["rate"].max()
+
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
 xlabel={{requests per second}},
 ylabel={{latency [ms]}},
-xmin=200, xmax=2600,
+xmin={xmin}, xmax={xmax},
 ymode=log,
 axis lines=left,
 xticklabel style={{rotate=-0, yshift=-0.4ex}},
 xlabel style={{anchor=north}},
 xmajorgrids=true,
 grid style=dashed,
-legend pos=south east,
+legend pos=north west,
 height=6cm,
 width=\\linewidth]
 
@@ -775,7 +809,8 @@ def stats_graph_tikz():
         return coords
 
     supported = df.loc[df["stateless"] == True]
-    print(f"Pure filters: {supported["count"].sum()}")
+    cnt = supported["count"].sum()
+    print(f"Pure filters: {cnt}")
     supported = "\n".join(_coords(supported))
 
     unsupported = df.loc[df["stateless"] == False]
@@ -824,6 +859,96 @@ xticklabel={{\\pgfmathprintnumber{{\\tick}}\\%}}]
     print(tikz)
 
 
+def cpu_graph(name, dst):
+    paths = _get_file_paths(name)
+    df = _load_cpu_data(paths)
+
+    min_ts = df.groupby(by=["proxy"]).agg({"timestamp": "min"})
+    df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
+
+    order = df["proxy"].unique()
+    order = sorted(order)
+
+    order.remove("beeline")
+    order.insert(0, "beeline")
+
+    for p in order:
+        df.loc[df["proxy"] == p, "timestamp"] -= min_ts.loc[p, "timestamp"]
+
+    df = df.set_index(["proxy", "timestamp"])
+
+    g = sns.lineplot(data=df, x="timestamp", y="CPUPerc", hue="proxy", marker="o", hue_order=order)
+
+    g.set_xlabel("time [s]")
+
+    g.set_ylabel("CPU Utilization [%]")
+
+    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+
+    _save_to_path(f"cpu-{name}", os.path.join(dst, name))
+
+
+def cpu_graph_tikz(name):
+    paths = _get_file_paths(name)
+    df = _load_cpu_data(paths)
+
+    min_ts = df.groupby(by=["proxy"]).agg({"timestamp": "min"})
+    df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
+
+    order = df["proxy"].unique()
+    order = sorted(order)
+
+    order.remove("beeline")
+    order.insert(0, "beeline")
+
+    for p in order:
+        df.loc[df["proxy"] == p, "timestamp"] -= min_ts.loc[p, "timestamp"]
+
+    df = df.set_index(["proxy", "timestamp"])
+
+    legend = ",".join(order)
+
+    plots = []
+    for i, proxy in enumerate(order):
+        color = f"{proxy}color" # predefined in latex
+        ys = df.xs(proxy, level="proxy")["CPUPerc"]
+        xs = df.xs(proxy, level="proxy").index
+
+        coordinates = [(rate, val) for rate, val in zip(xs, ys)]
+        coordinates = sorted(coordinates)
+        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
+
+        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+            {coordinates}
+        }};"""
+        plots.append(plot)
+
+    xmin = 0
+    xmax = 250
+
+    plots = "\n".join(plots)
+    tikz = f"""\\begin{{tikzpicture}}
+\\begin{{axis}}[
+xlabel={{time [s]}},
+ylabel={{CPU Utilization [\\%]}},
+xmin={xmin}, xmax={xmax},
+axis lines=left,
+xticklabel style={{rotate=-0, yshift=-0.4ex}},
+xlabel style={{anchor=north}},
+xmajorgrids=true,
+grid style=dashed,
+legend pos=north west,
+height=6cm,
+width=\\linewidth]
+
+{plots}
+
+\\legend{{{legend}}}
+\\end{{axis}}
+\\end{{tikzpicture}}"""
+    print(tikz)
+
+
 if __name__ == "__main__":
     if args.command == "bp":
         box_plot(args.name, args.metric, args.output)
@@ -853,3 +978,7 @@ if __name__ == "__main__":
         stats_graph(args.output)
     elif args.command == "stats_tikz":
         stats_graph_tikz()
+    elif args.command == "cpu":
+        cpu_graph(args.name, args.output)
+    elif args.command == "cpu_tikz":
+        cpu_graph_tikz(args.name)
