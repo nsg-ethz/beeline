@@ -556,8 +556,9 @@ def time_profile_graph_tikz(name, metric, agg):
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
-    order.remove("beeline")
-    order.insert(0, "beeline")
+    if "beeline" in order:
+        order.remove("beeline")
+        order.insert(0, "beeline")
     legend = ",".join(order)
 
     plots = []
@@ -687,8 +688,9 @@ def sn_graph_tikz(name):
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
 
-    order.remove("beeline")
-    order.insert(0, "beeline")
+    if "beeline" in order:
+        order.remove("beeline")
+        order.insert(0, "beeline")
 
     legend = ",".join(order)
 
@@ -869,8 +871,9 @@ def cpu_graph(name, dst):
     order = df["proxy"].unique()
     order = sorted(order)
 
-    order.remove("beeline")
-    order.insert(0, "beeline")
+    if "beeline" in order:
+        order.remove("beeline")
+        order.insert(0, "beeline")
 
     for p in order:
         df.loc[df["proxy"] == p, "timestamp"] -= min_ts.loc[p, "timestamp"]
@@ -898,8 +901,9 @@ def cpu_graph_tikz(name):
     order = df["proxy"].unique()
     order = sorted(order)
 
-    order.remove("beeline")
-    order.insert(0, "beeline")
+    if "beeline" in order:
+        order.remove("beeline")
+        order.insert(0, "beeline")
 
     for p in order:
         df.loc[df["proxy"] == p, "timestamp"] -= min_ts.loc[p, "timestamp"]
