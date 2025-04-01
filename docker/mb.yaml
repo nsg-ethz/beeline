@@ -1,0 +1,30 @@
+name: micro-benchmark
+
+networks:
+    default:
+        ipam:
+            config:
+                - subnet: 172.18.1.0/24
+services:
+    echo:
+        build:
+            context: ..
+            dockerfile: docker/echo.Dockerfile
+        networks:
+            default:
+                ipv4_address: 172.18.1.41
+        restart: always
+    sidecar:
+        build:
+            context: ..
+            dockerfile: docker/envoy.Dockerfile
+        hostname: sidecar
+        cpuset: 1-35
+        ports:
+            - 9999:9999
+        networks:
+            default:
+                ipv4_address: 172.18.1.40
+        restart: always
+        volumes:
+            - ../config/envoy.yaml:/etc/envoy/envoy.yaml

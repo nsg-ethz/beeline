@@ -70,7 +70,7 @@ export function randomRequest() {
         const port = randomIntBetween(1, 4);
         url = `http://10.0.${server}.1:800${port}`;
     } else {
-        url = `http://127.0.0.1:3000`;
+        url = `http://127.0.0.1:9999`;
     }
 
     requestTo(url, server);

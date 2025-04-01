@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import json
 import glob
 import argparse
@@ -83,7 +85,7 @@ def thousand_label(x, pos):
 
 
 def _parse_k6_path(path):
-    match = re.search(r"(\w+)-(\d+)B*.*", path)
+    match = re.search(r"(\w+)-k6-(\d+)B*.*", path)
     proxy = match.group(1)
     size = match.group(2)
 
@@ -91,7 +93,7 @@ def _parse_k6_path(path):
 
 
 def _parse_wrk_path(path):
-    match = re.search(r"(\w+)-(\d+).*", path)
+    match = re.search(r"(\w+)-wrk-(\d+).*", path)
     proxy = match.group(1)
     rate = match.group(2)
 
@@ -99,7 +101,7 @@ def _parse_wrk_path(path):
 
 
 def _parse_cpu_path(path):
-    match = re.search(r"(\w+)-(\d+).*", path)
+    match = re.search(r"(\w+)-cpu-(\d+).*", path)
     proxy = match.group(1)
     timestamp = match.group(2)
 
@@ -646,6 +648,18 @@ def sn_graph(name, agg, dst):
     paths = _get_file_paths(name, "*.log")
     df = _load_wrk_data(paths)
 
+    strawman = df[df.index.get_level_values("proxy") == "strawman"].droplevel("proxy")
+    baseline = df[df.index.get_level_values("proxy") == "baseline"].droplevel("proxy").droplevel("metric_name")
+    beeline = df[df.index.get_level_values("proxy") == "beeline"].droplevel("proxy").droplevel("metric_name")
+
+    print("p(90) beeline vs baseline:\n", baseline["p(90)"] / beeline["p(90)"])
+    print("p(50) beeline vs baseline:\n", baseline["p(50)"] / beeline["p(50)"])
+
+    print("p(90) strawman vs baseline:\n", baseline["p(90)"] / strawman["p(90)"])
+    print("p(50) strawman vs baseline:\n", baseline["p(50)"] / strawman["p(50)"])
+
+    # print(df.sort_values(by=["rate", "proxy"]).to_string())
+
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
 
@@ -674,16 +688,6 @@ def sn_graph_tikz(name):
     paths = _get_file_paths(name, "*.log")
     df = _load_wrk_data(paths)
     df = df.xs("http_req_duration", level="metric_name", drop_level=True)
-
-    strawman = df[df.index.get_level_values("proxy") == "strawman"].droplevel("proxy")
-    baseline = df[df.index.get_level_values("proxy") == "baseline"].droplevel("proxy")
-    beeline = df[df.index.get_level_values("proxy") == "beeline"].droplevel("proxy")
-
-    # print(strawman)
-    # print(baseline)
-    # print(beeline)
-
-    print("Speedup vs baseline:\n", baseline["p(90)"] / beeline["p(90)"])
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
@@ -867,6 +871,11 @@ def cpu_graph(name, dst):
 
     min_ts = df.groupby(by=["proxy"]).agg({"timestamp": "min"})
     df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
+
+    baseline = df[df["proxy"] == "baseline"]
+    beeline = df[df["proxy"] == "beeline"]
+
+    print("baseline:\n", baseline["CPUPerc"].reset_index().to_string(), "beeline:\n",  beeline["CPUPerc"].reset_index().to_string())
 
     order = df["proxy"].unique()
     order = sorted(order)

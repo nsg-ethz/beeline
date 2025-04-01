@@ -34,7 +34,7 @@ trap stop_experiment INT
 
 for i in {1..52} ; do
     RATE=$(( i * 50 ))
-    FILE=${SUMMARY_DIR}/${PROXY}-${RATE}.log
+    FILE=${SUMMARY_DIR}/${PROXY}-wrk-${RATE}.log
     BENCH_CMD="${TASKSET} wrk -t 10 -c 100 -d 5s -L -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://localhost:8080/wrk2-api/post/compose -R ${RATE} > ${FILE}"
     echo ${BENCH_CMD}
     eval ${BENCH_CMD}

@@ -25,6 +25,6 @@ SOCIAL_NETWORK_DIR=${ROOT}/../social_network
 mkdir -p ${SUMMARY_DIR}
 
 while sleep 0.5; do
-    FILE=${SUMMARY_DIR}/${PROXY}-$(date +%s).json
+    FILE=${SUMMARY_DIR}/${PROXY}-cpu-$(date +%s).json
     docker stats --format json --no-trunc --no-stream >> ${FILE}
 done

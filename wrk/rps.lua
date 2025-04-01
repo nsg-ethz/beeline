@@ -45,10 +45,10 @@ init = function()
     local backends = {}
     if backend == nil then
         for i = 1, 4 do
-            backends[i - 1] = i
+            backends[i] = i
         end
     else
-        backends[0] = backend
+        backends[1] = backend
     end
 
     requests = {}
