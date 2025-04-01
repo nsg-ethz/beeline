@@ -40,6 +40,18 @@ char LICENSE[] SEC("license") = "GPL";
     #define bpf_err(...) (0)
 #endif
 
+#if BPF_PROFILE == 0
+    #define bpf_profile_def(...) (0)
+    #define bpf_profile_start(...) (0)
+    #define bpf_profile_end(...) (0)
+    #define bpf_profile_print(...) (0)
+#else
+    #define bpf_profile_def(NAME) u64 __profile_##NAME_cnt = 0; u64 __profile_##NAME_sum = 0
+    #define bpf_profile_start(NAME) u64 __profile_##NAME_ts = bpf_ktime_get_ns()
+    #define bpf_profile_end(NAME) __profile_##NAME_cnt++; __profile_##NAME_sum += (bpf_ktime_get_ns() - __profile_##NAME_ts)
+    #define bpf_profile_print(NAME) bpf_err("%s time: %lluns, cnt: %llu", #NAME, __profile_##NAME_sum, __profile_##NAME_cnt)
+#endif
+
 // these restrictions are needed to make the verifier happy
 #define MAX_BYTES 0xFFFE
 #define MAX_MATCHES 16
@@ -685,7 +697,9 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
     return -1;
 }
 
+bpf_profile_def(parse);
 static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges, bool *pmatches) {
+    bpf_profile_start(parse);
     u32 cidx[MAX_MATCHES] = { 0 };
     int res = _parse_from(msg, 0, pranges, pmatches, cidx);
 
@@ -697,6 +711,8 @@ static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges,
         bpf_msg_pull_data(msg, 0, new_end, 0);
         res = _parse_from(msg, old_end, pranges, pmatches, cidx);
     }
+
+    bpf_profile_end(parse);
 
     return res;
 }
@@ -904,3 +920,10 @@ u8 key[16] = "testtest12345678";
 
 //     return 0;
 // }
+
+SEC("syscall")
+int print_profile_stats() {
+    bpf_profile_print(parse);
+
+    return 0;
+}

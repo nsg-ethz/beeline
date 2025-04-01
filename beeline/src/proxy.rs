@@ -13,10 +13,12 @@ use libbpf_rs::{
     skel::{OpenSkel, SkelBuilder},
     Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
+use libc::exit;
 use log::{debug, error, info, log_enabled, warn};
 use ma::{NewUpstream, Pipeline};
 use pipeline::DebugPipeline;
 use std::{
+    env,
     io::Cursor,
     mem::MaybeUninit,
     net::{SocketAddr, ToSocketAddrs},
@@ -268,8 +270,38 @@ impl<'obj> Proxy<'obj> {
         socket.bind(self.address)?;
         let listener = socket.listen(4096)?;
 
+        let profile = env::var("BPF_PROFILE").unwrap_or("0".to_string());
+
+        if profile == "1" {
+            let this = Arc::new(&self);
+            tokio::spawn(unsafe {
+                let this = std::mem::transmute::<Arc<&Proxy>, Arc<&'static Proxy>>(this);
+                async move {
+                    let _ = tokio::signal::ctrl_c().await;
+                    info!("Profile stats printed to the eBPF tracelog");
+                    this.print_profile_stats().await;
+                    exit(0)
+                }
+            });
+        }
+
         loop {
             self.accept(&listener).await?;
+        }
+    }
+
+    async fn print_profile_stats(self: Arc<&Self>) {
+        let print = &self.skel.progs.print_profile_stats;
+        let input = libbpf_rs::ProgramInput::default();
+
+        match print.test_run(input) {
+            Ok(res) => {
+                if res.return_value != 0 {
+                    let err = std::io::Error::from_raw_os_error(res.return_value as i32);
+                    error!("Failed to print profile stats: {:?}", err);
+                }
+            }
+            Err(e) => error!("Failed to call eBPF print_profile_stats: {:?}", e),
         }
     }
 

@@ -14,6 +14,8 @@ fn main() {
         .join("bpf")
         .join("proxy.skel.rs");
 
+    let bpf_profile = std::env::var("BPF_PROFILE").unwrap_or("0".to_string());
+
     let log_level = std::env::var("RUST_LOG").unwrap_or("error".to_string());
     let log_level = if log_level.eq_ignore_ascii_case("debug") {
         "2"
@@ -27,6 +29,8 @@ fn main() {
         .clang_args([
             OsStr::new("-D"),
             OsStr::new(format!("LOG_LEVEL={log_level}").as_str()),
+            OsStr::new("-D"),
+            OsStr::new(format!("BPF_PROFILE={bpf_profile}").as_str()),
             OsStr::new("-I"),
             OsStr::new("src/bpf/vmlinux.h"),
         ])
