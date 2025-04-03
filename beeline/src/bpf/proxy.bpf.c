@@ -40,16 +40,16 @@ char LICENSE[] SEC("license") = "GPL";
     #define bpf_err(...) (0)
 #endif
 
-#if BPF_PROFILE == 0
-    #define bpf_profile_def(...) (0)
-    #define bpf_profile_start(...) (0)
-    #define bpf_profile_end(...) (0)
-    #define bpf_profile_print(...) (0)
+#if BPF_PROFILE == 1
+    #define bpf_profile_def(NAME) u64 __profile_##NAME##_cnt = 0; u64 __profile_##NAME##_sum = 0
+    #define bpf_profile_start(NAME) u64 __profile_##NAME##_ts = bpf_ktime_get_ns()
+    #define bpf_profile_end(NAME) __profile_##NAME##_cnt++; __profile_##NAME##_sum += (bpf_ktime_get_ns() - __profile_##NAME##_ts)
+    #define bpf_profile_print(NAME) bpf_err("%s time: %lluns, cnt: %llu", #NAME, __profile_##NAME##_sum, __profile_##NAME##_cnt)
 #else
-    #define bpf_profile_def(NAME) u64 __profile_##NAME_cnt = 0; u64 __profile_##NAME_sum = 0
-    #define bpf_profile_start(NAME) u64 __profile_##NAME_ts = bpf_ktime_get_ns()
-    #define bpf_profile_end(NAME) __profile_##NAME_cnt++; __profile_##NAME_sum += (bpf_ktime_get_ns() - __profile_##NAME_ts)
-    #define bpf_profile_print(NAME) bpf_err("%s time: %lluns, cnt: %llu", #NAME, __profile_##NAME_sum, __profile_##NAME_cnt)
+    #define bpf_profile_def(...)
+    #define bpf_profile_start(...)
+    #define bpf_profile_end(...)
+    #define bpf_profile_print(...)
 #endif
 
 // these restrictions are needed to make the verifier happy
@@ -521,52 +521,52 @@ __noinline enum pr_action update_us_state(const struct sock_key *ukey, struct pi
 __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ctx == NULL) return PR_DROP;
 
-    const char *compose_post = "/compose-post-service";
-    bool path_is_compose_post = bpf_strncmp(ctx->path, sizeof(compose_post)-1, compose_post);
-    const char *home_timeline = "/home-timeline-service";
-    bool path_is_home_timeline = bpf_strncmp(ctx->path, sizeof(home_timeline)-1, home_timeline);
-    const char *media = "/media-service";
-    bool path_is_media = bpf_strncmp(ctx->path, sizeof(media)-1, media);
-    const char *post_storage = "/post-storage-service";
-    bool path_is_post_storage = bpf_strncmp(ctx->path, sizeof(post_storage)-1, post_storage);
-    const char *social_graph = "/social-graph-service";
-    bool path_is_social_graph = bpf_strncmp(ctx->path, sizeof(social_graph)-1, social_graph);
-    const char *text = "/text-service";
-    bool path_is_text = bpf_strncmp(ctx->path, sizeof(text)-1, text);
-    const char *unique_id = "/unique-id-service";
-    bool path_is_unique_id = bpf_strncmp(ctx->path, sizeof(unique_id)-1, unique_id);
-    const char *url_shorten = "/url-shorten-service";
-    bool path_is_url_shorten = bpf_strncmp(ctx->path, sizeof(url_shorten)-1, url_shorten);
-    const char *user = "/user-service";
-    bool path_is_user = bpf_strncmp(ctx->path, sizeof(user)-1, user);
-    const char *user_timeline = "/user-timeline-service";
-    bool path_is_user_timeline = bpf_strncmp(ctx->path, sizeof(user_timeline)-1, user_timeline);
-    const char *user_mention = "/user-mention-service";
-    bool path_is_user_mention = bpf_strncmp(ctx->path, sizeof(user_mention)-1, user_mention);
+    // const char *compose_post = "/compose-post-service";
+    // bool path_is_compose_post = bpf_strncmp(ctx->path, sizeof(compose_post)-1, compose_post);
+    // const char *home_timeline = "/home-timeline-service";
+    // bool path_is_home_timeline = bpf_strncmp(ctx->path, sizeof(home_timeline)-1, home_timeline);
+    // const char *media = "/media-service";
+    // bool path_is_media = bpf_strncmp(ctx->path, sizeof(media)-1, media);
+    // const char *post_storage = "/post-storage-service";
+    // bool path_is_post_storage = bpf_strncmp(ctx->path, sizeof(post_storage)-1, post_storage);
+    // const char *social_graph = "/social-graph-service";
+    // bool path_is_social_graph = bpf_strncmp(ctx->path, sizeof(social_graph)-1, social_graph);
+    // const char *text = "/text-service";
+    // bool path_is_text = bpf_strncmp(ctx->path, sizeof(text)-1, text);
+    // const char *unique_id = "/unique-id-service";
+    // bool path_is_unique_id = bpf_strncmp(ctx->path, sizeof(unique_id)-1, unique_id);
+    // const char *url_shorten = "/url-shorten-service";
+    // bool path_is_url_shorten = bpf_strncmp(ctx->path, sizeof(url_shorten)-1, url_shorten);
+    // const char *user = "/user-service";
+    // bool path_is_user = bpf_strncmp(ctx->path, sizeof(user)-1, user);
+    // const char *user_timeline = "/user-timeline-service";
+    // bool path_is_user_timeline = bpf_strncmp(ctx->path, sizeof(user_timeline)-1, user_timeline);
+    // const char *user_mention = "/user-mention-service";
+    // bool path_is_user_mention = bpf_strncmp(ctx->path, sizeof(user_mention)-1, user_mention);
 
-    if (path_is_compose_post == 0) ctx->ft.path = PR_COMPOSE_POST;
-        else if (path_is_home_timeline == 0) ctx->ft.path = PR_HOME_TIMELINE;
-            else if (path_is_media == 0) ctx->ft.path = PR_MEDIA;
-                else if (path_is_post_storage == 0) ctx->ft.path = PR_POST_STORAGE;
-                    else if (path_is_social_graph == 0) ctx->ft.path = PR_SOCIAL_GRAPH;
-                        else if (path_is_text == 0) ctx->ft.path = PR_TEXT;
-                            else if (path_is_unique_id == 0) ctx->ft.path = PR_UNIQUE_ID;
-                                else if (path_is_url_shorten == 0) ctx->ft.path = PR_URL_SHORTEN;
-                                    else if (path_is_user == 0) ctx->ft.path = PR_USER;
-                                        else if (path_is_user_timeline == 0) ctx->ft.path = PR_USER_TIMELINE;
-                                            else if (path_is_user_mention == 0) ctx->ft.path = PR_USER_MENTION;
-                    else {
-                        ctx->ft.direction = PR_REVERSE_PROXY;
-                        ctx->ft.num_bytes_min = true;
+    // if (path_is_compose_post == 0) ctx->ft.path = PR_COMPOSE_POST;
+    //     else if (path_is_home_timeline == 0) ctx->ft.path = PR_HOME_TIMELINE;
+    //         else if (path_is_media == 0) ctx->ft.path = PR_MEDIA;
+    //             else if (path_is_post_storage == 0) ctx->ft.path = PR_POST_STORAGE;
+    //                 else if (path_is_social_graph == 0) ctx->ft.path = PR_SOCIAL_GRAPH;
+    //                     else if (path_is_text == 0) ctx->ft.path = PR_TEXT;
+    //                         else if (path_is_unique_id == 0) ctx->ft.path = PR_UNIQUE_ID;
+    //                             else if (path_is_url_shorten == 0) ctx->ft.path = PR_URL_SHORTEN;
+    //                                 else if (path_is_user == 0) ctx->ft.path = PR_USER;
+    //                                     else if (path_is_user_timeline == 0) ctx->ft.path = PR_USER_TIMELINE;
+    //                                         else if (path_is_user_mention == 0) ctx->ft.path = PR_USER_MENTION;
+    //                 else {
+    //                     ctx->ft.direction = PR_REVERSE_PROXY;
+    //                     ctx->ft.num_bytes_min = true;
 
-                        return PR_PASS;
-                    }
+    //                     return PR_PASS;
+    //                 }
 
-    ctx->ft.direction = PR_UPSTREAM;
-    ctx->ft.num_bytes_min = true;
-
-    // ctx->ft.direction = PR_REVERSE_PROXY;
+    // ctx->ft.direction = PR_UPSTREAM;
     // ctx->ft.num_bytes_min = true;
+
+    ctx->ft.direction = PR_REVERSE_PROXY;
+    ctx->ft.num_bytes_min = true;
 
     return PR_PASS;
 }
@@ -765,8 +765,11 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     return PR_PASS;
 }
 
+bpf_profile_def(other);
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
+    bpf_profile_start(other);
+
     // socket identifeir of the ingress connection
     struct sock_key ikey = {
         .local = {
@@ -823,6 +826,8 @@ int msg_verdict(struct sk_msg_md *msg) {
     else {
         post_forward_us_conn(&ikey, &ekey, ctx);
     }
+
+    bpf_profile_end(other);
 
     if (res == PR_DROP) {
         bpf_err("No FIB entry found for {%pI4:%u %d %d %d}. Dropping.", &ctx->ft.addr.ip4, ctx->ft.addr.port, ctx->ft.direction, ctx->ft.path, ctx->ft.num_bytes_min);
@@ -923,6 +928,7 @@ u8 key[16] = "testtest12345678";
 
 SEC("syscall")
 int print_profile_stats() {
+    bpf_profile_print(other);
     bpf_profile_print(parse);
 
     return 0;

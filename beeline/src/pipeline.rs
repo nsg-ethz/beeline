@@ -101,6 +101,7 @@ impl NewUpstream for ConnectToBackend {
                 }
             }
             3 => Ok("172.18.0.40:9999".parse()?),
+            // 3 => Ok("127.0.0.1:8000".parse()?),
             _ => bail!("Invalid direction: {}", ft.direction),
         }
     }
