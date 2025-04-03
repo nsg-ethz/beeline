@@ -1,6 +1,6 @@
-# L7 Switch
+# Beeline
 
-This project has the aim of bringing L7 switching to the kernel, using eBPF.
+This project aims to bring L7 policy enforcement to the kernel, using eBPF.
 
 ## Testing
 
@@ -18,11 +18,9 @@ sudo ufw allow from 172.18.0.0/16
 Also, you might have to increase the limit of open files in `/etc/security/limits.conf`
 
 ```
-./start-env.sh
-
-script/bench.sh -u 1000 -s 1024 vu
-
-./clean-env.sh
+RUST_LOG=info taskset --cpu-list 1-35 cargo run -r -p beeline -- -a 172.17.0.1:9999 -c config/social_network.yaml
+docker compose -f docker/sn-beeline.yaml up --force-recreate
+script/sn.sh -n [EXPERIMENT_NAME] -p beeline
 ```
 
 ## Requirements
