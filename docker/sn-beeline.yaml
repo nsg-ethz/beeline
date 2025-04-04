@@ -9,7 +9,7 @@ services:
     social-graph-service:
         build: ../social_network
         hostname: social-graph-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -28,7 +28,7 @@ services:
     social-graph-mongodb:
         image: mongo:4.4.6
         hostname: social-graph-mongodb
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -40,7 +40,7 @@ services:
         image: redis
         command: redis-server --save "" --appendonly no
         hostname: social-graph-redis
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -53,7 +53,7 @@ services:
     home-timeline-service:
         build: ../social_network
         hostname: home-timeline-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -71,7 +71,7 @@ services:
         image: redis
         command: redis-server --save "" --appendonly no
         hostname: home-timeline-redis
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -84,7 +84,7 @@ services:
     compose-post-service:
         build: ../social_network
         hostname: compose-post-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -103,7 +103,7 @@ services:
     post-storage-service:
         build: ../social_network
         hostname: post-storage-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -124,7 +124,7 @@ services:
     post-storage-memcached:
         image: memcached
         hostname: post-storage-memcached
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -135,7 +135,7 @@ services:
     post-storage-mongodb:
         image: mongo:4.4.6
         hostname: post-storage-mongodb
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -148,7 +148,7 @@ services:
     user-timeline-service:
         build: ../social_network
         hostname: user-timeline-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -168,7 +168,7 @@ services:
         image: redis
         command: redis-server --save "" --appendonly no
         hostname: user-timeline-redis
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -179,7 +179,7 @@ services:
     user-timeline-mongodb:
         image: mongo:4.4.6
         hostname: user-timeline-mongodb
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -192,7 +192,7 @@ services:
     url-shorten-service:
         build: ../social_network
         hostname: url-shorten-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -211,7 +211,7 @@ services:
     url-shorten-memcached:
         image: memcached
         hostname: url-shorten-memcached
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -222,7 +222,7 @@ services:
     url-shorten-mongodb:
         image: mongo:4.4.6
         hostname: url-shorten-mongodb
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -235,7 +235,7 @@ services:
     user-service:
         build: ../social_network
         hostname: user-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -254,7 +254,7 @@ services:
     user-memcached:
         image: memcached
         hostname: user-memcached
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -265,7 +265,7 @@ services:
     user-mongodb:
         image: mongo:4.4.6
         hostname: user-mongodb
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -278,7 +278,7 @@ services:
     media-service:
         build: ../social_network
         hostname: media-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -297,7 +297,7 @@ services:
     media-memcached:
         image: memcached
         hostname: media-memcached
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -308,7 +308,7 @@ services:
     media-mongodb:
         image: mongo:4.4.6
         hostname: media-mongodb
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -321,7 +321,7 @@ services:
     text-service:
         build: ../social_network
         hostname: text-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -340,7 +340,7 @@ services:
     unique-id-service:
         build: ../social_network
         hostname: unique-id-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -359,7 +359,7 @@ services:
     user-mention-service:
         build: ../social_network
         hostname: user-mention-service
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -378,7 +378,7 @@ services:
     nginx-thrift:
         image: yg397/openresty-thrift:xenial
         hostname: nginx-thrift
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -401,7 +401,7 @@ services:
     media-frontend:
         image: yg397/media-frontend:xenial
         hostname: media-frontend
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:
@@ -437,7 +437,7 @@ services:
     sidecar:
         image: envoyproxy/envoy:v1.31-latest
         hostname: sidecar
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         extra_hosts:
             - "beeline:host-gateway"
         networks:

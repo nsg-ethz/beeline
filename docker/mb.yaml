@@ -19,7 +19,7 @@ services:
             context: ..
             dockerfile: docker/envoy.Dockerfile
         hostname: sidecar
-        cpuset: 1-35
+        cgroup_parent: beeline.slice
         ports:
             - 9999:9999
         networks:
