@@ -6,24 +6,10 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
-DIRECTION=$1
-EXPERIMENT=$2
-shift 2
-
-if [ $# -ne 2 ]; then
-    echo "Usage: $0 [up|down] experiment"
-    exit 1
-fi
-
-# Check if DIRECTION is valid
-if [ ${DIRECTION} != "up" ] && [ ${DIRECTION} != "down" ]; then
-    echo "Unknown Command"
-    exit 1
-fi
-
 # Parse arguments
-while getopts "n:p:" opt; do
+while getopts "f:n:p:" opt; do
     case $opt in
+        f ) FILE=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         \?)
@@ -31,6 +17,11 @@ while getopts "n:p:" opt; do
             ;;
     esac
 done
+
+if [ -z "${FILE}" ]; then
+    echo "Need to supply docker compose file"
+    exit 1
+fi
 
 if [ -z "${NAME}" ]; then
     echo "Need to supply experiment name"
@@ -42,32 +33,29 @@ if [ -z "${PROXY}" ]; then
     exit 1
 fi
 
-case ${DIRECTION} in
-    "up")
+function stop_experiment {
+    pkill capture-cpu.sh 2>&1 >/dev/null
 
-        CPU_SYSTEM=0,1,20,21
-        CPU_BEELINE=2-19,22-39
+    CPU_SYSTEM=0-39
+    echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
+    sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+    sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+    sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+}
 
-        echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
-        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
+trap stop_experiment INT
 
+CPU_SYSTEM=0,1,20,21
+CPU_BEELINE=2-19,22-39
 
-        docker compose -f ${EXPERIMENT} up -d --force-recreate
+echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
+sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
-        ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} &
-        ;;
-    "down")
-        pkill capture-cpu.sh 2>&1 >/dev/null
+${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} &
 
-        CPU_SYSTEM=0-39
-        echo -e "${COLOR_YELLOW}${COLOR_OFF}"
-        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+docker compose -f ${FILE} up --force-recreate
 
-        docker compose -f ${EXPERIMENT} down
-        ;;
-esac
+stop_experiment
