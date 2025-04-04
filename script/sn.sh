@@ -26,15 +26,16 @@ SOCIAL_NETWORK_DIR=${ROOT}/../social_network
 
 mkdir -p ${SUMMARY_DIR}
 
-trap stop_experiment INT
+echo -e "${COLOR_YELLOW}Warming up...${COLOR_OFF}"
+wrk -t 10 -c 100 -d 5s -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://moonshine:8080/wrk2-api/post/compose -R 500
 
-for i in {i..${ITERS}} ; do
+for i in $(seq 1 ${ITERS}) ; do
     for j in {1..52} ; do
-        RATE=$(( i * 50 ))
+        RATE=$(( j * 50 ))
         FILE=${SUMMARY_DIR}/${PROXY}-$(date +%s)-wrk-e${i}-${RATE}.log
-        BENCH_CMD="wrk -t 10 -c 100 -d 5s -L -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://moonshine:8080/wrk2-api/post/compose -R ${RATE} > ${FILE}"
-        echo ${BENCH_CMD}
-        eval ${BENCH_CMD}
+	echo "epoch ${i}, rate: ${RATE}, file: ${FILE}"
+
+        wrk -t 10 -c 100 -d 5s -L -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://moonshine:8080/wrk2-api/post/compose -R ${RATE} > ${FILE}
         RET=$?
 
         if [ ${RET} -ne 0 ]; then
@@ -43,4 +44,3 @@ for i in {i..${ITERS}} ; do
     done
 done
 
-kill ${CPU_PID} 2>&1 >/dev/null
