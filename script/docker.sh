@@ -6,6 +6,9 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
+ACTION=$1
+shift 1
+
 # Parse arguments
 while getopts "f:n:p:" opt; do
     case $opt in
@@ -23,39 +26,72 @@ if [ -z "${FILE}" ]; then
     exit 1
 fi
 
-if [ -z "${NAME}" ]; then
-    echo "Need to supply experiment name"
-    exit 1
-fi
+source ${ROOT}/../venv/bin/activate
 
-if [ -z "${PROXY}" ]; then
-    echo "Need to supply proxy name"
-    exit 1
-fi
+case ${ACTION} in
+    up)
+        if [ -z "${NAME}" ]; then
+            echo "Need to supply experiment name"
+            exit 1
+        fi
 
-function stop_experiment {
-    pkill capture-cpu.sh 2>&1 >/dev/null
+        if [ -z "${PROXY}" ]; then
+            echo "Need to supply proxy name"
+            exit 1
+        fi
 
-    CPU_SYSTEM=0-39
-    echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
-    sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
-    sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
-    sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
-}
+        CPU_SYSTEM=0,1,20,21
+        CPU_BEELINE=2-19,22-39
 
-trap stop_experiment INT
+        # clean up just to be safe
+        CONTAINERS=$(docker ps -a -q)
+        if [ ! -z "$CONTAINERS" ]; then
+            docker stop $CONTAINERS
+        fi
+        docker container prune -f
+        sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
 
-CPU_SYSTEM=0,1,20,21
-CPU_BEELINE=2-19,22-39
+        echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
+        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
-echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
-sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
-sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
-sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
-sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
+        docker compose -f ${FILE} up --wait -d --force-recreate
+        sleep 3 # waiting is not enough apparently
 
-${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} &
+        if [ "${PROXY}" = "beeline" ]; then
+            PROXY_BIN=${ROOT}/../target/release/${PROXY}
+            cargo b -r --bin ${PROXY}
 
-docker compose -f ${FILE} up --force-recreate
+            sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/bench.yaml
+            echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+        elif [ "${PROXY}" = "baseline" ]; then
+            PROXY_BIN=${ROOT}/../target/release/${PROXY}
+            cargo b -r --bin ${PROXY}
 
-stop_experiment
+            sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
+            echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
+        fi
+
+        cd ${ROOT}/../social_network
+        python3 scripts/init_social_graph.py
+
+        ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} &
+        ;;
+
+    down)
+        CPU_SYSTEM=0-39
+
+        pkill capture-cpu.sh 2>&1 >/dev/null
+        sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
+
+        docker compose -f ${FILE} down
+
+        echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
+        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+        ;;
+
+esac
