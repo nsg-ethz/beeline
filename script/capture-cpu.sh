@@ -8,7 +8,7 @@ COLOR_OFF='\033[0m' # No Color
 ROOT=$(dirname "$(readlink -f "$0")")
 
 # Parse arguments
-while getopts "dln:p:r:s:u:" opt; do
+while getopts "n:p:" opt; do
     case $opt in
         n ) NAME=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
