@@ -66,7 +66,7 @@ case $ACTION in
         sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onReadReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user-e${EPOCH}.log 2>/dev/null
         sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.ipc-e${EPOCH}.log 2>/dev/null
         sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.epoll-e${EPOCH}.log 2>/dev/null
-        sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_writev" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.write-e${EPOCH}.log 2>/dev/null
+        sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.write-e${EPOCH}.log 2>/dev/null
         sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.read-e${EPOCH}.log 2>/dev/null
 
         sudo -b funclatency-bpfcc -p ${ECHO_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.ipc-e${EPOCH}.log 2>/dev/null

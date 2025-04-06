@@ -27,7 +27,7 @@ mkdir -p ${SUMMARY_DIR}
 
 for i in $(seq ${FROM} ${TO} ) ; do
 
-    ssh -t moonshine "${ROOT}/sn.sh up -c ${ROOT}/../${DOCKER_CONFIG} -n ${NAME} -p ${PROXY}"
+    ssh -t moonshine "${ROOT}/sn.sh up -c ${ROOT}/../${DOCKER_CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
 
     for j in {1..52} ; do
         RATE=$(( j * 50 ))

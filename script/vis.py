@@ -80,6 +80,7 @@ cpu = subparsers.add_parser("cpu")
 cpu_tikz = subparsers.add_parser("cpu_tikz")
 
 rate = subparsers.add_parser("rate")
+rate_tikz = subparsers.add_parser("rate_tikz")
 
 dissect = subparsers.add_parser("dissect")
 dissect_tikz = subparsers.add_parser("dissect_tikz")
@@ -117,13 +118,13 @@ def _parse_cpu_path(path):
 
 
 def _parse_bpf_path(path):
-    match = re.search(r"(\w+)-bpf-(\w+).(\w+)-(\d+).*", path)
+    match = re.search(r"(\w+)-bpf-(\w+).(\w+)-e(\d+).*", path)
     proxy = match.group(1)
     bin = match.group(2)
     func = match.group(3)
-    size = match.group(4)
+    epoch = match.group(4)
 
-    return proxy, bin, func, int(size)
+    return proxy, bin, func, int(epoch)
 
 
 def _load_k6_data(paths):
@@ -217,7 +218,14 @@ def _load_cpu_data(paths):
         df["proxy"] = proxy
         df["timestamp"] = timestamp
         df["file"] = os.path.basename(p)
-        df["CPUPerc"] = df["CPUPerc"].str.rstrip('%').astype('float') / 100.0
+        try:
+            df["CPUPerc"] = df["CPUPerc"].str.rstrip('%').astype('float') / 100.0
+        except ValueError:
+            print(f"Could not parse CPUPerc in {p}")
+            continue
+        except KeyError:
+            print(f"Could not find CPUPerc in {p}")
+            continue
 
         dfs.append(df)
 
@@ -227,11 +235,11 @@ def _load_cpu_data(paths):
 def _load_bpf_data(paths):
     dfs = []
     for p in paths:
-        proxy, bin, func, size = _parse_bpf_path(p)
+        proxy, bin, func, epoch = _parse_bpf_path(p)
 
         with open(p, "r") as file:
             text = file.read()
-            pattern = rf"avg = (\d+) nsecs"
+            pattern = r"avg = (\d+) nsecs"
             match = re.search(pattern, text)
 
             if match is None:
@@ -239,7 +247,7 @@ def _load_bpf_data(paths):
                 continue
 
             mean = float(match.group(1))
-            df = pd.DataFrame({"proxy": [proxy], "bin": [bin], "file": [os.path.basename(p)], "mean": [mean], "func": [func], "payload_size": [size]})
+            df = pd.DataFrame({"proxy": [proxy], "bin": [bin], "file": [os.path.basename(p)], "mean": [mean], "func": [func], "epoch": [epoch]})
             dfs.append(df)
 
     return pd.concat(dfs).reset_index(drop=True)
@@ -748,6 +756,7 @@ def lat_graph_tikz(name, time_range):
     paths = _get_file_paths(name, "*.log")
     df = _load_wrk_data(paths)
     df = df.xs("http_req_duration", level="metric_name", drop_level=True)
+    df = df.groupby(["proxy", "target_rate"]).agg({"mean": "mean"})
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
@@ -758,42 +767,32 @@ def lat_graph_tikz(name, time_range):
 
     legend = ",".join(order)
 
+    # every 5s the target rate is increased by 50 rps
+    rate_to_time_offset = lambda r: (r/50 - 1) * 5
+    df["time_offset"] = rate_to_time_offset(df.index.get_level_values("target_rate"))
+
     plots = []
     for i, proxy in enumerate(order):
         color = f"{proxy}color" # predefined in latex
-        low = f"low{proxy}"
-        high = f"high{proxy}"
-        median = f"median{proxy}"
+        ys = df["mean"].xs(proxy, level="proxy")
+        xs = df["time_offset"].xs(proxy, level="proxy")
 
-        lines = [
-            # (low, "p(10)", False),
-            # (high, "p(90)", False),
-            (median, "p(50)", True)
-        ]
-        for (line, agg, visible) in lines:
-            ys = df[agg].xs(proxy, level="proxy")
-            xs = df["rate"].xs(proxy, level="proxy")
+        coordinates = [(rate, val) for rate, val in zip(xs, ys)]
+        coordinates = sorted(coordinates)
+        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
-            coordinates = [(rate, val) for rate, val in zip(xs, ys)]
-            coordinates = sorted(coordinates)
-            coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
+        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+            {coordinates}
+        }};"""
+        plots.append(plot)
 
-            # visibility = "" if visible else ",draw=none"
-            plot = f"""\\addplot[{color},name path={line}, line width=0.3mm] coordinates {{
-                {coordinates}
-            }};"""
-            plots.append(plot)
-
-        # fill = f"""\\addplot[{color},fill opacity=0.2] fill between[of={low} and {high}];"""
-        # plots.append(fill)
-
-    xmin = start if len(start) > 0 else 50
-    xmax = end if len(end) > 0 else df["rate"].max()
+    xmin = rate_to_time_offset(int(start) if len(start) > 0 else 50)
+    xmax = rate_to_time_offset(int(end) if len(end) > 0 else df["rate"].max())
 
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
-xlabel={{requests per second}},
+xlabel={{time [s]}},
 ylabel={{latency [ms]}},
 ymin=0,
 xmin={xmin}, xmax={xmax},
@@ -804,7 +803,6 @@ x tick label style={{
     /pgf/number format/1000 sep={{}},
 }},
 scaled x ticks=false,
-xticklabel={{\\pgfmathparse{{\\tick/1000}}\\pgfmathprintnumber{{\\pgfmathresult}}K}},
 xlabel style={{anchor=north}},
 xmajorgrids=true,
 grid style=dashed,
@@ -941,8 +939,6 @@ def cpu_graph(name, dst):
     baseline = df[df["proxy"] == "baseline"]
     beeline = df[df["proxy"] == "beeline"]
 
-    print("baseline:\n", baseline["CPUPerc"].reset_index().to_string(), "beeline:\n",  beeline["CPUPerc"].reset_index().to_string())
-
     order = df["proxy"].unique()
     order = sorted(order)
 
@@ -967,11 +963,44 @@ def cpu_graph(name, dst):
 
 
 def cpu_graph_tikz(name):
+    paths = _get_file_paths(name, "*.log")
+    df = _load_wrk_data(paths)
+
+    edf = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
+    edf = edf.rename(columns={"timestamp": "start"})
+    edf["end"] = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "max"})
+
+    # def find_epoch(proxy, ts):
+    #     pedf = edf.xs(proxy, level="proxy")
+
+    #     for epoch in pedf.index:
+    #         if pedf.loc[epoch, "start"] <= ts <= pedf.loc[epoch, "end"]:
+    #             return epoch
+
+    #     return None
+
+    # paths = _get_file_paths(name)
+    # for p in paths:
+    #     proxy, timestamp = _parse_cpu_path(p)
+    #     epoch = find_epoch(proxy, timestamp)
+    #     if epoch is None:
+    #         os.remove(p)
+    #         continue
+
+    #     name, ext = os.path.splitext(p)
+    #     os.rename(p, f"{name}-e{epoch}{ext}")
+    #     print(f"Renamed {p} to {name}-e{epoch}{ext}")
+
+    # exit()
+
+
+
     paths = _get_file_paths(name)
     df = _load_cpu_data(paths)
+    df["epoch"] = df.apply(find_epoch, axis=1)
 
-    min_ts = df.groupby(by=["proxy"]).agg({"timestamp": "min"})
-    df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
+    min_ts = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
+    df = df.groupby(by=["proxy", "epoch", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
 
     order = df["proxy"].unique()
     order = sorted(order)
@@ -980,10 +1009,13 @@ def cpu_graph_tikz(name):
         order.remove("beeline")
         order.insert(0, "beeline")
 
-    for p in order:
-        df.loc[df["proxy"] == p, "timestamp"] -= min_ts.loc[p, "timestamp"]
+    # Subtract the corresponding minimum timestamp
+    for proxy in df["proxy"].unique():
+        for epoch in df[df["proxy"] == proxy]["epoch"].unique():
+            mask = (df["proxy"] == proxy) & (df["epoch"] == epoch)
+            df.loc[mask, "timestamp"] -= min_ts.loc[(proxy, epoch), "timestamp"]
 
-    df = df.set_index(["proxy", "timestamp"])
+    df = df.groupby(by="proxy").agg({"CPUPerc": "mean", "timestamp": "mean"}).reset_index()
 
     legend = ",".join(order)
 
@@ -1061,9 +1093,73 @@ def rate_graph(name, dst):
     _save_to_path(f"sn-rate", os.path.join(dst, name))
 
 
+def rate_graph_tikz(name):
+    paths = _get_file_paths(name, "*.log")
+    df = _load_wrk_data(paths)
+
+    df = df.groupby(["proxy", "target_rate"]).agg({"rate": "mean"})
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+
+    if "beeline" in order:
+        order.remove("beeline")
+        order.insert(0, "beeline")
+
+    legend = ",".join(order)
+
+    # every 5s the target rate is increased by 50 rps
+    rate_to_time_offset = lambda r: (r/50 - 1) * 5
+    df["time_offset"] = rate_to_time_offset(df.index.get_level_values("target_rate"))
+
+    plots = []
+    for i, proxy in enumerate(order):
+        color = f"{proxy}color" # predefined in latex
+
+        ys = df["rate"].xs(proxy, level="proxy")
+        xs = df["time_offset"].xs(proxy, level="proxy")
+
+        coordinates = [(rate, val) for rate, val in zip(xs, ys)]
+        coordinates = sorted(coordinates)
+        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
+
+        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+            {coordinates}
+        }};"""
+        plots.append(plot)
+
+    plots = "\n".join(plots)
+    tikz = f"""\\begin{{tikzpicture}}
+\\begin{{axis}}[
+xlabel={{time [s]}},
+ylabel={{requests per second}},
+ymin=0,
+axis lines=left,
+x tick label style={{
+    /pgf/number format/fixed,
+    /pgf/number format/precision=1,
+    /pgf/number format/1000 sep={{}},
+}},
+yticklabel={{\\pgfmathparse{{\\tick/1000}}\\pgfmathprintnumber{{\\pgfmathresult}}K}},
+scaled x ticks=false,
+xlabel style={{anchor=north}},
+xmajorgrids=true,
+grid style=dashed,
+legend pos=north west,
+height=6cm,
+width=\\linewidth]
+
+{plots}
+
+\\legend{{{legend}}}
+\\end{{axis}}
+\\end{{tikzpicture}}"""
+    print(tikz)
+
+
 def dissect_graph(name, dst):
     paths = _get_file_paths(name, "*bpf*.log")
-    df = _load_bpf_data(paths).set_index(["bin", "payload_size", "func"])
+    df = _load_bpf_data(paths).set_index(["bin", "epoch", "func"])
 
     # for func in ["ipc", "write"]:
     #     df.loc[("envoy", slice(None), func), "mean"] += df.loc[("svc", slice(None), func), "mean"].values
@@ -1104,17 +1200,19 @@ def dissect_graph(name, dst):
 
 def dissect_graph_tikz(name):
     paths = _get_file_paths(name, "*bpf*.log")
-    df = _load_bpf_data(paths).set_index(["proxy", "func", "payload_size"])
+    df = _load_bpf_data(paths)
+
     df = df[df['bin'] != 'svc']
+    df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
 
     order = df.index.get_level_values("proxy").unique()
-    order = sorted(order, reverse=True)
+    order = sorted(order)
 
     df["mean"] = df["mean"] / 1000
 
     # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
-    df.loc[(slice(None), "parse", slice(None)), "mean"] *= 2 # not sure why we should double the parsing time
-    df.loc[(slice(None), "user", slice(None)), "mean"] *= 2 # not sure why we should double the user time either
+    df.loc[(slice(None), "parse"), "mean"] *= 2 # not sure why we should double the parsing time
+    df.loc[(slice(None), "user"), "mean"] *= 2 # not sure why we should double the user time either
     # df.loc[(slice(None), "user", slice(None)), "mean"] -= df.loc[(slice(None), "parse", slice(None)), "mean"].values
 
     print(df)
@@ -1124,13 +1222,14 @@ def dissect_graph_tikz(name):
     for f in funcs:
         coords = []
         for p in order:
-            v = df.loc[(p, f, 1000), "mean"]
-            print(v)
-            if v > 0:
+            if (p, f) in df.index:
+                v = df.loc[(p, f), "mean"]
                 coords.append(f"({p}, {v})")
+            else:
+                coords.append(f"({p}, 0)")
 
-        coords = ", ".join(coords)
-        plots.append("\\addplot+[ybar] plot coordinates {{{coords}}};")
+        coords = " ".join(coords)
+        plots.append(f"\\addplot+[ybar] plot coordinates {{{coords}}};")
 
     plots = "\n".join(plots)
     legend = ",".join(funcs)
@@ -1139,10 +1238,13 @@ def dissect_graph_tikz(name):
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
 ybar stacked,
-bar width=15pt,
-nodes near coords,
+cycle list name=uchu,
+every axis plot/.style={{fill}},
+bar width=20pt,
 ylabel={{latency [us]}},
 symbolic x coords={{{proxies}}},
+xtick=data,
+enlarge x limits={{abs=2cm}},
 height=6cm,
 width=\\linewidth]
 
@@ -1189,6 +1291,8 @@ if __name__ == "__main__":
         cpu_graph_tikz(args.name)
     elif args.command == "rate":
         rate_graph(args.name, args.output)
+    elif args.command == "rate_tikz":
+        rate_graph_tikz(args.name)
     elif args.command == "dissect":
         dissect_graph(args.name, args.output)
     elif args.command == "dissect_tikz":
