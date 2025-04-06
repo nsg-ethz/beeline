@@ -22,7 +22,7 @@ while getopts "n:c:p:e:" opt; do
 done
 
 ROOT=$(dirname "$(readlink -f "$0")")
-ECHO_BIN="target/release/echo"
+ECHO_BIN="${ROOT}/../target/release/echo"
 ENVOY_BIN="/local/home/laurinb/envoy/bazel-out/k8-opt/bin/source/exe/envoy-static"
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 
@@ -58,6 +58,7 @@ case $ACTION in
 
         sudo -b -E systemd-run -q --scope -u echo-service --slice beeline.slice ${ECHO_BIN} -a 127.0.0.1:8000 -H "signature: server1" > /dev/null 2>&1
         sleep 1
+        ECHO_PID=$(pidof echo)
         echo -e "${COLOR_GREEN}Launched echo service${COLOR_OFF}"
 
         echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
@@ -65,12 +66,14 @@ case $ACTION in
         sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onReadReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user-e${EPOCH}.log 2>/dev/null
         sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.ipc-e${EPOCH}.log 2>/dev/null
         sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.epoll-e${EPOCH}.log 2>/dev/null
-        sudo -b funclatency-bpfcc -p ${ENVOY_PID} -r "^vfs_writev?$" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.write-e${EPOCH}.log 2>/dev/null
-        sudo -b funclatency-bpfcc -p ${ENVOY_PID} -r "^vfs_readv?$" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.read-e${EPOCH}.log 2>/dev/null
+        sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_writev" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.write-e${EPOCH}.log 2>/dev/null
+        sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.read-e${EPOCH}.log 2>/dev/null
 
         sudo -b funclatency-bpfcc -p ${ECHO_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.ipc-e${EPOCH}.log 2>/dev/null
         sudo -b funclatency-bpfcc -p ${ECHO_PID} -r "^vfs_writev?$" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.write-e${EPOCH}.log 2>/dev/null
         sudo -b funclatency-bpfcc -p ${ECHO_PID} -r "^vfs_readv?$" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.read-e${EPOCH}.log 2>/dev/null
+
+        sleep 5
     ;;
     down)
         CPU_SYSTEM=0-39
