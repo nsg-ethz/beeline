@@ -38,5 +38,4 @@ spec:
             containers:
                 - name: compose-post-redis
                   image: redis
-                  command: redis-server --save "" --appendonly no
-            restartPolicy: Always
+                      restartPolicy: Always
