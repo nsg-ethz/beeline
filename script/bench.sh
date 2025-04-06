@@ -42,6 +42,6 @@ for i in $(seq ${FROM} ${TO} ) ; do
         fi
     done
 
-    ssh -t moonshine "${ROOT}/sn.sh down -f ${ROOT}/../${DOCKER_CONFIG}"
+    ssh -t moonshine "${ROOT}/sn.sh down -c ${ROOT}/../${DOCKER_CONFIG}"
 
 done
