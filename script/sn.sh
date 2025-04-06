@@ -10,9 +10,9 @@ ACTION=$1
 shift 1
 
 # Parse arguments
-while getopts "f:n:p:" opt; do
+while getopts "c:n:p:" opt; do
     case $opt in
-        f ) FILE=${OPTARG} ;;
+        c ) DOCKER_CONFIG=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         \?)
@@ -21,7 +21,7 @@ while getopts "f:n:p:" opt; do
     esac
 done
 
-if [ -z "${FILE}" ]; then
+if [ -z "${DOCKER_CONFIG}" ]; then
     echo "Need to supply docker compose file"
     exit 1
 fi
@@ -60,7 +60,7 @@ case ${ACTION} in
         sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
-        docker compose -f ${FILE} up --wait -d --force-recreate
+        docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
         sleep 5 # waiting is not enough apparently
 
         if [ "${PROXY}" = "beeline" ]; then
@@ -89,7 +89,7 @@ case ${ACTION} in
         sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
         sudo systemctl stop cpu-monitor.scope > /dev/null 2>&1
 
-        docker compose -f ${FILE} down
+        docker compose -f ${DOCKER_CONFIG} down
 
         echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}

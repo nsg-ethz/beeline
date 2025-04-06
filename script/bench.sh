@@ -6,12 +6,12 @@ COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
 # Parse arguments
-while getopts "d:f:t:n:p:" opt; do
+while getopts "c:f:t:n:p:" opt; do
     case $opt in
         f ) FROM=${OPTARG} ;;
         t ) TO=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
-        d ) DOCKER_EXP=${OPTARG} ;;
+        c ) DOCKER_CONFIG=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
@@ -27,7 +27,7 @@ mkdir -p ${SUMMARY_DIR}
 
 for i in $(seq ${FROM} ${TO} ) ; do
 
-    ssh -t moonshine "${ROOT}/sn.sh up -f ${ROOT}/../${DOCKER_EXP} -n ${NAME} -p ${PROXY}"
+    ssh -t moonshine "${ROOT}/sn.sh up -c ${ROOT}/../${DOCKER_CONFIG} -n ${NAME} -p ${PROXY}"
 
     for j in {1..52} ; do
         RATE=$(( j * 50 ))
@@ -42,6 +42,6 @@ for i in $(seq ${FROM} ${TO} ) ; do
         fi
     done
 
-    ssh -t moonshine "${ROOT}/sn.sh down -f ${ROOT}/../${DOCKER_EXP}"
+    ssh -t moonshine "${ROOT}/sn.sh down -f ${ROOT}/../${DOCKER_CONFIG}"
 
 done
