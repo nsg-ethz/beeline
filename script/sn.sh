@@ -5,12 +5,11 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
-ITERS=1
-
 # Parse arguments
-while getopts "d:i:n:p:" opt; do
+while getopts "d:f:t:n:p:" opt; do
     case $opt in
-        i ) ITERS=${OPTARG} ;;
+        f ) FROM=${OPTARG} ;;
+	t ) TO=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
         d ) DOCKER_EXP=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
@@ -26,10 +25,10 @@ SOCIAL_NETWORK_DIR=${ROOT}/../social_network
 
 mkdir -p ${SUMMARY_DIR}
 
-echo -e "${COLOR_YELLOW}Warming up...${COLOR_OFF}"
-wrk -t 10 -c 100 -d 5s -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://moonshine:8080/wrk2-api/post/compose -R 500
-
-for i in $(seq 1 ${ITERS}) ; do
+for i in $(seq ${FROM} ${TO} ) ; do
+    
+    ssh -t moonshine "${ROOT}/docker.sh up -f ${ROOT}/../${DOCKER_EXP} -n ${NAME} -p ${PROXY}"	
+	
     for j in {1..52} ; do
         RATE=$(( j * 50 ))
         FILE=${SUMMARY_DIR}/${PROXY}-$(date +%s)-wrk-e${i}-${RATE}.log
@@ -42,5 +41,8 @@ for i in $(seq 1 ${ITERS}) ; do
             exit $?
         fi
     done
+
+    ssh -t moonshine "${ROOT}/docker.sh down -f ${ROOT}/../${DOCKER_EXP}" 
+
 done
 
