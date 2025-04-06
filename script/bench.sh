@@ -5,95 +5,43 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
-SIZE_LIST="128 256 512 1024 2048 4096 8192"
-WRITE_LOG=0
-RATE=20000
-VUS=3000
-DIRECT=0
-
-ROOT=$(dirname "$(readlink -f "$0")")
-
-function stop_experiment {
-    sudo systemctl stop exp-pod5-proxy.scope > /dev/null 2>&1
-}
-
-trap stop_experiment INT
-
 # Parse arguments
-while getopts "dln:p:r:s:u:" opt; do
+while getopts "d:f:t:n:p:" opt; do
     case $opt in
-        d ) DIRECT=1 ;;
-        l ) WRITE_LOG=1 ;;
+        f ) FROM=${OPTARG} ;;
+        t ) TO=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
+        d ) DOCKER_EXP=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
-        r ) RATE=${OPTARG} ;;
-        s ) SIZE_LIST=${OPTARG} ;;
-        u ) VUS=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
             ;;
     esac
 done
 
-stop_experiment
-
-if [ ${DIRECT} -eq "1"  ]; then
-    PROXY="direct"
-else
-    PROXY_BIN=${ROOT}/../target/release/${PROXY}
-    cargo b -r --bin ${PROXY}
-
-    sudo -b -E systemd-run -q --scope -u exp-pod5-proxy --slice pod5.slice ${PROXY_BIN} -a 127.0.0.1:3000 -c ${ROOT}/../config/bench.yaml
-    echo -e "${COLOR_GREEN}Launched exp-pod5-proxy in pod5.${COLOR_OFF}"
-
-    sleep 0.25
-fi
-
-shift $(($OPTIND-1))
-SCRIPT="$1"
-
-if [ -z "${SCRIPT}" ]; then
-    SCRIPT="rps.js"
-fi
-if [[ $SCRIPT != *.js ]]; then
-    SCRIPT="${SCRIPT}.js"
-fi
-
 ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
+SOCIAL_NETWORK_DIR=${ROOT}/../social_network
 
-for SIZE in ${SIZE_LIST}; do
-    LOG_OPT=""
-    if [ ${WRITE_LOG} -eq 1 ]; then
-        if [ -z "${PROXY}" ]; then
-            echo "Error: Specify the proxy name with the -p option";
-            exit 1
+mkdir -p ${SUMMARY_DIR}
+
+for i in $(seq ${FROM} ${TO} ) ; do
+
+    ssh -t moonshine "${ROOT}/sn.sh up -f ${ROOT}/../${DOCKER_EXP} -n ${NAME} -p ${PROXY}"
+
+    for j in {1..52} ; do
+        RATE=$(( j * 50 ))
+        FILE=${SUMMARY_DIR}/${PROXY}-$(date +%s)-wrk-e${i}-${RATE}.log
+        echo "epoch ${i}, rate: ${RATE}, file: ${FILE}"
+
+        wrk -t 10 -c 100 -d 5s -L -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://moonshine:8080/wrk2-api/post/compose -R ${RATE} > ${FILE}
+        RET=$?
+
+        if [ ${RET} -ne 0 ]; then
+            exit $?
         fi
-        FILE=${SCRIPT%%.*}
-        LOG_OPT="--out csv=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B-log.gz"
-    fi
+    done
 
-    SUM_OPT=""
-    if [ -n "${NAME}" ]; then
-        if [ -z "${PROXY}" ]; then
-                echo "Error: Specify the proxy name with the -p option";
-                exit 1
-        fi
-        mkdir -p ${SUMMARY_DIR}
-        FILE=${SCRIPT%%.*}
-        SUM_OPT="--summary-export=${SUMMARY_DIR}/${FILE}-${PROXY}-${SIZE}B.json"
-    fi
+    ssh -t moonshine "${ROOT}/sn.sh down -f ${ROOT}/../${DOCKER_EXP}"
 
-    BENCH_CMD="k6 run -e VUS=${VUS} -e RATE=${RATE} -e PAYLOAD_SIZE=${SIZE} -e DIRECT=${DIRECT} ${SUM_OPT} ${LOG_OPT} k6/${SCRIPT}"
-    echo ${BENCH_CMD}
-    eval ${BENCH_CMD}
-    RET=$?
-
-    sudo chown -R ${USER}:"domain users" ${SUMMARY_DIR}
-
-    if [ ${RET} -ne 0 ]; then
-        exit $?
-    fi
 done
-
-stop_experiment

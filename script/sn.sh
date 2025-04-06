@@ -1,17 +1,19 @@
 #!/bin/bash
 
+ROOT=$(dirname "$(readlink -f "$0")")
 COLOR_RED='\033[0;31m'
 COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
+ACTION=$1
+shift 1
+
 # Parse arguments
-while getopts "d:f:t:n:p:" opt; do
+while getopts "f:n:p:" opt; do
     case $opt in
-        f ) FROM=${OPTARG} ;;
-	t ) TO=${OPTARG} ;;
+        f ) FILE=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
-        d ) DOCKER_EXP=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
@@ -19,30 +21,80 @@ while getopts "d:f:t:n:p:" opt; do
     esac
 done
 
-ROOT=$(dirname "$(readlink -f "$0")")
-SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
-SOCIAL_NETWORK_DIR=${ROOT}/../social_network
+if [ -z "${FILE}" ]; then
+    echo "Need to supply docker compose file"
+    exit 1
+fi
 
-mkdir -p ${SUMMARY_DIR}
+source ${ROOT}/../venv/bin/activate
 
-for i in $(seq ${FROM} ${TO} ) ; do
-    
-    ssh -t moonshine "${ROOT}/docker.sh up -f ${ROOT}/../${DOCKER_EXP} -n ${NAME} -p ${PROXY}"	
-	
-    for j in {1..52} ; do
-        RATE=$(( j * 50 ))
-        FILE=${SUMMARY_DIR}/${PROXY}-$(date +%s)-wrk-e${i}-${RATE}.log
-	echo "epoch ${i}, rate: ${RATE}, file: ${FILE}"
-
-        wrk -t 10 -c 100 -d 5s -L -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://moonshine:8080/wrk2-api/post/compose -R ${RATE} > ${FILE}
-        RET=$?
-
-        if [ ${RET} -ne 0 ]; then
-            exit $?
+case ${ACTION} in
+    up)
+        if [ -z "${NAME}" ]; then
+            echo "Need to supply experiment name"
+            exit 1
         fi
-    done
 
-    ssh -t moonshine "${ROOT}/docker.sh down -f ${ROOT}/../${DOCKER_EXP}" 
+        if [ -z "${PROXY}" ]; then
+            echo "Need to supply proxy name"
+            exit 1
+        fi
 
-done
+        CPU_SYSTEM=0,1,20,21
+        CPU_BEELINE=2-19,22-39
 
+        # clean up just to be safe
+        CONTAINERS=$(docker ps -a -q)
+        if [ ! -z "$CONTAINERS" ]; then
+            docker stop $CONTAINERS
+        fi
+        docker container prune -f
+        docker volume prune -f
+
+        sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop cpu-monitor.scope > /dev/null 2>&1
+
+        echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
+        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
+
+        docker compose -f ${FILE} up --wait -d --force-recreate
+        sleep 5 # waiting is not enough apparently
+
+        if [ "${PROXY}" = "beeline" ]; then
+            PROXY_BIN=${ROOT}/../target/release/${PROXY}
+            sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/social_network.yaml
+            sleep 5
+
+	    echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+        elif [ "${PROXY}" = "baseline" ]; then
+            PROXY_BIN=${ROOT}/../target/release/${PROXY}
+            sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
+            sleep 5
+
+	    echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
+        fi
+
+        cd ${ROOT}/../social_network
+        python3 scripts/init_social_graph.py
+
+        sudo -b -E systemd-run -q --scope -u cpu-monitor ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY}
+        ;;
+
+    down)
+        CPU_SYSTEM=0-39
+
+        sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop cpu-monitor.scope > /dev/null 2>&1
+
+        docker compose -f ${FILE} down
+
+        echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
+        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+        ;;
+
+esac
