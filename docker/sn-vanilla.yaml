@@ -28,14 +28,12 @@ services:
 
     social-graph-redis:
         image: redis
-        command: redis-server --save "" --appendonly no
         hostname: social-graph-redis
         cgroup_parent: beeline.slice
         restart: always
 
     home-timeline-redis:
         image: redis
-        command: redis-server --save "" --appendonly no
         hostname: home-timeline-redis
         cgroup_parent: beeline.slice
         restart: always
@@ -96,7 +94,6 @@ services:
 
     user-timeline-redis:
         image: redis
-        command: redis-server --save "" --appendonly no
         hostname: user-timeline-redis
         cgroup_parent: beeline.slice
         restart: always

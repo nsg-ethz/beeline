@@ -5,9 +5,8 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
-IFACE="enp1s0"
+IFACE="eno1"
 ROOT=$(dirname "$(readlink -f "$0")")
-ECHO_BIN=${ROOT}/../target/release/echo
 
 function create_veth {
   sudo iptables -P FORWARD ACCEPT
@@ -55,12 +54,6 @@ function ping_cycle {
   done
 }
 
-function pod {
-    local UNIT_NAME="exp-pod${1}-$(basename ${2})-$(uuidgen)"
-    sudo -b -E ip netns exec ns${1} systemd-run -q --scope -u ${UNIT_NAME} --slice pod${1}.slice "${@:2}"
-    echo -e "${COLOR_GREEN}Launched ${UNIT_NAME} in pod${1}.${COLOR_OFF}"
-}
-
 /bin/bash ${ROOT}/clean-env.sh
 
 echo -e "${COLOR_YELLOW}Update system settings${COLOR_OFF}"
@@ -71,52 +64,7 @@ echo -e "${COLOR_YELLOW}Creating namespaces${COLOR_OFF}"
 create_veth 5
 echo -e "${COLOR_GREEN}Namespaces created${COLOR_OFF}"
 
-echo -e "${COLOR_YELLOW}Disable HyperThreading${COLOR_OFF}"
-echo off | sudo tee /sys/devices/system/cpu/smt/control
-
-echo -e "${COLOR_YELLOW}Enable CPU performance governor${COLOR_OFF}"
-sudo cpupower frequency-set --governor performance
-
-echo -e "${COLOR_YELLOW}Shield CPUs from the OS scheduler${COLOR_OFF}"
-CPU_ALLOWED="0,10-47"
-
-echo -e "${COLOR_YELLOW}System may now only use CPU: ${CPU_ALLOWED}${COLOR_OFF}"
-sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_ALLOWED}
-sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_ALLOWED}
-sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_ALLOWED}
-sudo systemctl set-property --runtime pod1.slice AllowedCPUs=1,2
-sudo systemctl set-property --runtime pod2.slice AllowedCPUs=3,4
-sudo systemctl set-property --runtime pod3.slice AllowedCPUs=5,6
-sudo systemctl set-property --runtime pod4.slice AllowedCPUs=7,8
-sudo systemctl set-property --runtime pod5.slice AllowedCPUs=9,10
-
-echo -e "${COLOR_GREEN}CPUs prepared for performance testing...\n${COLOR_OFF}"
-
 echo -e "${COLOR_YELLOW}Let's check if everything is setup correctly${COLOR_OFF}"
 ping_cycle 5
-
-cargo b -r --bin echo
-
-echo -e "${COLOR_YELLOW}Starting services${COLOR_OFF}"
-
-pod 1 ${ECHO_BIN} -a 10.0.1.1:8001 -H "signature: server1" -e "conn-id"
-pod 1 ${ECHO_BIN} -a 10.0.1.1:8002 -H "signature: server1" -e "conn-id"
-pod 1 ${ECHO_BIN} -a 10.0.1.1:8003 -H "signature: server1" -e "conn-id"
-pod 1 ${ECHO_BIN} -a 10.0.1.1:8004 -H "signature: server1" -e "conn-id"
-
-pod 2 ${ECHO_BIN} -a 10.0.2.1:8001 -H "signature: server2" -e "conn-id"
-pod 2 ${ECHO_BIN} -a 10.0.2.1:8002 -H "signature: server2" -e "conn-id"
-pod 2 ${ECHO_BIN} -a 10.0.2.1:8003 -H "signature: server2" -e "conn-id"
-pod 2 ${ECHO_BIN} -a 10.0.2.1:8004 -H "signature: server2" -e "conn-id"
-
-pod 3 ${ECHO_BIN} -a 10.0.3.1:8001 -H "signature: server3" -e "conn-id"
-pod 3 ${ECHO_BIN} -a 10.0.3.1:8002 -H "signature: server3" -e "conn-id"
-pod 3 ${ECHO_BIN} -a 10.0.3.1:8003 -H "signature: server3" -e "conn-id"
-pod 3 ${ECHO_BIN} -a 10.0.3.1:8004 -H "signature: server3" -e "conn-id"
-
-pod 4 ${ECHO_BIN} -a 10.0.4.1:8001 -H "signature: server4" -e "conn-id"
-pod 4 ${ECHO_BIN} -a 10.0.4.1:8002 -H "signature: server4" -e "conn-id"
-pod 4 ${ECHO_BIN} -a 10.0.4.1:8003 -H "signature: server4" -e "conn-id"
-pod 4 ${ECHO_BIN} -a 10.0.4.1:8004 -H "signature: server4" -e "conn-id"
 
 echo -e "${COLOR_GREEN}Done${COLOR_OFF}"

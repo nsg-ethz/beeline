@@ -71,12 +71,18 @@ surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func"
 stats = subparsers.add_parser("stats")
 stats = subparsers.add_parser("stats_tikz")
 
-sn = subparsers.add_parser("sn")
-sn.add_argument("-a", "--agg", default="p(90)", help="The aggregation func")
+lat = subparsers.add_parser("lat")
+lat.add_argument("-a", "--agg", default="mean", help="The aggregation func")
+lat_tikz = subparsers.add_parser("lat_tikz")
+lat_tikz.add_argument("-r", "--range", required=True, help="The time range")
 
-sn = subparsers.add_parser("sn_tikz")
 cpu = subparsers.add_parser("cpu")
 cpu_tikz = subparsers.add_parser("cpu_tikz")
+
+rate = subparsers.add_parser("rate")
+
+dissect = subparsers.add_parser("dissect")
+dissect_tikz = subparsers.add_parser("dissect_tikz")
 
 args = parser.parse_args()
 
@@ -93,11 +99,13 @@ def _parse_k6_path(path):
 
 
 def _parse_wrk_path(path):
-    match = re.search(r"(\w+)-wrk-(\d+).*", path)
+    match = re.search(r"(\w+)-(\d+)-wrk-e(\d+)-(\d+).*", path)
     proxy = match.group(1)
-    rate = match.group(2)
+    timestamp = match.group(2)
+    episode = match.group(3)
+    rate = match.group(4)
 
-    return proxy, int(rate)
+    return proxy, int(timestamp), int(episode), int(rate)
 
 
 def _parse_cpu_path(path):
@@ -106,6 +114,16 @@ def _parse_cpu_path(path):
     timestamp = match.group(2)
 
     return proxy, int(timestamp)
+
+
+def _parse_bpf_path(path):
+    match = re.search(r"(\w+)-bpf-(\w+).(\w+)-(\d+).*", path)
+    proxy = match.group(1)
+    bin = match.group(2)
+    func = match.group(3)
+    size = match.group(4)
+
+    return proxy, bin, func, int(size)
 
 
 def _load_k6_data(paths):
@@ -130,10 +148,11 @@ def _load_k6_data(paths):
 
     return df
 
+
 def _load_wrk_data(paths):
     rows = []
     for p in paths:
-        proxy, target_rate = _parse_wrk_path(p)
+        proxy, timestamp, epoch, target_rate = _parse_wrk_path(p)
         with open(p, "r") as file:
             text = file.read()
             ps = [
@@ -154,21 +173,29 @@ def _load_wrk_data(paths):
                 pattern = rf"{escaped_percentile}:\s*(\d+\.\d+)"
                 match = re.search(pattern, text)
 
-                if match is None:
-                    raise ValueError(f"Could not find {percentile} in {p}")
+                if match is not None:
+                    latency = match.group(1)
+                    aggs[percentile] = float(latency)
 
+            pattern = "Latency\s*(\d+\.\d+)ms"
+            match = re.search(pattern, text)
+
+            if match is not None:
                 latency = match.group(1)
-                aggs[percentile] = float(latency)
+                aggs["mean"] = float(latency)
 
             pattern = r"Requests/sec:\s*(\d+\.\d+)"
             match = re.search(pattern, text)
             if match is None:
-                raise ValueError(f"Could not find rate in {p}")
+                print(f"Could not find rate in {p}")
+                continue
 
             rate = float(match.group(1))
 
             rows.append({
                 "proxy": proxy,
+                "timestamp": timestamp,
+                "epoch": epoch,
                 "target_rate": target_rate,
                 "rate": rate,
                 "metric_name": "http_req_duration",
@@ -177,7 +204,7 @@ def _load_wrk_data(paths):
             })
 
     df = pd.DataFrame.from_dict(rows)
-    df.set_index(["proxy", "target_rate", "metric_name"], inplace=True)
+    df.set_index(["proxy", "epoch", "target_rate", "metric_name"], inplace=True)
 
     return df
 
@@ -195,6 +222,27 @@ def _load_cpu_data(paths):
         dfs.append(df)
 
     return pd.concat(dfs)
+
+
+def _load_bpf_data(paths):
+    dfs = []
+    for p in paths:
+        proxy, bin, func, size = _parse_bpf_path(p)
+
+        with open(p, "r") as file:
+            text = file.read()
+            pattern = rf"avg = (\d+) nsecs"
+            match = re.search(pattern, text)
+
+            if match is None:
+                print(f"Could not find avg in {p}")
+                continue
+
+            mean = float(match.group(1))
+            df = pd.DataFrame({"proxy": [proxy], "bin": [bin], "file": [os.path.basename(p)], "mean": [mean], "func": [func], "payload_size": [size]})
+            dfs.append(df)
+
+    return pd.concat(dfs).reset_index(drop=True)
 
 
 def _load_log_data(paths):
@@ -248,6 +296,7 @@ def _save_to_path(name, dst):
 
     os.makedirs(dst, exist_ok=True)
     plt.savefig(path, dpi=400)
+    plt.clf()
 
 
 def _aggregate_fn(name):
@@ -311,15 +360,15 @@ def box_plot(name, metric, dst):
     plots = "\n".join(plots)
 
     tikz = f"""\\begin{{tikzpicture}}
-    \\begin{{axis}}[
-        ytick={{{ticks}}},
-        yticklabels={{{tick_labels}}},
-    ]
+\\begin{{axis}}[
+    ytick={{{ticks}}},
+    yticklabels={{{tick_labels}}},
+]
 
-    {plots}
+{plots}
 
-    \\end{{axis}}
-    \\end{{tikzpicture}}"""
+\\end{{axis}}
+\\end{{tikzpicture}}"""
     print(tikz)
 
 
@@ -580,25 +629,25 @@ def time_profile_graph_tikz(name, metric, agg):
 
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
-    \\begin{{axis}}[
-        ylabel={{latency [ms]}},
-        xlabel={{time [s]}},
-        xmin=0, xmax=30,
-        axis lines=left,
-        xticklabel style={{rotate=-0, yshift=-0.4ex}},
-        xlabel style={{anchor=north}},
-        xmajorgrids=true,
-        grid style=dashed,
-        legend pos=north east,
-        height=6cm,
-        width=\\linewidth
-    ]
+\\begin{{axis}}[
+    ylabel={{latency [ms]}},
+    xlabel={{time [s]}},
+    xmin=0, xmax=30,
+    axis lines=left,
+    xticklabel style={{rotate=-0, yshift=-0.4ex}},
+    xlabel style={{anchor=north}},
+    xmajorgrids=true,
+    grid style=dashed,
+    legend pos=north east,
+    height=6cm,
+    width=\\linewidth
+]
 
-    {plots}
+{plots}
 
-    \\legend{{{legend}}}
-    \\end{{axis}}
-    \\end{{tikzpicture}}"""
+\\legend{{{legend}}}
+\\end{{axis}}
+\\end{{tikzpicture}}"""
     print(tikz)
 
 
@@ -644,38 +693,47 @@ def surface_graph(name, proxy, metric, agg, dst):
     _save_to_path(f"surface-{proxy}-{metric}-{agg}", os.path.join(dst, name))
 
 
-def sn_graph(name, agg, dst):
+def lat_graph(name, agg, dst):
     paths = _get_file_paths(name, "*.log")
     df = _load_wrk_data(paths)
 
-    strawman = df[df.index.get_level_values("proxy") == "strawman"].droplevel("proxy")
-    baseline = df[df.index.get_level_values("proxy") == "baseline"].droplevel("proxy").droplevel("metric_name")
-    beeline = df[df.index.get_level_values("proxy") == "beeline"].droplevel("proxy").droplevel("metric_name")
+    num_epochs = df.reset_index().groupby('proxy')['epoch'].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
 
-    print("p(90) beeline vs baseline:\n", baseline["p(90)"] / beeline["p(90)"])
-    print("p(50) beeline vs baseline:\n", baseline["p(50)"] / beeline["p(50)"])
+    # strawman = df[df.index.get_level_values("proxy") == "strawman"].droplevel("proxy")
+    # baseline = df[df.index.get_level_values("proxy") == "baseline"].droplevel("proxy").droplevel("metric_name")
+    # beeline = df[df.index.get_level_values("proxy") == "beeline"].droplevel("proxy").droplevel("metric_name")
 
-    print("p(90) strawman vs baseline:\n", baseline["p(90)"] / strawman["p(90)"])
-    print("p(50) strawman vs baseline:\n", baseline["p(50)"] / strawman["p(50)"])
+    # print("p(90) beeline vs baseline:\n", baseline["p(90)"] / beeline["p(90)"])
+    # print("p(50) beeline vs baseline:\n", baseline["p(50)"] / beeline["p(50)"])
 
+    # print("p(90) strawman vs baseline:\n", baseline["p(90)"] / strawman["p(90)"])
+    # print("p(50) strawman vs baseline:\n", baseline["p(50)"] / strawman["p(50)"])
+
+    # for p in ["strawman", "baseline"]:
+    #     pdf = df[df.index.get_level_values("proxy") == p].droplevel("proxy")
+    #     for e in range(1,num_epochs[p]):
+    #         edf = pdf[pdf.index.get_level_values("epoch") == e].droplevel("epoch")
+    #         g = sns.lineplot(data=edf, x="rate", y=agg, marker="o")
+    #         g.set_xlabel("rate [req/s]")
+    #         g.set_ylabel("latency [ms]")
+    #         _save_to_path(f"sn-latency-{p}-e{e}-{agg}", os.path.join(dst, name))
+
+    # exit()
+
+    df = df.groupby(["proxy", "target_rate"]).agg({agg: "mean", "rate": "mean"})
     # print(df.sort_values(by=["rate", "proxy"]).to_string())
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
 
     g = sns.lineplot(data=df, x="rate", y=agg, hue="proxy", marker="o", hue_order=order)
-
-    # shown_rates = rates[::5]  # Take every 5th element
+    # g.set(xlim=(200, 1100))
+    # g.set(ylim=(None, 50))
 
     g.set_xlabel("rate [req/s]")
-    # g.set_xticks(shown_rates)  # Set ticks only for the selected rates
-    # g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-
-    g.set_yscale("log")
     g.set_ylabel("latency [ms]")
-    # min_y = df[agg].min()
-    # max_y = df[agg].max()
-    # g.set_yticks(np.linspace(min_y, max_y, 5))
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
     if args.legend:
@@ -684,7 +742,9 @@ def sn_graph(name, agg, dst):
     _save_to_path(f"sn-latency-{agg}", os.path.join(dst, name))
 
 
-def sn_graph_tikz(name):
+def lat_graph_tikz(name, time_range):
+    (start, end) = time_range.split(":")
+
     paths = _get_file_paths(name, "*.log")
     df = _load_wrk_data(paths)
     df = df.xs("http_req_duration", level="metric_name", drop_level=True)
@@ -706,8 +766,8 @@ def sn_graph_tikz(name):
         median = f"median{proxy}"
 
         lines = [
-            (low, "p(10)", False),
-            (high, "p(90)", False),
+            # (low, "p(10)", False),
+            # (high, "p(90)", False),
             (median, "p(50)", True)
         ]
         for (line, agg, visible) in lines:
@@ -718,27 +778,33 @@ def sn_graph_tikz(name):
             coordinates = sorted(coordinates)
             coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
-            visibility = "" if visible else ",draw=none"
-            plot = f"""\\addplot[{color},name path={line},{visibility}, line width=0.3mm, forget plot] coordinates {{
+            # visibility = "" if visible else ",draw=none"
+            plot = f"""\\addplot[{color},name path={line}, line width=0.3mm] coordinates {{
                 {coordinates}
             }};"""
             plots.append(plot)
 
-        fill = f"""\\addplot[{color},fill opacity=0.2] fill between[of={low} and {high}];"""
-        plots.append(fill)
+        # fill = f"""\\addplot[{color},fill opacity=0.2] fill between[of={low} and {high}];"""
+        # plots.append(fill)
 
-    xmin = 50
-    xmax = df["rate"].max()
+    xmin = start if len(start) > 0 else 50
+    xmax = end if len(end) > 0 else df["rate"].max()
 
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
 xlabel={{requests per second}},
 ylabel={{latency [ms]}},
+ymin=0,
 xmin={xmin}, xmax={xmax},
-ymode=log,
 axis lines=left,
-xticklabel style={{rotate=-0, yshift=-0.4ex}},
+x tick label style={{
+    /pgf/number format/fixed,
+    /pgf/number format/precision=1,
+    /pgf/number format/1000 sep={{}},
+}},
+scaled x ticks=false,
+xticklabel={{\\pgfmathparse{{\\tick/1000}}\\pgfmathprintnumber{{\\pgfmathresult}}K}},
 xlabel style={{anchor=north}},
 xmajorgrids=true,
 grid style=dashed,
@@ -962,6 +1028,132 @@ width=\\linewidth]
     print(tikz)
 
 
+def rate_graph(name, dst):
+    paths = _get_file_paths(name, "*.log")
+    df = _load_wrk_data(paths)
+
+    df = df.groupby(["proxy", "target_rate"]).agg({"rate": "mean"})
+    print(df.sort_values(by=["rate", "proxy"]).to_string())
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+
+    g = sns.lineplot(data=df, x="target_rate", y="rate", hue="proxy", marker="o", hue_order=order)
+    # g.set(xlim=(200, 1100))
+    # g.set(ylim=(None, 50))
+
+    # shown_rates = rates[::5]  # Take every 5th element
+
+    g.set_ylabel("rate [req/s]")
+    # g.set_xticks(shown_rates)  # Set ticks only for the selected rates
+    # g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
+
+    # g.set_yscale("log")
+    g.set_xlabel("target rate [req/s]")
+    # min_y = df[agg].min()
+    # max_y = df[agg].max()
+    # g.set_yticks(np.linspace(min_y, max_y, 5))
+    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+
+    if args.legend:
+        _rename_legend_labels(g)
+
+    _save_to_path(f"sn-rate", os.path.join(dst, name))
+
+
+def dissect_graph(name, dst):
+    paths = _get_file_paths(name, "*bpf*.log")
+    df = _load_bpf_data(paths).set_index(["bin", "payload_size", "func"])
+
+    # for func in ["ipc", "write"]:
+    #     df.loc[("envoy", slice(None), func), "mean"] += df.loc[("svc", slice(None), func), "mean"].values
+    # df = df.drop(["svc", "beeline"], level="bin").reset_index()
+
+    df["mean"] = df["mean"] / 1000000
+
+    paths = _get_file_paths(name, "*wrk*.log")
+    wrk = _load_wrk_data(paths).reset_index()
+    wrk = wrk.rename(columns={"target_rate": "payload_size"})
+
+    df = df.set_index(["func", "payload_size"])
+    # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
+    df.loc[("parse", slice(None)), "mean"] *= 2 # not sure why we should double the parsing time
+    df.loc[("user", slice(None)), "mean"] *= 2 # not sure why we should double the user time either
+    df.loc[("user", slice(None)), "mean"] -= df.loc[("parse", slice(None)), "mean"].values
+
+    strawman = wrk[wrk["proxy"] == "strawman"].set_index("payload_size")
+    none = wrk[wrk["proxy"] == "none"].set_index("payload_size")
+    overhead = strawman["mean"] - none["mean"]
+
+    total_latency = df.groupby(by=["payload_size"]).agg({"mean": "sum"})
+
+    unaccounted = overhead - total_latency["mean"]
+    print("unaccounted", unaccounted.to_string())
+
+
+    # df = df.join(total_latency["mean"].rename('overhead'), on='payload_size')
+
+    # df["mean_rel"] = 100 * df["mean"] / df["overhead"]
+    # df = df.rename(index={"user": "other"}, level="func")
+
+    g = sns.barplot(data=df, x="payload_size", y="mean", hue="func")
+    g.set(xlabel="req/s", ylabel="overhead [ms]")
+
+    _save_to_path(f"dissect-{name}", os.path.join(dst, name))
+
+
+def dissect_graph_tikz(name):
+    paths = _get_file_paths(name, "*bpf*.log")
+    df = _load_bpf_data(paths).set_index(["proxy", "func", "payload_size"])
+    df = df[df['bin'] != 'svc']
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order, reverse=True)
+
+    df["mean"] = df["mean"] / 1000
+
+    # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
+    df.loc[(slice(None), "parse", slice(None)), "mean"] *= 2 # not sure why we should double the parsing time
+    df.loc[(slice(None), "user", slice(None)), "mean"] *= 2 # not sure why we should double the user time either
+    # df.loc[(slice(None), "user", slice(None)), "mean"] -= df.loc[(slice(None), "parse", slice(None)), "mean"].values
+
+    print(df)
+
+    plots = []
+    funcs = df.index.get_level_values("func").unique()
+    for f in funcs:
+        coords = []
+        for p in order:
+            v = df.loc[(p, f, 1000), "mean"]
+            print(v)
+            if v > 0:
+                coords.append(f"({p}, {v})")
+
+        coords = ", ".join(coords)
+        plots.append("\\addplot+[ybar] plot coordinates {{{coords}}};")
+
+    plots = "\n".join(plots)
+    legend = ",".join(funcs)
+    proxies = ",".join(order)
+
+    tikz = f"""\\begin{{tikzpicture}}
+\\begin{{axis}}[
+ybar stacked,
+bar width=15pt,
+nodes near coords,
+ylabel={{latency [us]}},
+symbolic x coords={{{proxies}}},
+height=6cm,
+width=\\linewidth]
+
+{plots}
+
+\\legend{{{legend}}}
+\\end{{axis}}
+\\end{{tikzpicture}}"""
+    print(tikz)
+
+
 if __name__ == "__main__":
     if args.command == "bp":
         box_plot(args.name, args.metric, args.output)
@@ -983,10 +1175,10 @@ if __name__ == "__main__":
         time_profile_graph_tikz(args.name, args.metric, args.agg)
     elif args.command == "surface":
         surface_graph(args.name, args.proxy, args.metric, args.agg, args.output)
-    elif args.command == "sn":
-        sn_graph(args.name, args.agg, args.output)
-    elif args.command == "sn_tikz":
-        sn_graph_tikz(args.name)
+    elif args.command == "lat":
+        lat_graph(args.name, args.agg, args.output)
+    elif args.command == "lat_tikz":
+        lat_graph_tikz(args.name, args.range)
     elif args.command == "stats":
         stats_graph(args.output)
     elif args.command == "stats_tikz":
@@ -995,3 +1187,9 @@ if __name__ == "__main__":
         cpu_graph(args.name, args.output)
     elif args.command == "cpu_tikz":
         cpu_graph_tikz(args.name)
+    elif args.command == "rate":
+        rate_graph(args.name, args.output)
+    elif args.command == "dissect":
+        dissect_graph(args.name, args.output)
+    elif args.command == "dissect_tikz":
+        dissect_graph_tikz(args.name)

@@ -49,7 +49,10 @@ case ${ACTION} in
             docker stop $CONTAINERS
         fi
         docker container prune -f
-        sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
+	docker volume prune -f 
+
+	sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop cpu-monitor.scope > /dev/null 2>&1
 
         echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
@@ -58,33 +61,33 @@ case ${ACTION} in
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
         docker compose -f ${FILE} up --wait -d --force-recreate
-        sleep 3 # waiting is not enough apparently
+        sleep 5 # waiting is not enough apparently
 
         if [ "${PROXY}" = "beeline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            cargo b -r --bin ${PROXY}
+            sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/social_network.yaml
+            sleep 5
 
-            sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/bench.yaml
-            echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+	    echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            cargo b -r --bin ${PROXY}
-
             sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
-            echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
+            sleep 5
+
+	    echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
         fi
 
         cd ${ROOT}/../social_network
         python3 scripts/init_social_graph.py
 
-        ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} &
+        sudo -b -E systemd-run -q --scope -u cpu-monitor ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY}
         ;;
 
     down)
         CPU_SYSTEM=0-39
 
-        pkill capture-cpu.sh 2>&1 >/dev/null
         sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop cpu-monitor.scope > /dev/null 2>&1
 
         docker compose -f ${FILE} down
 
