@@ -89,7 +89,7 @@ case ${ACTION} in
         sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
         sudo systemctl stop cpu-monitor.scope > /dev/null 2>&1
 
-        docker compose -f ${DOCKER_CONFIG} down
+        docker compose -c ${DOCKER_CONFIG} down
 
         echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
