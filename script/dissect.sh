@@ -29,16 +29,16 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
     ssh -t moonshine "${ROOT}/mb.sh up -c ${ROOT}/../${ENVOY_CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
 
-    RATE=10000
+    RATE=30000
     FILE=${SUMMARY_DIR}/${PROXY}-$(date +%s)-wrk-e${i}-${RATE}.log
     echo "epoch ${i}, rate: ${RATE}, file: ${FILE}"
-    PAYLOAD_SIZE=100 BACKEND=1 wrk -d 30s -R ${RATE} -t 10 -c 100 -s wrk/rps.lua http://moonshine:9999 > ${FILE}
+    PAYLOAD_SIZE=100 BACKEND=1 wrk -d 30s -R ${RATE} -t 10 -c 100 -s wrk/rps.lua http://moonshine:8080 > ${FILE}
     RET=$?
 
     if [ ${RET} -ne 0 ]; then
         exit $?
     fi
 
-    ssh -t moonshine "${ROOT}/sn.sh down -f ${ROOT}/../${ENVOY_CONFIG}"
+    ssh -t moonshine "${ROOT}/mb.sh down"
 
 done
