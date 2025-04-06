@@ -103,18 +103,19 @@ def _parse_wrk_path(path):
     match = re.search(r"(\w+)-(\d+)-wrk-e(\d+)-(\d+).*", path)
     proxy = match.group(1)
     timestamp = match.group(2)
-    episode = match.group(3)
+    epoch = match.group(3)
     rate = match.group(4)
 
-    return proxy, int(timestamp), int(episode), int(rate)
+    return proxy, int(timestamp), int(epoch), int(rate)
 
 
 def _parse_cpu_path(path):
-    match = re.search(r"(\w+)-cpu-(\d+).*", path)
+    match = re.search(r"(\w+)-cpu-(\d+)-e(\d+).*", path)
     proxy = match.group(1)
     timestamp = match.group(2)
+    epoch = match.group(3)
 
-    return proxy, int(timestamp)
+    return proxy, int(timestamp), int(epoch)
 
 
 def _parse_bpf_path(path):
@@ -213,9 +214,10 @@ def _load_wrk_data(paths):
 def _load_cpu_data(paths):
     dfs = []
     for p in paths:
-        proxy, timestamp = _parse_cpu_path(p)
+        proxy, timestamp, epoch = _parse_cpu_path(p)
         df = pd.read_json(p, lines=True)
         df["proxy"] = proxy
+        df["epoch"] = epoch
         df["timestamp"] = timestamp
         df["file"] = os.path.basename(p)
         try:
@@ -963,41 +965,8 @@ def cpu_graph(name, dst):
 
 
 def cpu_graph_tikz(name):
-    paths = _get_file_paths(name, "*.log")
-    df = _load_wrk_data(paths)
-
-    edf = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
-    edf = edf.rename(columns={"timestamp": "start"})
-    edf["end"] = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "max"})
-
-    # def find_epoch(proxy, ts):
-    #     pedf = edf.xs(proxy, level="proxy")
-
-    #     for epoch in pedf.index:
-    #         if pedf.loc[epoch, "start"] <= ts <= pedf.loc[epoch, "end"]:
-    #             return epoch
-
-    #     return None
-
-    # paths = _get_file_paths(name)
-    # for p in paths:
-    #     proxy, timestamp = _parse_cpu_path(p)
-    #     epoch = find_epoch(proxy, timestamp)
-    #     if epoch is None:
-    #         os.remove(p)
-    #         continue
-
-    #     name, ext = os.path.splitext(p)
-    #     os.rename(p, f"{name}-e{epoch}{ext}")
-    #     print(f"Renamed {p} to {name}-e{epoch}{ext}")
-
-    # exit()
-
-
-
     paths = _get_file_paths(name)
     df = _load_cpu_data(paths)
-    df["epoch"] = df.apply(find_epoch, axis=1)
 
     min_ts = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
     df = df.groupby(by=["proxy", "epoch", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
@@ -1015,7 +984,7 @@ def cpu_graph_tikz(name):
             mask = (df["proxy"] == proxy) & (df["epoch"] == epoch)
             df.loc[mask, "timestamp"] -= min_ts.loc[(proxy, epoch), "timestamp"]
 
-    df = df.groupby(by="proxy").agg({"CPUPerc": "mean", "timestamp": "mean"}).reset_index()
+    df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "mean"})
 
     legend = ",".join(order)
 
@@ -1023,7 +992,7 @@ def cpu_graph_tikz(name):
     for i, proxy in enumerate(order):
         color = f"{proxy}color" # predefined in latex
         ys = df.xs(proxy, level="proxy")["CPUPerc"]
-        xs = df.xs(proxy, level="proxy").index
+        xs = df.xs(proxy, level="proxy").index.get_level_values("timestamp")
 
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
@@ -1035,7 +1004,7 @@ def cpu_graph_tikz(name):
         plots.append(plot)
 
     xmin = 0
-    xmax = 250
+    xmax = df.reset_index().timestamp.max()
 
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}

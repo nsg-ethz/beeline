@@ -14,16 +14,16 @@ const randomUrl = randomString(64);
 export const options = {
     scenarios: {
         rps: {
-            executor: "constant-arrival-rate",
-            duration: "30s",
-            rate: 1000,
-            preAllocatedVUs: 100,
+            executor: "ramping-arrival-rate",
+            preAllocatedVUs: 300,
+            stages: [{ target: 3000, duration: "2m" }],
         },
     },
     thresholds: {
-        http_req_failed: [{ threshold: "rate<0.01", abortOnFail: true }],
+        http_req_failed: [{ threshold: "rate<0.01" }],
     },
     discardResponseBodies: true,
+    gracefulStop: "3s",
 };
 
 function randomIntBetweenWithout(min, max, without) {
@@ -79,7 +79,7 @@ export default () => {
     }
 
     const res = http.post(
-        "http://localhost:8080/wrk2-api/post/compose",
+        "http://moonshine:8080/wrk2-api/post/compose",
         body,
         params,
     );

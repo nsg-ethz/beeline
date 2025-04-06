@@ -29,18 +29,18 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
     ssh -t moonshine "${ROOT}/sn.sh up -c ${ROOT}/../${DOCKER_CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
 
-    for j in {1..52} ; do
-        RATE=$(( j * 50 ))
-        FILE=${SUMMARY_DIR}/${PROXY}-$(date +%s)-wrk-e${i}-${RATE}.log
-        echo "epoch ${i}, rate: ${RATE}, file: ${FILE}"
+    REPORT=${SUMMARY_DIR}/${PROXY}-$(date +%s)-k6-e${i}-full.csv
+    TMP_REPORT=${SUMMARY_DIR}/${PROXY}-$(date +%s)-k6-e${i}-tmp.csv
+    SUMMARY=${SUMMARY_DIR}/${PROXY}-$(date +%s)-k6-e${i}-summary.log
+    k6 run ${ROOT}/../k6/compose-post.js --out csv=${TMP_REPORT} > ${SUMMARY}
+    RET=$?
 
-        wrk -t 10 -c 100 -d 5s -L -s ${SOCIAL_NETWORK_DIR}/wrk2/scripts/social-network/compose-post.lua http://moonshine:8080/wrk2-api/post/compose -R ${RATE} > ${FILE}
-        RET=$?
+    cat ${TMP_REPORT} | grep -e metric_name,timestamp -e http_req_duration > ${REPORT}
+    rm ${TMP_REPORT}
 
-        if [ ${RET} -ne 0 ]; then
-            exit $?
-        fi
-    done
+    if [ ${RET} -ne 0 ]; then
+        exit $?
+    fi
 
     ssh -t moonshine "${ROOT}/sn.sh down -c ${ROOT}/../${DOCKER_CONFIG}"
 
