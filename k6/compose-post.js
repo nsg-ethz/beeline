@@ -13,17 +13,17 @@ const randomUrl = randomString(64);
 
 export const options = {
     scenarios: {
-        rps: {
+        compose_post: {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 300,
             stages: [{ target: 3000, duration: "2m" }],
+	    gracefulStop: "3s"
         },
     },
     thresholds: {
         http_req_failed: [{ threshold: "rate<0.01" }],
     },
     discardResponseBodies: true,
-    gracefulStop: "3s",
 };
 
 function randomIntBetweenWithout(min, max, without) {
