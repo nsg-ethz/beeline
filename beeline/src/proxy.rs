@@ -31,6 +31,7 @@ use std::{
 use tokio::{
     io::{self, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
+    signal::unix::{signal, SignalKind},
 };
 
 pub mod bpf;
@@ -277,7 +278,12 @@ impl<'obj> Proxy<'obj> {
             tokio::spawn(unsafe {
                 let this = std::mem::transmute::<Arc<&Proxy>, Arc<&'static Proxy>>(this);
                 async move {
-                    let _ = tokio::signal::ctrl_c().await;
+                    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {},
+                        _ = sigterm.recv() => {},
+                    }
+
                     info!("Profile stats printed to the eBPF tracelog");
                     this.print_profile_stats().await;
                     exit(0)

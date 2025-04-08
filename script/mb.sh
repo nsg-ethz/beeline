@@ -43,6 +43,7 @@ case $ACTION in
         stop_probes
         sudo systemctl stop mb-proxy.scope > /dev/null 2>&1
         sudo systemctl stop mb-echo.scope > /dev/null 2>&1
+        sudo systemctl stop mb-bpf-monitor.scope > /dev/null 2>&1
 
         echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
@@ -50,23 +51,23 @@ case $ACTION in
         sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
-        if [ "${PROXY}" = "beeline" ]; then
-            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${BEELINE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
-            sleep 5
-            echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
-        else
-            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
-            sleep 1
-            ENVOY_PID=$(pidof envoy-static)
-            echo -e "${COLOR_GREEN}Launched envoy proxy: ${ENVOY_PID}${COLOR_OFF}"
-        fi
-
         sudo -b -E systemd-run -q --scope -u mb-echo --slice beeline.slice ${ECHO_BIN} -a 127.0.0.1:8000 -H "signature: server1" > /dev/null 2>&1
         sleep 1
         ECHO_PID=$(pidof echo)
         echo -e "${COLOR_GREEN}Launched echo service${COLOR_OFF}"
 
-        if [ -n "${ENVOY_PID}" ]; then
+        if [ "${PROXY}" = "beeline" ]; then
+            BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${BEELINE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > /dev/null 2>&1
+            sleep 5
+            echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+
+            sudo -b -E systemd-run -q --scope -u mb-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+        else
+            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
+            sleep 1
+            ENVOY_PID=$(pidof envoy-static)
+            echo -e "${COLOR_GREEN}Launched envoy proxy: ${ENVOY_PID}${COLOR_OFF}"
+
             echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
             sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.parse-e${EPOCH}.log 2>/dev/null
             sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onReadReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user-e${EPOCH}.log 2>/dev/null
@@ -88,6 +89,7 @@ case $ACTION in
         stop_probes
         sudo systemctl stop mb-proxy.scope > /dev/null 2>&1
         sudo systemctl stop mb-echo.scope > /dev/null 2>&1
+        sudo systemctl stop mb-bpf-monitor.scope > /dev/null 2>&1
 
         echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
