@@ -29,15 +29,13 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
     ssh -t moonshine "${ROOT}/sn.sh up -c ${ROOT}/../${DOCKER_CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
 
-    REPORT=${SUMMARY_DIR}/${PROXY}-$(date +%s)-k6-e${i}-full.csv
-    SUMMARY=${SUMMARY_DIR}/${PROXY}-$(date +%s)-k6-e${i}-summary.log
-    k6 run ${ROOT}/../k6/compose-post.js --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
-    RET=$?
-
-    if [ ${RET} -ne 0 ]; then
-        exit $?
-    fi
-
+    REPORT=${SUMMARY_DIR}/${PROXY}-k6-e${i}-full.csv
+    SUMMARY=${SUMMARY_DIR}/${PROXY}-k6-e${i}-summary.log
+    
+    echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
+    
+    k6 run ${ROOT}/../k6/compose-post.js --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
+    
     ssh -t moonshine "${ROOT}/sn.sh down -c ${ROOT}/../${DOCKER_CONFIG}"
 
 done
