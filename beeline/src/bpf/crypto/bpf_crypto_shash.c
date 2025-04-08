@@ -277,6 +277,5 @@ module_init(bpf_crypto_shash_init);
 module_exit(bpf_crypto_shash_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Laurin Brandner");
 MODULE_DESCRIPTION("A module that adds BPF hash functions");
 MODULE_VERSION("1.0");

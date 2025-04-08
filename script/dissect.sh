@@ -11,7 +11,7 @@ while getopts "c:f:t:n:p:" opt; do
         f ) FROM=${OPTARG} ;;
         t ) TO=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
-        c ) ENVOY_CONFIG=${OPTARG} ;;
+        c ) PROXY_CONFIG=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
@@ -27,18 +27,18 @@ mkdir -p ${SUMMARY_DIR}
 
 for i in $(seq ${FROM} ${TO} ) ; do
 
-    ssh -t moonshine "${ROOT}/mb.sh up -c ${ROOT}/../${ENVOY_CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
+    ${ROOT}/mb.sh up -c ${ROOT}/../${PROXY_CONFIG} -n ${NAME} -p ${PROXY} -e ${i}
 
     RATE=30000
     FILE=${SUMMARY_DIR}/${PROXY}-$(date +%s)-wrk-e${i}-${RATE}.log
     echo "epoch ${i}, rate: ${RATE}, file: ${FILE}"
-    PAYLOAD_SIZE=100 BACKEND=1 wrk -d 30s -R ${RATE} -t 10 -c 100 -s wrk/rps.lua http://moonshine:8080 > ${FILE}
+    PAYLOAD_SIZE=100 BACKEND=1 wrk -d 30s -R ${RATE} -t 10 -c 100 -s wrk/rps.lua http://localhost:8080 > ${FILE}
     RET=$?
 
     if [ ${RET} -ne 0 ]; then
         exit $?
     fi
 
-    ssh -t moonshine "${ROOT}/mb.sh down"
+    ${ROOT}/mb.sh down
 
 done

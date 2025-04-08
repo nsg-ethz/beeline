@@ -52,8 +52,8 @@ case ${ACTION} in
         docker container prune -f
         docker volume prune -f
 
-        sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
-        sudo systemctl stop cpu-monitor.scope > /dev/null 2>&1
+        sudo systemctl stop sn-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop sn-cpu.scope > /dev/null 2>&1
 
         echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
@@ -66,29 +66,27 @@ case ${ACTION} in
 
         if [ "${PROXY}" = "beeline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/social_network.yaml
+            sudo -b systemd-run -q --scope -u sn-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/social_network.yaml
             sleep 5
-
-	    echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+            echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
+            sudo -b systemd-run -q --scope -u sn-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
             sleep 5
-
-	    echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
+            echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
         fi
 
         cd ${ROOT}/../social_network
         python3 scripts/init_social_graph.py
 
-        sudo -b systemd-run -q --scope -u cpu-monitor ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
+        sudo -b systemd-run -q --scope -u sn-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
 
     down)
         CPU_SYSTEM=0-39
 
-        sudo systemctl stop beeline-proxy.scope > /dev/null 2>&1
-        sudo systemctl stop cpu-monitor.scope > /dev/null 2>&1
+        sudo systemctl stop sn-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop sn-cpu.scope > /dev/null 2>&1
 
         docker compose -f ${DOCKER_CONFIG} down
 
