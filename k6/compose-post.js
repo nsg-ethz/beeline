@@ -16,7 +16,7 @@ export const options = {
         compose_post: {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 300,
-            stages: [{ target: 4000, duration: "2m" }],
+            stages: [{ target: 4000, duration: "120s" }, { target: 4000, duration: "5s" }],
 	    gracefulStop: "3s"
         },
     },
