@@ -66,13 +66,13 @@ case ${ACTION} in
 
         if [ "${PROXY}" = "beeline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/social_network.yaml
+            sudo -b systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/social_network.yaml
             sleep 5
 
 	    echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b -E systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
+            sudo -b systemd-run -q --scope -u beeline-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
             sleep 5
 
 	    echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
@@ -81,7 +81,7 @@ case ${ACTION} in
         cd ${ROOT}/../social_network
         python3 scripts/init_social_graph.py
 
-        sudo -b -E systemd-run -q --scope -u cpu-monitor ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
+        sudo -b systemd-run -q --scope -u cpu-monitor ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
 
     down)

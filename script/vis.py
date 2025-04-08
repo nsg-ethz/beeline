@@ -10,6 +10,7 @@ import matplotlib.ticker as ticker
 import numpy as np
 import seaborn as sns
 import pandas as pd
+import tqdm
 
 # Apply the default theme
 sns.set_theme(style="whitegrid")
@@ -92,11 +93,12 @@ def thousand_label(x, pos):
 
 
 def _parse_k6_path(path):
-    match = re.search(r"(\w+)-k6-(\d+)B*.*", path)
+    match = re.search(r"(\w+)-(\d+)-k6-e(\d+)-full.*", path)
     proxy = match.group(1)
-    size = match.group(2)
+    timestamp = match.group(2)
+    epoch = match.group(3)
 
-    return proxy, int(size)
+    return proxy, int(timestamp), int(epoch)
 
 
 def _parse_wrk_path(path):
@@ -128,10 +130,10 @@ def _parse_bpf_path(path):
     return proxy, bin, func, int(epoch)
 
 
-def _load_k6_data(paths):
+def _load_k6_summaries(paths):
     rows = []
     for p in paths:
-        proxy, payload_size = _parse_k6_path(p)
+        proxy, payload_size, epoch = _parse_k6_path(p)
         with open(p, "r") as file:
             data = json.load(file)
             data = data["metrics"]
@@ -141,6 +143,7 @@ def _load_k6_data(paths):
                     "proxy": proxy,
                     "payload_size": payload_size,
                     "metric_name": metric,
+                    "epoch": epoch,
                     "file": os.path.basename(p),
                     **aggs
                 })
@@ -150,6 +153,22 @@ def _load_k6_data(paths):
 
     return df
 
+
+def _load_k6_data(paths):
+    dfs = []
+    for p in tqdm.tqdm(paths):
+        proxy, payload_size, epoch = _parse_k6_path(p)
+        try:
+            df = pd.read_csv(p)
+            df["proxy"] = proxy
+            df["epoch"] = epoch
+            df["file"] = os.path.basename(p)
+            df["timestamp"] -= df["timestamp"].min()
+            dfs.append(df)
+        except Exception as e:
+            print(f"Error loading {p}: {e}")
+
+    return pd.concat(dfs)
 
 def _load_wrk_data(paths):
     rows = []
@@ -274,7 +293,7 @@ def _load_log_data(paths):
 
 def _load_data(paths, aggs):
     if all("summary" in p for p in paths):
-        df = _load_k6_data(paths)
+        df = _load_k6_summaries(paths)
 
         return df, True
     else:
@@ -342,7 +361,7 @@ def _rename_legend_labels(g):
 
 def box_plot(name, metric, dst):
     paths = _get_file_paths(name)
-    df = _load_k6_data(paths)
+    df = _load_k6_summaries(paths)
     df = df.xs(metric, level="metric_name")
 
     order = df.index.get_level_values("proxy").unique()
@@ -384,7 +403,7 @@ def box_plot(name, metric, dst):
 
 def line_graph(name, metric, agg, dst):
     paths = _get_file_paths(name)
-    df = _load_k6_data(paths)
+    df = _load_k6_summaries(paths)
     df = df.xs(metric, level="metric_name")
 
     order = df.index.get_level_values("proxy").unique()
@@ -420,7 +439,7 @@ def line_graph(name, metric, agg, dst):
 
 def bar_graph(name, metric, agg, dst):
     paths = _get_file_paths(name)
-    df = _load_k6_data(paths)
+    df = _load_k6_summaries(paths)
     df = df.xs(metric, level="metric_name")
 
     df[agg] = df[agg] / 1e6
@@ -459,7 +478,7 @@ def bar_graph(name, metric, agg, dst):
 
 def speedup_graph(name, base, metric, aggs, dst):
     paths = _get_file_paths(name)
-    df = _load_k6_data(paths)
+    df = _load_k6_summaries(paths)
     ebpf = df.xs("ebpf", level="proxy")
     envoy = df.xs("envoy", level="proxy")
 
@@ -495,7 +514,7 @@ def speedup_graph(name, base, metric, aggs, dst):
 
 def duration_graph(name, proxy, agg, dst):
     paths = _get_file_paths(name)
-    df = _load_k6_data(paths)
+    df = _load_k6_summaries(paths)
     df = df.xs(proxy, level="proxy")
 
     columns = ["http_req_sending", "http_req_waiting", "http_req_receiving"]
@@ -524,7 +543,7 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
 
         return df
 
-    df = _preprocess(_load_k6_data(paths))
+    df = _preprocess(_load_k6_summaries(paths))
 
     base = df.drop((c for c in df.columns if c != base), axis=1)
     df.drop(base, axis=1, inplace=True)
@@ -664,7 +683,7 @@ def time_profile_graph_tikz(name, metric, agg):
 
 def surface_graph(name, proxy, metric, agg, dst):
     paths = _get_file_paths(name)
-    df = _load_k6_data(paths)
+    df = _load_k6_summaries(paths)
     df = df[df.index.get_level_values("proxy") == proxy]
     df = df.reset_index().set_index("payload_size")
 
@@ -704,41 +723,19 @@ def surface_graph(name, proxy, metric, agg, dst):
 
 
 def lat_graph(name, agg, dst):
-    paths = _get_file_paths(name, "*.log")
-    df = _load_wrk_data(paths)
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths)
 
-    num_epochs = df.reset_index().groupby('proxy')['epoch'].nunique()
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
     print("Number of epochs per proxy:")
     print(num_epochs.to_string())
 
-    # strawman = df[df.index.get_level_values("proxy") == "strawman"].droplevel("proxy")
-    # baseline = df[df.index.get_level_values("proxy") == "baseline"].droplevel("proxy").droplevel("metric_name")
-    # beeline = df[df.index.get_level_values("proxy") == "beeline"].droplevel("proxy").droplevel("metric_name")
-
-    # print("p(90) beeline vs baseline:\n", baseline["p(90)"] / beeline["p(90)"])
-    # print("p(50) beeline vs baseline:\n", baseline["p(50)"] / beeline["p(50)"])
-
-    # print("p(90) strawman vs baseline:\n", baseline["p(90)"] / strawman["p(90)"])
-    # print("p(50) strawman vs baseline:\n", baseline["p(50)"] / strawman["p(50)"])
-
-    # for p in ["strawman", "baseline"]:
-    #     pdf = df[df.index.get_level_values("proxy") == p].droplevel("proxy")
-    #     for e in range(1,num_epochs[p]):
-    #         edf = pdf[pdf.index.get_level_values("epoch") == e].droplevel("epoch")
-    #         g = sns.lineplot(data=edf, x="rate", y=agg, marker="o")
-    #         g.set_xlabel("rate [req/s]")
-    #         g.set_ylabel("latency [ms]")
-    #         _save_to_path(f"sn-latency-{p}-e{e}-{agg}", os.path.join(dst, name))
-
-    # exit()
-
-    df = df.groupby(["proxy", "target_rate"]).agg({agg: "mean", "rate": "mean"})
-    # print(df.sort_values(by=["rate", "proxy"]).to_string())
+    df = df.groupby(["proxy", "timestamp"]).agg({"metric_value": "mean"})
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
 
-    g = sns.lineplot(data=df, x="rate", y=agg, hue="proxy", marker="o", hue_order=order)
+    g = sns.lineplot(data=df, x="timestamp", y="metric_value", hue="proxy", marker="o", hue_order=order)
     # g.set(xlim=(200, 1100))
     # g.set(ylim=(None, 50))
 
@@ -755,10 +752,14 @@ def lat_graph(name, agg, dst):
 def lat_graph_tikz(name, time_range):
     (start, end) = time_range.split(":")
 
-    paths = _get_file_paths(name, "*.log")
-    df = _load_wrk_data(paths)
-    df = df.xs("http_req_duration", level="metric_name", drop_level=True)
-    df = df.groupby(["proxy", "target_rate"]).agg({"mean": "mean"})
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths)
+
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
+
+    df = df.groupby(["proxy", "timestamp"]).agg({"metric_value": "mean"})
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
@@ -769,15 +770,11 @@ def lat_graph_tikz(name, time_range):
 
     legend = ",".join(order)
 
-    # every 5s the target rate is increased by 50 rps
-    rate_to_time_offset = lambda r: (r/50 - 1) * 5
-    df["time_offset"] = rate_to_time_offset(df.index.get_level_values("target_rate"))
-
     plots = []
     for i, proxy in enumerate(order):
         color = f"{proxy}color" # predefined in latex
-        ys = df["mean"].xs(proxy, level="proxy")
-        xs = df["time_offset"].xs(proxy, level="proxy")
+        xs = df.xs(proxy, level="proxy").index.get_level_values("timestamp")
+        ys = df.xs(proxy, level="proxy")["metric_value"]
 
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
@@ -788,8 +785,8 @@ def lat_graph_tikz(name, time_range):
         }};"""
         plots.append(plot)
 
-    xmin = rate_to_time_offset(int(start) if len(start) > 0 else 50)
-    xmax = rate_to_time_offset(int(end) if len(end) > 0 else df["rate"].max())
+    xmin = int(start) if len(start) > 0 else 0
+    xmax = int(end) if len(end) > 0 else df["rate"].max()
 
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
@@ -1030,30 +1027,24 @@ width=\\linewidth]
 
 
 def rate_graph(name, dst):
-    paths = _get_file_paths(name, "*.log")
-    df = _load_wrk_data(paths)
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths)
 
-    df = df.groupby(["proxy", "target_rate"]).agg({"rate": "mean"})
-    print(df.sort_values(by=["rate", "proxy"]).to_string())
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
 
-    order = df.index.get_level_values("proxy").unique()
+    df = df.groupby(["proxy", "timestamp"]).size().reset_index(name="rate")
+
+    order = df["proxy"].unique()
     order = sorted(order)
 
-    g = sns.lineplot(data=df, x="target_rate", y="rate", hue="proxy", marker="o", hue_order=order)
+    g = sns.lineplot(data=df, x="timestamp", y="rate", hue="proxy", marker="o", hue_order=order)
     # g.set(xlim=(200, 1100))
     # g.set(ylim=(None, 50))
 
-    # shown_rates = rates[::5]  # Take every 5th element
-
     g.set_ylabel("rate [req/s]")
-    # g.set_xticks(shown_rates)  # Set ticks only for the selected rates
-    # g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-
-    # g.set_yscale("log")
-    g.set_xlabel("target rate [req/s]")
-    # min_y = df[agg].min()
-    # max_y = df[agg].max()
-    # g.set_yticks(np.linspace(min_y, max_y, 5))
+    g.set_xlabel("time [s]")
     g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
     if args.legend:
@@ -1063,12 +1054,17 @@ def rate_graph(name, dst):
 
 
 def rate_graph_tikz(name):
-    paths = _get_file_paths(name, "*.log")
-    df = _load_wrk_data(paths)
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths)
 
-    df = df.groupby(["proxy", "target_rate"]).agg({"rate": "mean"})
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
 
-    order = df.index.get_level_values("proxy").unique()
+    df = df.groupby(["proxy", "timestamp"]).size().reset_index(name="rate")
+    df["rate"] /= 30
+
+    order = df["proxy"].unique()
     order = sorted(order)
 
     if "beeline" in order:
@@ -1077,16 +1073,12 @@ def rate_graph_tikz(name):
 
     legend = ",".join(order)
 
-    # every 5s the target rate is increased by 50 rps
-    rate_to_time_offset = lambda r: (r/50 - 1) * 5
-    df["time_offset"] = rate_to_time_offset(df.index.get_level_values("target_rate"))
-
     plots = []
     for i, proxy in enumerate(order):
         color = f"{proxy}color" # predefined in latex
 
-        ys = df["rate"].xs(proxy, level="proxy")
-        xs = df["time_offset"].xs(proxy, level="proxy")
+        xs = df[df["proxy"] == proxy]["timestamp"]
+        ys = df[df["proxy"] == proxy]["rate"]
 
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
@@ -1184,6 +1176,10 @@ def dissect_graph_tikz(name):
     df.loc[(slice(None), "user"), "mean"] *= 2 # not sure why we should double the user time either
     # df.loc[(slice(None), "user", slice(None)), "mean"] -= df.loc[(slice(None), "parse", slice(None)), "mean"].values
 
+    ipc = "IPC"
+    rename = {"user": "processing", "epoll": ipc, "ipc": ipc, "read": ipc, "write": ipc}
+    df = df.rename(index=rename, level="func").reset_index()
+    df = df.groupby(by=["proxy", "func"]).agg({"mean": "sum"})
     print(df)
 
     plots = []
