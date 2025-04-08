@@ -39,6 +39,6 @@ for i in $(seq ${FROM} ${TO} ) ; do
         exit $?
     fi
 
-    ${ROOT}/mb.sh down
+    ${ROOT}/mb.sh down -c ${ROOT}/../${PROXY_CONFIG} -n ${NAME} -p ${PROXY} -e ${i}
 
 done

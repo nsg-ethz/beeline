@@ -260,15 +260,17 @@ def _load_bpf_data(paths):
 
         with open(p, "r") as file:
             text = file.read()
-            pattern = r"avg = (\d+) nsecs"
+            pattern = r"total: (\d+) nsecs, count: (\d+)"
             match = re.search(pattern, text)
 
             if match is None:
-                print(f"Could not find avg in {p}")
+                print(f"Could not find total/count in {p}")
                 continue
 
-            mean = float(match.group(1))
-            df = pd.DataFrame({"proxy": [proxy], "bin": [bin], "file": [os.path.basename(p)], "mean": [mean], "func": [func], "epoch": [epoch]})
+            total = int(match.group(1))
+            count = int(match.group(2))
+
+            df = pd.DataFrame({"proxy": [proxy], "bin": [bin], "file": [os.path.basename(p)], "total": [total], "count": [count], "func": [func], "epoch": [epoch]})
             dfs.append(df)
 
     return pd.concat(dfs).reset_index(drop=True)
@@ -1126,7 +1128,7 @@ def dissect_graph(name, dst):
     #     df.loc[("envoy", slice(None), func), "mean"] += df.loc[("svc", slice(None), func), "mean"].values
     # df = df.drop(["svc", "beeline"], level="bin").reset_index()
 
-    df["mean"] = df["mean"] / 1000000
+    df["mean"] = (df["total"] / df["count"]) / 1000
 
     paths = _get_file_paths(name, "*wrk*.log")
     wrk = _load_wrk_data(paths).reset_index()
@@ -1162,14 +1164,13 @@ def dissect_graph(name, dst):
 def dissect_graph_tikz(name):
     paths = _get_file_paths(name, "*bpf*.log")
     df = _load_bpf_data(paths)
+    df["mean"] = (df["total"] / df["count"]) / 1000
 
     df = df[df['bin'] != 'svc']
     df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
 
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
-
-    df["mean"] = df["mean"] / 1000
 
     # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
     df.loc[(slice(None), "parse"), "mean"] *= 2 # not sure why we should double the parsing time

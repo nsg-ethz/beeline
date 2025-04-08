@@ -91,6 +91,12 @@ case $ACTION in
         sudo systemctl stop mb-echo.scope > /dev/null 2>&1
         sudo systemctl stop mb-bpf-monitor.scope > /dev/null 2>&1
 
+        if [ "${PROXY}" = "beeline" ]; then
+            grep "other total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.user-e${EPOCH}.log
+            grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.parse-e${EPOCH}.log
+            rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+        fi
+
         echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}

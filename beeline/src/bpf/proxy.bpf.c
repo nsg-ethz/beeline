@@ -44,7 +44,7 @@ char LICENSE[] SEC("license") = "GPL";
     #define bpf_profile_def(NAME) u64 __profile_##NAME##_cnt = 0; u64 __profile_##NAME##_sum = 0
     #define bpf_profile_start(NAME) u64 __profile_##NAME##_ts = bpf_ktime_get_ns()
     #define bpf_profile_end(NAME) __profile_##NAME##_cnt++; __profile_##NAME##_sum += (bpf_ktime_get_ns() - __profile_##NAME##_ts)
-    #define bpf_profile_print(NAME) bpf_err("%s time: %lluns, cnt: %llu", #NAME, __profile_##NAME##_sum, __profile_##NAME##_cnt)
+    #define bpf_profile_print(NAME) bpf_printk("%s total: %llu nsecs, count: %llu", #NAME, __profile_##NAME##_sum, __profile_##NAME##_cnt)
 #else
     #define bpf_profile_def(...)
     #define bpf_profile_start(...)
@@ -603,6 +603,7 @@ __noinline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, cons
 __noinline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
     u8 dir = (ukey->local.ip4 >> 24 == 40) ? PR_REVERSE_PROXY : PR_UPSTREAM;
+    // u8 dir = PR_REVERSE_PROXY;
 
     // make upstream connection available for new requests
     struct frwd_token ft = {
