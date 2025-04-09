@@ -61,6 +61,9 @@ case ${ACTION} in
         sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
+        # this doesn't seem like a good idea but it works
+        sudo chmod -R o+r ${ROOT}/../social_network/config-*
+
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
         sleep 5 # waiting is not enough apparently
 
