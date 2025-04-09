@@ -18,7 +18,7 @@ sudo ufw allow from 172.18.0.0/16
 Also, you might have to increase the limit of open files in `/etc/security/limits.conf`
 
 ```
-RUST_LOG=info taskset --cpu-list 1-35 cargo run -r -p beeline -- -a 172.17.0.1:9999 -c config/social_network.yaml
+RUST_LOG=info taskset --cpu-list 1-35 cargo run -r -p beeline -- -a 172.17.0.1:9999 -c config/beeline/sn.yaml
 docker compose -f docker/sn-beeline.yaml up --force-recreate
 script/sn.sh -n [EXPERIMENT_NAME] -p beeline
 ```

@@ -93,12 +93,11 @@ def thousand_label(x, pos):
 
 
 def _parse_k6_path(path):
-    match = re.search(r"(\w+)-(\d+)-k6-e(\d+)-full.*", path)
+    match = re.search(r"(\w+)-k6-e(\d+)-full.*", path)
     proxy = match.group(1)
-    timestamp = match.group(2)
-    epoch = match.group(3)
+    epoch = match.group(2)
 
-    return proxy, int(timestamp), int(epoch)
+    return proxy, int(epoch)
 
 
 def _parse_wrk_path(path):
@@ -133,7 +132,7 @@ def _parse_bpf_path(path):
 def _load_k6_summaries(paths):
     rows = []
     for p in paths:
-        proxy, payload_size, epoch = _parse_k6_path(p)
+        proxy, epoch = _parse_k6_path(p)
         with open(p, "r") as file:
             data = json.load(file)
             data = data["metrics"]
@@ -141,7 +140,6 @@ def _load_k6_summaries(paths):
             for (metric, aggs) in data.items():
                 rows.append({
                     "proxy": proxy,
-                    "payload_size": payload_size,
                     "metric_name": metric,
                     "epoch": epoch,
                     "file": os.path.basename(p),
@@ -157,7 +155,7 @@ def _load_k6_summaries(paths):
 def _load_k6_data(paths):
     dfs = []
     for p in tqdm.tqdm(paths):
-        proxy, payload_size, epoch = _parse_k6_path(p)
+        proxy, epoch = _parse_k6_path(p)
         try:
             df = pd.read_csv(p)
             df["proxy"] = proxy

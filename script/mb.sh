@@ -22,10 +22,12 @@ while getopts "n:c:p:e:" opt; do
 done
 
 ROOT=$(dirname "$(readlink -f "$0")")
-ECHO_BIN="${ROOT}/../target/release/echo"
-ENVOY_BIN="${HOME}/envoy/bazel-out/k8-opt/bin/source/exe/envoy-static"
-BEELINE_BIN="${ROOT}/../target/release/beeline"
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
+
+ECHO_BIN="${ROOT}/../target/release/echo"
+BEELINE_BIN="${ROOT}/../target/release/beeline"
+NAIVE_BIN="${ROOT}/../target/release/naive"
+ENVOY_BIN="${HOME}/envoy/bazel-out/k8-opt/bin/source/exe/envoy-static"
 
 function stop_probes {
     sudo killall -SIGINT funclatency-bpfcc >/dev/null 2>&1
@@ -51,7 +53,7 @@ case $ACTION in
         sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
-        sudo -b -E systemd-run -q --scope -u mb-echo --slice beeline.slice ${ECHO_BIN} -a 127.0.0.1:8000 -H "signature: server1" > /dev/null 2>&1
+        sudo -b -E systemd-run -q --scope -u mb-echo --slice beeline.slice ${ECHO_BIN} -a 127.0.0.1:8000 -H "signature: server1" -e conn-id > /dev/null 2>&1
         sleep 1
         ECHO_PID=$(pidof echo)
         echo -e "${COLOR_GREEN}Launched echo service${COLOR_OFF}"
@@ -62,6 +64,17 @@ case $ACTION in
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
 
             sudo -b -E systemd-run -q --scope -u mb-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+        elif [ "${PROXY}" = "naive" ]; then
+            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${NAIVE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log 2>&1
+            sleep 5
+            NAIVE_PID=$(pidof naive)
+            echo -e "${COLOR_GREEN}Launched naive${COLOR_OFF}"
+
+            echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
+            sudo -b funclatency-bpfcc -p ${NAIVE_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.ipc-e${EPOCH}.log 2>/dev/null
+            sudo -b funclatency-bpfcc -p ${NAIVE_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.epoll-e${EPOCH}.log 2>/dev/null
+            sudo -b funclatency-bpfcc -p ${NAIVE_PID} "__sys_recvfrom" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.read-e${EPOCH}.log 2>/dev/null
+            sudo -b funclatency-bpfcc -p ${NAIVE_PID} "__x64_sys_writev" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.write-e${EPOCH}.log 2>/dev/null
         else
             sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
             sleep 1
@@ -94,6 +107,10 @@ case $ACTION in
         if [ "${PROXY}" = "beeline" ]; then
             grep "other total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.user-e${EPOCH}.log
             grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.parse-e${EPOCH}.log
+            rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+        elif [ "${PROXY}" = "naive" ]; then
+            grep "other total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.user-e${EPOCH}.log
+            grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.parse-e${EPOCH}.log
             rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
         fi
 
