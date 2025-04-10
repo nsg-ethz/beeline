@@ -86,6 +86,12 @@ rate_tikz = subparsers.add_parser("rate_tikz")
 dissect = subparsers.add_parser("dissect")
 dissect_tikz = subparsers.add_parser("dissect_tikz")
 
+percentile = subparsers.add_parser("percentile")
+percentile.add_argument("-r", "--range", required=True, help="The time range")
+
+percentile_tikz = subparsers.add_parser("percentile_tikz")
+percentile_tikz.add_argument("-r", "--range", required=True, help="The time range")
+
 args = parser.parse_args()
 
 def thousand_label(x, pos):
@@ -111,10 +117,10 @@ def _parse_wrk_path(path):
 
 
 def _parse_cpu_path(path):
-    match = re.search(r"(\w+)-cpu-(\d+)-e(\d+).*", path)
+    match = re.search(r"(\w+)-cpu-e(\d+)/(\d+).*", path)
     proxy = match.group(1)
-    timestamp = match.group(2)
-    epoch = match.group(3)
+    epoch = match.group(2)
+    timestamp = match.group(3)
 
     return proxy, int(timestamp), int(epoch)
 
@@ -157,7 +163,7 @@ def _load_k6_data(paths):
     for p in tqdm.tqdm(paths):
         proxy, epoch = _parse_k6_path(p)
         try:
-            df = pd.read_csv(p)
+            df = pd.read_csv(p, low_memory=False)
             df["proxy"] = proxy
             df["epoch"] = epoch
             df["file"] = os.path.basename(p)
@@ -330,9 +336,9 @@ def _save_to_path(name, dst):
 
 def _aggregate_fn(name):
     if name in ["avg", "mean"]:
-        return np.mean
-    elif name == "med":
-        return np.median
+        return "mean"
+    elif name == "med" or name == "p(50)":
+        return "median"
     elif name == "p(90)":
         return lambda x: np.quantile(x, q=0.9)
     elif name == "p(95)":
@@ -453,13 +459,6 @@ def bar_graph(name, metric, agg, dst):
     sizes = sorted(sizes)
 
     g.set(xlabel="payload size [B]", ylabel="throughput [MB/s]")
-
-    # g.set_xscale("log")
-    # g.set_xlabel("payload size [B]")
-    # g.set_xticks(sizes)
-    # g.set_xticklabels([str(s) for s in sizes])
-    # g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-    # g.set_xbound(lower=sizes[0], upper=sizes[-1])
 
     print(df[agg])
 
@@ -908,6 +907,7 @@ def stats_graph_tikz():
 
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[xbar,
+enlarge y limits={{abs=0.2,upper}},
 height=7.5cm,
 width=\\linewidth-45pt,
 bar shift=0pt,
@@ -962,7 +962,7 @@ def cpu_graph(name, dst):
 
 
 def cpu_graph_tikz(name):
-    paths = _get_file_paths(name)
+    paths = _get_file_paths(f"{name}/*")
     df = _load_cpu_data(paths)
 
     min_ts = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
@@ -1000,15 +1000,12 @@ def cpu_graph_tikz(name):
         }};"""
         plots.append(plot)
 
-    xmin = 0
-    xmax = df.reset_index().timestamp.max()
-
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
 xlabel={{time [s]}},
 ylabel={{CPU Utilization [\\%]}},
-xmin={xmin}, xmax={xmax},
+xmin=0, xmax=100,
 axis lines=left,
 xticklabel style={{rotate=-0, yshift=-0.4ex}},
 xlabel style={{anchor=north}},
@@ -1062,7 +1059,11 @@ def rate_graph_tikz(name):
     print(num_epochs.to_string())
 
     df = df.groupby(["proxy", "timestamp"]).size().reset_index(name="rate")
-    df["rate"] /= 30
+    num_epochs = num_epochs.reset_index()
+    num_epochs.columns = ["proxy", "num_epochs"]
+
+    df = df.merge(num_epochs, on="proxy")
+    df["rate"] = df["rate"] / df["num_epochs"]
 
     order = df["proxy"].unique()
     order = sorted(order)
@@ -1094,7 +1095,7 @@ def rate_graph_tikz(name):
 \\begin{{axis}}[
 xlabel={{time [s]}},
 ylabel={{requests per second}},
-ymin=0,
+ymin=0, xmax=100,
 axis lines=left,
 x tick label style={{
     /pgf/number format/fixed,
@@ -1165,10 +1166,10 @@ def dissect_graph_tikz(name):
     df["mean"] = (df["total"] / df["count"]) / 1000
 
     df = df[df['bin'] != 'svc']
+    df = df[df["proxy"] != "tcp"]
     df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
 
-    order = df.index.get_level_values("proxy").unique()
-    order = sorted(order)
+    order = ["http", "naive", "beeline"]
 
     # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
     df.loc[(slice(None), "parse"), "mean"] *= 2 # not sure why we should double the parsing time
@@ -1207,9 +1208,118 @@ every axis plot/.style={{fill}},
 bar width=20pt,
 ylabel={{latency [us]}},
 symbolic x coords={{{proxies}}},
+xticklabels={{Envoy, Naive, \\proj}},
 xtick=data,
 enlarge x limits={{abs=2cm}},
 height=6cm,
+width=\\linewidth]
+
+{plots}
+
+\\legend{{{legend}}}
+\\end{{axis}}
+\\end{{tikzpicture}}"""
+    print(tikz)
+
+
+def percentile_graph(name, time_range, dst):
+    start = int(start) if len(start) > 0 else 0
+    end = int(start) if len(end) > 0 else 2**100
+
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths[:5])
+    df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
+
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
+
+    aggs = ["p(50)", "p(95)", "p(99)"]
+    aggs = [(a, _aggregate_fn(a)) for a in aggs]
+    df = df.groupby("proxy")["metric_value"].agg(aggs).reset_index()
+    df = df.melt(id_vars="proxy",
+                 var_name="percentile",
+                 value_name="metric_value")
+
+    order = df["proxy"].unique()
+    order = sorted(order)
+
+    g = sns.catplot(data=df, kind="bar", x="percentile", y="metric_value", hue="proxy", hue_order=order)
+    g.set_axis_labels("", "Latency [ms]")
+
+    if args.legend:
+        _rename_legend_labels(g)
+
+    _save_to_path(f"sn-percentile", os.path.join(dst, name))
+
+
+def percentile_graph_tikz(name, time_range):
+    (start, end) = time_range.split(":")
+    start = int(start) if len(start) > 0 else 0
+    end = int(start) if len(end) > 0 else 2**100
+
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths)
+    df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
+
+    # print(df[df["metric_value"] > 1000].to_string())
+
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
+
+    aggs = ["p(50)", "p(95)", "p(99)"]
+    aggs_fn = [(a, _aggregate_fn(a)) for a in aggs]
+    df = df.groupby("proxy")["metric_value"].agg(aggs_fn).reset_index()
+    df = df.melt(id_vars="proxy",
+                 var_name="percentile",
+                 value_name="metric_value")
+
+    order = df["proxy"].unique()
+    order = sorted(order)
+
+    if "beeline" in order:
+        order.remove("beeline")
+        order.insert(0, "beeline")
+
+    legend = ",".join(order)
+
+    plots = []
+    for i, proxy in enumerate(order):
+        color = f"{proxy}color" # predefined in latex
+        fill = f"{proxy}fill" # predefined in latex
+
+        xs = df[df["proxy"] == proxy]["percentile"]
+        ys = df[df["proxy"] == proxy]["metric_value"]
+
+        coordinates = [(x, y) for x, y in zip(xs, ys)]
+        coordinates = sorted(coordinates)
+        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
+
+        plot = f"""\\addplot[{color}, fill={fill}, line width=0.3mm] coordinates {{
+            {coordinates}
+        }};"""
+        plots.append(plot)
+
+    plots = "\n".join(plots)
+    tikz = f"""\\begin{{tikzpicture}}
+\\begin{{axis}}[ybar,
+ylabel={{latency [ms]}},
+ymin=0,
+axis lines=left,
+symbolic x coords={{{",".join(aggs)}}},
+x tick label style={{
+    /pgf/number format/fixed,
+    /pgf/number format/precision=1,
+    /pgf/number format/1000 sep={{}},
+}},
+scaled x ticks=false,
+xtick=data,
+enlarge x limits = 0.4,
+xlabel style={{anchor=north}},
+legend pos=north west,
+height=6cm,
+bar width=0.3cm,
 width=\\linewidth]
 
 {plots}
@@ -1261,3 +1371,7 @@ if __name__ == "__main__":
         dissect_graph(args.name, args.output)
     elif args.command == "dissect_tikz":
         dissect_graph_tikz(args.name)
+    elif args.command == "percentile":
+        percentile_graph(args.name, args.range, args.output)
+    elif args.command == "percentile_tikz":
+        percentile_graph_tikz(args.name, args.range)
