@@ -52,8 +52,9 @@ overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func
 overhead.add_argument("--absolute", default=False, help="Report the overhead in absolute numbers")
 
 cdf = subparsers.add_parser("cdf")
-cdf.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
-cdf.add_argument("-c", "--crop", default=0, help="Crop the given number of seconds from the beginning of the trace")
+cdf.add_argument("-r", "--range", required=False, help="The time range")
+cdf_tikz = subparsers.add_parser("cdf_tikz")
+cdf_tikz.add_argument("-r", "--range", required=False, help="The time range")
 
 scatter = subparsers.add_parser("scatter")
 scatter.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
@@ -75,7 +76,7 @@ stats = subparsers.add_parser("stats_tikz")
 lat = subparsers.add_parser("lat")
 lat.add_argument("-a", "--agg", default="mean", help="The aggregation func")
 lat_tikz = subparsers.add_parser("lat_tikz")
-lat_tikz.add_argument("-r", "--range", required=True, help="The time range")
+lat_tikz.add_argument("-r", "--range", required=False, help="The time range")
 
 cpu = subparsers.add_parser("cpu")
 cpu_tikz = subparsers.add_parser("cpu_tikz")
@@ -87,10 +88,10 @@ dissect = subparsers.add_parser("dissect")
 dissect_tikz = subparsers.add_parser("dissect_tikz")
 
 percentile = subparsers.add_parser("percentile")
-percentile.add_argument("-r", "--range", required=True, help="The time range")
+percentile.add_argument("-r", "--range", required=False, help="The time range")
 
 percentile_tikz = subparsers.add_parser("percentile_tikz")
-percentile_tikz.add_argument("-r", "--range", required=True, help="The time range")
+percentile_tikz.add_argument("-r", "--range", required=False, help="The time range")
 
 args = parser.parse_args()
 
@@ -351,6 +352,16 @@ def _aggregate_fn(name):
         raise KeyError(f"Unknown aggregation function: {name}")
 
 
+def _parse_time_range(time_range, min=0, max=2**100):
+    if time_range is None:
+        return (min, max)
+
+    (start, end) = time_range.split(":")
+    start = int(start) if len(start) > 0 else min
+    end = int(start) if len(end) > 0 else max
+    return (start, end)
+
+
 def _get_file_paths(name, filename_pattern="*.json"):
     dir_path = os.path.dirname(os.path.realpath(__file__))
     return glob.glob(os.path.join(dir_path, "..", "res", "runs", name, filename_pattern))
@@ -570,29 +581,88 @@ def overhead_graph(name, base, metric, agg, absolute, dst):
     _save_to_path(f"overhead-{metric}-{agg}", os.path.join(dst, name))
 
 
-def cdf_graph(name, metric, crop, dst):
-    paths = _get_file_paths(name, "*.csv")
-    df = _load_log_data(paths)
-    df = df[df["metric_name"] == metric]
+def cdf_graph(name, time_range, dst):
+    (start, end) = _parse_time_range(time_range)
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths)
+    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
 
-    proxies = df["proxy"].unique()
-    if crop > 0:
-        for p in proxies:
-            start = df.loc[df["proxy"] == p, "timestamp"].min()
-            df.drop(df[(df["proxy"] == p) & (df["timestamp"] < start+crop)].index, inplace=True)
-
-    print(df["metric_value"].describe([0.9, 0.95, 0.99]))
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
 
     g = sns.ecdfplot(data=df, x="metric_value", hue="proxy")
-
-    g.set_xlabel(metric)
-    # g.set_ybound(lower=0.9, upper=1.0)
+    g.set_xlabel("latency [ms]")
 
     if args.legend:
         _rename_legend_labels(g)
 
     plt.xscale("log")
-    _save_to_path(f"cdf-{metric}-@{crop}s", os.path.join(dst, name))
+    _save_to_path(f"cdf", os.path.join(dst, name))
+
+
+def cdf_graph_tikz(name, time_range):
+    (start, end) = _parse_time_range(time_range)
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths)
+    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
+
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
+
+    order = df["proxy"].unique()
+    order = sorted(order)
+
+    if "beeline" in order:
+        order.remove("beeline")
+        order.insert(0, "beeline")
+
+    legend = ",".join(order)
+
+    plots = []
+    for i, proxy in enumerate(order):
+        color = f"{proxy}color" # predefined in latex
+        vals = df[df["proxy"] == proxy]["metric_value"]
+
+        ys = np.arange(1, 100)
+        xs = np.percentile(vals, ys)
+
+        coordinates = [(x, y) for x, y in zip(xs, ys)]
+        coordinates = sorted(coordinates)
+        coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
+
+        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+            {coordinates}
+        }};"""
+        plots.append(plot)
+
+    plots = "\n".join(plots)
+    tikz = f"""\\begin{{tikzpicture}}
+\\begin{{axis}}[
+xlabel={{latency [ms]}},
+ylabel={{CDF}},
+ymin=0,
+axis lines=left,
+x tick label style={{
+    /pgf/number format/fixed,
+    /pgf/number format/precision=1,
+    /pgf/number format/1000 sep={{}},
+}},
+scaled x ticks=false,
+xlabel style={{anchor=north}},
+xmajorgrids=true,
+grid style=dashed,
+legend pos=north west,
+height=6cm,
+width=\\linewidth]
+
+{plots}
+
+\\legend{{{legend}}}
+\\end{{axis}}
+\\end{{tikzpicture}}"""
+    print(tikz)
 
 
 def scatter_graph(name, proxy, metric, drop_rate, dst):
@@ -735,8 +805,6 @@ def lat_graph(name, agg, dst):
     order = sorted(order)
 
     g = sns.lineplot(data=df, x="timestamp", y="metric_value", hue="proxy", marker="o", hue_order=order)
-    # g.set(xlim=(200, 1100))
-    # g.set(ylim=(None, 50))
 
     g.set_xlabel("rate [req/s]")
     g.set_ylabel("latency [ms]")
@@ -749,8 +817,6 @@ def lat_graph(name, agg, dst):
 
 
 def lat_graph_tikz(name, time_range):
-    (start, end) = time_range.split(":")
-
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
 
@@ -784,8 +850,7 @@ def lat_graph_tikz(name, time_range):
         }};"""
         plots.append(plot)
 
-    xmin = int(start) if len(start) > 0 else 0
-    xmax = int(end) if len(end) > 0 else df["rate"].max()
+    (xmin, xmax) = _parse_time_range(time_range, max=df["rate"].max())
 
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
@@ -1223,12 +1288,10 @@ width=\\linewidth]
 
 
 def percentile_graph(name, time_range, dst):
-    start = int(start) if len(start) > 0 else 0
-    end = int(start) if len(end) > 0 else 2**100
-
+    (start, end) = _parse_time_range(time_range)
     paths = _get_file_paths(name, "*full.csv")
-    df = _load_k6_data(paths[:5])
-    df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
+    df = _load_k6_data(paths)
+    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
 
     num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
     print("Number of epochs per proxy:")
@@ -1254,13 +1317,10 @@ def percentile_graph(name, time_range, dst):
 
 
 def percentile_graph_tikz(name, time_range):
-    (start, end) = time_range.split(":")
-    start = int(start) if len(start) > 0 else 0
-    end = int(start) if len(end) > 0 else 2**100
-
+    (start, end) = _parse_time_range(time_range)
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
-    df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
+    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
 
     # print(df[df["metric_value"] > 1000].to_string())
 
@@ -1344,7 +1404,9 @@ if __name__ == "__main__":
     elif args.command == "overhead":
         overhead_graph(args.name, args.base, args.metric, args.agg, args.absolute, args.output)
     elif args.command == "cdf":
-        cdf_graph(args.name, args.metric, float(args.crop), args.output)
+        cdf_graph(args.name, args.range, args.output)
+    elif args.command == "cdf_tikz":
+        cdf_graph_tikz(args.name, args.range)
     elif args.command == "scatter":
         scatter_graph(args.name, args.proxy, args.metric, float(args.drop), args.output)
     elif args.command == "time_profile":
