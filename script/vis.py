@@ -1032,6 +1032,11 @@ def rate_graph(name, dst):
     print(num_epochs.to_string())
 
     df = df.groupby(["proxy", "timestamp"]).size().reset_index(name="rate")
+    num_epochs = num_epochs.reset_index()
+    num_epochs.columns = ["proxy", "num_epochs"]
+
+    df = df.merge(num_epochs, on="proxy")
+    df["rate"] = df["rate"] / df["num_epochs"]
 
     order = df["proxy"].unique()
     order = sorted(order)
