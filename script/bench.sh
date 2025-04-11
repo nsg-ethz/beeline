@@ -44,14 +44,14 @@ for i in $(seq ${FROM} ${TO} ) ; do
             ;;
 
         mb)
-            ${ROOT}/mb.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}
+            ${ROOT}/mb.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} -m
 
             SUMMARY=${SUMMARY_DIR}/${PROXY}-wrk-e${i}-summary.log
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
-            PAYLOAD_SIZE=100 BACKEND=1 wrk -L -d 30s -R 30000 -t 10 -c 100 -s wrk/rps.lua http://localhost:8080 > ${SUMMARY}
+            PAYLOAD_SIZE=100 BACKEND=1 wrk -L -d 120s -R 30000 -t 10 -c 100 -s wrk/rps.lua http://localhost:8080 > ${SUMMARY}
 
-            ${ROOT}/mb.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}
+            ${ROOT}/mb.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} -m
             ;;
 
     esac

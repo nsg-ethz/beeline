@@ -37,6 +37,13 @@ function stop_probes {
     sudo killall -SIGINT funclatency-bpfcc >/dev/null 2>&1
 }
 
+function launch_echo {
+    sudo -b -E systemd-run -q --scope -u mb-echo --slice beeline.slice ${ECHO_BIN} -a 127.0.0.1:$1 -H "signature: server1" -e conn-id > /dev/null 2>&1
+    sleep 1
+    ECHO_PID=$(pidof echo)
+    echo -e "${COLOR_GREEN}Launched echo service${COLOR_OFF}"
+}
+
 case $ACTION in
     up)
         mkdir -p ${SUMMARY_DIR}
@@ -57,11 +64,6 @@ case $ACTION in
         sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
-
-        sudo -b -E systemd-run -q --scope -u mb-echo --slice beeline.slice ${ECHO_BIN} -a 127.0.0.1:8000 -H "signature: server1" -e conn-id > /dev/null 2>&1
-        sleep 1
-        ECHO_PID=$(pidof echo)
-        echo -e "${COLOR_GREEN}Launched echo service${COLOR_OFF}"
 
         if [ "${PROXY}" = "beeline" ]; then
             BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${BEELINE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > /dev/null 2>&1
@@ -127,9 +129,15 @@ case $ACTION in
 
                 sleep 5
             fi
+        elif [ "${PROXY}" = "none" ]; then
+            launch_echo 8080
         else
             echo "Invalid proxy: ${PROXY}"
             exit -1
+        fi
+
+        if [ -z "${ECHO_PID}" ]; then
+            launch_echo 8000
         fi
     ;;
     down)

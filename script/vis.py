@@ -54,6 +54,7 @@ overhead.add_argument("--absolute", default=False, help="Report the overhead in 
 cdf = subparsers.add_parser("cdf")
 cdf.add_argument("-r", "--range", required=False, help="The time range")
 cdf_tikz = subparsers.add_parser("cdf_tikz")
+cdf_tikz.add_argument("--wrk", required=False, action="store_true", help="Whether it's wrk data")
 cdf_tikz.add_argument("-r", "--range", required=False, help="The time range")
 
 scatter = subparsers.add_parser("scatter")
@@ -108,13 +109,12 @@ def _parse_k6_path(path):
 
 
 def _parse_wrk_path(path):
-    match = re.search(r"(\w+)-(\d+)-wrk-e(\d+)-(\d+).*", path)
+    match = re.search(r"(\w+)-(?:(\d+)-)?wrk-e(\d+)*.*", path)
     proxy = match.group(1)
     timestamp = match.group(2)
     epoch = match.group(3)
-    rate = match.group(4)
 
-    return proxy, int(timestamp), int(epoch), int(rate)
+    return proxy, int(timestamp) if timestamp else None, int(epoch)
 
 
 def _parse_cpu_path(path):
@@ -163,8 +163,19 @@ def _load_k6_data(paths):
     dfs = []
     for p in tqdm.tqdm(paths):
         proxy, epoch = _parse_k6_path(p)
+
+        # if proxy == "beeline" and epoch <= 30:
+        #     continue
+        # elif proxy == "baseline" and epoch > 5:
+        #     continue
+
         try:
             df = pd.read_csv(p, low_memory=False)
+            # has_failed_responses = (df["expected_response"] == False).any()
+            # if has_failed_responses:
+            #     print(f"Warning: {p} contains failed responses")
+            #     continue
+
             df["proxy"] = proxy
             df["epoch"] = epoch
             df["file"] = os.path.basename(p)
@@ -175,23 +186,14 @@ def _load_k6_data(paths):
 
     return pd.concat(dfs)
 
+
 def _load_wrk_data(paths):
     rows = []
     for p in paths:
-        proxy, timestamp, epoch, target_rate = _parse_wrk_path(p)
+        proxy, timestamp, epoch = _parse_wrk_path(p)
         with open(p, "r") as file:
             text = file.read()
-            ps = [
-                "p(10)",
-                "p(25)",
-                "p(50)",
-                "p(75)",
-                "p(90)",
-                "p(99)",
-                "p(99.9)",
-                "p(99.99)",
-                "p(99.999)",
-            ]
+            ps = [f"p({p})" for p in range(1, 100)]
 
             aggs = {}
             for percentile in ps:
@@ -222,7 +224,6 @@ def _load_wrk_data(paths):
                 "proxy": proxy,
                 "timestamp": timestamp,
                 "epoch": epoch,
-                "target_rate": target_rate,
                 "rate": rate,
                 "metric_name": "http_req_duration",
                 "file": os.path.basename(p),
@@ -230,7 +231,6 @@ def _load_wrk_data(paths):
             })
 
     df = pd.DataFrame.from_dict(rows)
-    df.set_index(["proxy", "epoch", "target_rate", "metric_name"], inplace=True)
 
     return df
 
@@ -601,43 +601,75 @@ def cdf_graph(name, time_range, dst):
     _save_to_path(f"cdf", os.path.join(dst, name))
 
 
-def cdf_graph_tikz(name, time_range):
+def cdf_graph_tikz(name, time_range, wrk):
     (start, end) = _parse_time_range(time_range)
-    paths = _get_file_paths(name, "*full.csv")
-    df = _load_k6_data(paths)
-    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
-
-    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
-    print("Number of epochs per proxy:")
-    print(num_epochs.to_string())
-
-    order = df["proxy"].unique()
-    order = sorted(order)
-
-    if "beeline" in order:
-        order.remove("beeline")
-        order.insert(0, "beeline")
-
-    legend = ",".join(order)
 
     plots = []
-    for i, proxy in enumerate(order):
-        color = f"{proxy}color" # predefined in latex
-        vals = df[df["proxy"] == proxy]["metric_value"]
+    if wrk:
+        paths = _get_file_paths(name, "*wrk*summary.log")
+        df = _load_wrk_data(paths)
 
-        ys = np.arange(1, 100)
-        xs = np.percentile(vals, ys)
+        df = df.drop(["timestamp", "epoch", "rate", "metric_name", "file"], axis=1)
+        df = df.melt(
+            id_vars=["proxy"],
+            var_name="percentile",
+            value_name="value"
+        )
 
-        coordinates = [(x, y) for x, y in zip(xs, ys)]
-        coordinates = sorted(coordinates)
-        coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
+        order = df["proxy"].unique()
+        order = sorted(order)
 
-        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
-            {coordinates}
-        }};"""
-        plots.append(plot)
+        if "beeline" in order:
+            order.remove("beeline")
+            order.insert(0, "beeline")
 
+        legend = ",".join(order)
+
+        for i, proxy in enumerate(order):
+            color = f"{proxy}color" # predefined in latex
+
+            xs = df[df["proxy"] == proxy]["value"]
+            ys = np.arange(1, len(xs))
+
+            coordinates = [(x, y/100.0) for x, y in zip(xs, ys)]
+            coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
+            plots.append((color, coordinates))
+
+    else:
+        paths = _get_file_paths(name, "*full.csv")
+        df = _load_k6_data(paths)
+        df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
+
+        num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+        print("Number of epochs per proxy:")
+        print(num_epochs.to_string())
+
+        order = df["proxy"].unique()
+        order = sorted(order)
+
+        if "beeline" in order:
+            order.remove("beeline")
+            order.insert(0, "beeline")
+
+        legend = ",".join(order)
+
+        for i, proxy in enumerate(order):
+            color = f"{proxy}color" # predefined in latex
+            vals = df[df["proxy"] == proxy]["metric_value"]
+
+            ys = np.arange(1, 100)
+            xs = np.percentile(vals, ys)
+
+            coordinates = [(x, y/100.0) for x, y in zip(xs, ys)]
+            coordinates = sorted(coordinates)
+            coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
+            plots.append((color, coordinates))
+
+    plots = [f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+        {coordinates}
+    }};""" for (color, coordinates) in plots]
     plots = "\n".join(plots)
+
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
 xlabel={{latency [ms]}},
@@ -653,7 +685,7 @@ scaled x ticks=false,
 xlabel style={{anchor=north}},
 xmajorgrids=true,
 grid style=dashed,
-legend pos=north west,
+legend pos=south east,
 height=6cm,
 width=\\linewidth]
 
@@ -1205,8 +1237,8 @@ def dissect_graph(name, dst):
 
     df = df.set_index(["func", "payload_size"])
     # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
-    df.loc[("parse", slice(None)), "mean"] *= 2 # not sure why we should double the parsing time
-    df.loc[("user", slice(None)), "mean"] *= 2 # not sure why we should double the user time either
+    df.loc[("parse", slice(None)), "mean"] *= 2
+    df.loc[("user", slice(None)), "mean"] *= 2
     df.loc[("user", slice(None)), "mean"] -= df.loc[("parse", slice(None)), "mean"].values
 
     strawman = wrk[wrk["proxy"] == "strawman"].set_index("payload_size")
@@ -1231,29 +1263,47 @@ def dissect_graph(name, dst):
 
 
 def dissect_graph_tikz(name):
+    paths = _get_file_paths("mb_perf", "*wrk*.log")
+    wrk = _load_wrk_data(paths)
+    baseline = wrk[wrk["proxy"] == "baseline"]["mean"].mean()
+    strawman = wrk[wrk["proxy"] == "strawman"]["mean"].mean()
+    ns = strawman - baseline
+    print("network stack overhead:", ns)
+
+    paths = _get_file_paths(name, "*wrk*.log")
+    wrk = _load_wrk_data(paths)
+
     paths = _get_file_paths(name, "*bpf*.log")
     df = _load_bpf_data(paths)
-    df["mean"] = (df["total"] / df["count"]) / 1000
+    df["mean"] = (df["total"] / df["count"]) / 1000000
 
     df = df[df['bin'] != 'svc']
     df = df[df["proxy"] != "tcp"]
     df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
 
-    order = ["http", "naive", "beeline"]
-
     # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
-    df.loc[(slice(None), "parse"), "mean"] *= 2 # not sure why we should double the parsing time
-    df.loc[(slice(None), "user"), "mean"] *= 2 # not sure why we should double the user time either
+    df.loc[(slice(None), "parse"), "mean"] *= 2
+    df.loc[(slice(None), "user"), "mean"] *= 2
     # df.loc[(slice(None), "user", slice(None)), "mean"] -= df.loc[(slice(None), "parse", slice(None)), "mean"].values
 
-    ipc = "IPC"
-    rename = {"user": "processing", "epoll": ipc, "ipc": ipc, "read": ipc, "write": ipc}
+    # we add the network stack overhead
+    df.loc[("strawman", "ipc"), "mean"] += ns
+    df.loc[("naive", "ipc"), "mean"] += ns
+
+    order = ["strawman", "naive", "beeline"]
+    for proxy in order:
+        overhead = df.loc[(proxy, slice(None)), "mean"].sum()
+        total = wrk[wrk["proxy"] == proxy]["mean"].mean()
+        df.loc[(proxy, "echo"), "mean"] = total - overhead
+
+    rename = {"user": "processing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
     df = df.rename(index=rename, level="func").reset_index()
     df = df.groupby(by=["proxy", "func"]).agg({"mean": "sum"})
+
     print(df)
 
     plots = []
-    funcs = df.index.get_level_values("func").unique()
+    funcs = ["echo", "processing", "parse", "IPC"]
     for f in funcs:
         coords = []
         for p in order:
@@ -1273,14 +1323,18 @@ def dissect_graph_tikz(name):
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
 ybar stacked,
+ymin=0,
 cycle list name=uchu,
 every axis plot/.style={{fill}},
 bar width=20pt,
-ylabel={{latency [us]}},
+ylabel={{latency [ms]}},
 symbolic x coords={{{proxies}}},
-xticklabels={{Envoy, Naive, \\proj}},
+legend columns = 4,
+legend style={{at={{(0,1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.15cm}}}},
+xticklabels={{Envoy, {{Envoy w/\\\\Naive Fast Path}}, {{Envoy w/\\\\\\proj}}}},
+xticklabel style={{align=center}},
 xtick=data,
-enlarge x limits={{abs=2cm}},
+enlarge x limits={{abs=1.5cm}},
 height=6cm,
 width=\\linewidth]
 
@@ -1411,7 +1465,7 @@ if __name__ == "__main__":
     elif args.command == "cdf":
         cdf_graph(args.name, args.range, args.output)
     elif args.command == "cdf_tikz":
-        cdf_graph_tikz(args.name, args.range)
+        cdf_graph_tikz(args.name, args.range, args.wrk)
     elif args.command == "scatter":
         scatter_graph(args.name, args.proxy, args.metric, float(args.drop), args.output)
     elif args.command == "time_profile":
