@@ -159,22 +159,21 @@ def _load_k6_summaries(paths):
     return df
 
 
-def _load_k6_data(paths):
+def _load_k6_data(paths, max_epoch=30):
     dfs = []
+    epochs = {}
     for p in tqdm.tqdm(paths):
         proxy, epoch = _parse_k6_path(p)
-
-        # if proxy == "beeline" and epoch <= 30:
-        #     continue
-        # elif proxy == "baseline" and epoch > 5:
-        #     continue
+        if epochs.get(proxy, 0) >= max_epoch:
+            continue
 
         try:
             df = pd.read_csv(p, low_memory=False)
-            # has_failed_responses = (df["expected_response"] == False).any()
-            # if has_failed_responses:
-            #     print(f"Warning: {p} contains failed responses")
-            #     continue
+            num_failed_res = (df["expected_response"] == False).sum()
+            if num_failed_res / len(df) > 0.01:
+                continue
+
+            epochs[proxy] = epochs.get(proxy, 0) + 1
 
             df["proxy"] = proxy
             df["epoch"] = epoch
@@ -239,20 +238,17 @@ def _load_cpu_data(paths):
     dfs = []
     for p in paths:
         proxy, timestamp, epoch = _parse_cpu_path(p)
-        df = pd.read_json(p, lines=True)
-        df["proxy"] = proxy
-        df["epoch"] = epoch
-        df["timestamp"] = timestamp
-        df["file"] = os.path.basename(p)
-        try:
-            df["CPUPerc"] = df["CPUPerc"].str.rstrip('%').astype('float') / 100.0
-        except ValueError:
-            print(f"Could not parse CPUPerc in {p}")
-            continue
-        except KeyError:
-            print(f"Could not find CPUPerc in {p}")
-            continue
 
+        f = open(p, "r")
+        cpu = float(f.read())
+
+        df = pd.DataFrame({
+            "proxy": proxy,
+            "epoch": epoch,
+            "timestamp": timestamp,
+            "file": os.path.basename(p),
+            "CPUPerc": cpu
+        }, index=[0])
         dfs.append(df)
 
     return pd.concat(dfs)
@@ -653,12 +649,21 @@ def cdf_graph_tikz(name, time_range, wrk):
 
         legend = ",".join(order)
 
-        for i, proxy in enumerate(order):
-            color = f"{proxy}color" # predefined in latex
+        def _percentiles(proxy):
             vals = df[df["proxy"] == proxy]["metric_value"]
 
             ys = np.arange(1, 100)
             xs = np.percentile(vals, ys)
+            return (xs, ys)
+
+        print("beeline vs baseline:", (_percentiles("beeline")[0] / _percentiles("baseline")[0]).mean())
+        if "vanilla" in order:
+            print("beeline vs vanilla:", (_percentiles("beeline")[0] / _percentiles("vanilla")[0]).mean())
+        print("baseline vs strawman:", (_percentiles("baseline")[0] / _percentiles("strawman")[0]).mean())
+
+        for i, proxy in enumerate(order):
+            color = f"{proxy}color" # predefined in latex
+            (xs, ys) = _percentiles(proxy)
 
             coordinates = [(x, y/100.0) for x, y in zip(xs, ys)]
             coordinates = sorted(coordinates)
@@ -681,11 +686,12 @@ x tick label style={{
     /pgf/number format/precision=1,
     /pgf/number format/1000 sep={{}},
 }},
+legend columns = 4,
+legend style={{at={{(0,1.1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
 scaled x ticks=false,
 xlabel style={{anchor=north}},
 xmajorgrids=true,
 grid style=dashed,
-legend pos=south east,
 height=6cm,
 width=\\linewidth]
 
@@ -1059,7 +1065,7 @@ def cpu_graph(name, dst):
 
 
 def cpu_graph_tikz(name):
-    paths = _get_file_paths(f"{name}/*")
+    paths = _get_file_paths(f"{name}/*/", "*.log")
     df = _load_cpu_data(paths)
 
     min_ts = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
@@ -1114,7 +1120,6 @@ width=\\linewidth]
 
 {plots}
 
-\\legend{{{legend}}}
 \\end{{axis}}
 \\end{{tikzpicture}}"""
     print(tikz)
@@ -1176,13 +1181,27 @@ def rate_graph_tikz(name):
 
     legend = ",".join(order)
 
+    def _rate(proxy, start=None, end=None):
+        mask = df["proxy"] == proxy
+        if start is not None:
+            mask &= df["timestamp"] >= start
+        if end is not None:
+            mask &= df["timestamp"] <= end
+
+        data = df[mask]
+        return data["timestamp"], data["rate"]
+
+    rates = []
+    for proxy in order:
+        rate = _rate(proxy, start=90, end=100)[1].mean()
+        print(proxy, rate)
+        rates.append(rate)
+
     plots = []
     for i, proxy in enumerate(order):
         color = f"{proxy}color" # predefined in latex
 
-        xs = df[df["proxy"] == proxy]["timestamp"]
-        ys = df[df["proxy"] == proxy]["rate"]
-
+        xs, ys = _rate(proxy)
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
         coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
@@ -1193,13 +1212,16 @@ def rate_graph_tikz(name):
         plots.append(plot)
 
     plots = "\n".join(plots)
+    rates = ",".join([str(rate) for rate in rates])
+
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
 xlabel={{time [s]}},
 ylabel={{requests per second}},
-ymin=0, xmax=100,
+ymin=1000, ymax=3400,
+xmax=100,
 axis lines=left,
-x tick label style={{
+y tick label style={{
     /pgf/number format/fixed,
     /pgf/number format/precision=1,
     /pgf/number format/1000 sep={{}},
@@ -1207,15 +1229,18 @@ x tick label style={{
 yticklabel={{\\pgfmathparse{{\\tick/1000}}\\pgfmathprintnumber{{\\pgfmathresult}}K}},
 scaled x ticks=false,
 xlabel style={{anchor=north}},
-xmajorgrids=true,
-grid style=dashed,
-legend pos=north west,
+ytick={{{rates}}},
+tick style={{
+    grid style=dashed,
+}},
+grid=major,
+ymajorgrids=true,
+xmajorgrids=false,
 height=6cm,
 width=\\linewidth]
 
 {plots}
 
-\\legend{{{legend}}}
 \\end{{axis}}
 \\end{{tikzpicture}}"""
     print(tikz)

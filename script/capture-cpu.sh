@@ -26,7 +26,22 @@ SOCIAL_NETWORK_DIR=${ROOT}/../social_network
 rm -rf ${SUMMARY_DIR} >/dev/null 2>&1
 mkdir -p ${SUMMARY_DIR}
 
-while sleep 0.5; do
-    FILE=${SUMMARY_DIR}/$(date +%s).json
-    docker stats --format json --no-trunc --no-stream >> ${FILE}
+function read_cpu_usage() {
+    awk '$1 == "usage_usec" { print $2 }' /sys/fs/cgroup/beeline.slice/cpu.stat
+}
+
+TS=$(date +%s%N)
+CPU=$(read_cpu_usage)
+
+while sleep 1; do
+    FILE=${SUMMARY_DIR}/$(date +%s).log
+
+    TS_NEW=$(date +%s%N)
+    CPU_NEW=$(read_cpu_usage)
+
+    RES=$(bc -l <<< "(${CPU_NEW} - ${CPU}) / (${TS_NEW} - ${TS}) * 1000")
+    echo ${RES} > ${FILE}
+
+    TS=${TS_NEW}
+    CPU=${CPU_NEW}
 done
