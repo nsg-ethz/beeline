@@ -118,12 +118,11 @@ def _parse_wrk_path(path):
 
 
 def _parse_cpu_path(path):
-    match = re.search(r"(\w+)-cpu-e(\d+)/(\d+).*", path)
+    match = re.search(r"(\w+)-cpu-e(\d+).*", path)
     proxy = match.group(1)
     epoch = match.group(2)
-    timestamp = match.group(3)
 
-    return proxy, int(timestamp), int(epoch)
+    return proxy, int(epoch)
 
 
 def _parse_bpf_path(path):
@@ -237,18 +236,13 @@ def _load_wrk_data(paths):
 def _load_cpu_data(paths):
     dfs = []
     for p in paths:
-        proxy, timestamp, epoch = _parse_cpu_path(p)
+        proxy, epoch = _parse_cpu_path(p)
 
-        f = open(p, "r")
-        cpu = float(f.read())
+        df = pd.read_csv(p)
+        df["proxy"] = proxy
+        df["epoch"] = epoch
+        df["file"] = os.path.basename(p)
 
-        df = pd.DataFrame({
-            "proxy": proxy,
-            "epoch": epoch,
-            "timestamp": timestamp,
-            "file": os.path.basename(p),
-            "CPUPerc": cpu
-        }, index=[0])
         dfs.append(df)
 
     return pd.concat(dfs)
@@ -621,11 +615,21 @@ def cdf_graph_tikz(name, time_range, wrk):
 
         legend = ",".join(order)
 
+        def _percentiles(proxy):
+            xs = df[df["proxy"] == proxy]["value"].reset_index(drop=True)
+            ys = np.arange(1, len(xs))
+
+            return (xs, ys)
+
+        print("beeline vs baseline:", (_percentiles("beeline")[0] / _percentiles("baseline")[0]).mean())
+        print("beeline vs strawman:", (_percentiles("beeline")[0] / _percentiles("strawman")[0]).mean())
+        if "vanilla" in order:
+            print("beeline vs vanilla:", (_percentiles("beeline")[0] / _percentiles("vanilla")[0]).mean())
+        print("baseline vs strawman:", (_percentiles("baseline")[0] / _percentiles("strawman")[0]).mean())
+
         for i, proxy in enumerate(order):
             color = f"{proxy}color" # predefined in latex
-
-            xs = df[df["proxy"] == proxy]["value"]
-            ys = np.arange(1, len(xs))
+            xs, ys = _percentiles(proxy)
 
             coordinates = [(x, y/100.0) for x, y in zip(xs, ys)]
             coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
@@ -657,6 +661,7 @@ def cdf_graph_tikz(name, time_range, wrk):
             return (xs, ys)
 
         print("beeline vs baseline:", (_percentiles("beeline")[0] / _percentiles("baseline")[0]).mean())
+        print("beeline vs strawman:", (_percentiles("beeline")[0] / _percentiles("strawman")[0]).mean())
         if "vanilla" in order:
             print("beeline vs vanilla:", (_percentiles("beeline")[0] / _percentiles("vanilla")[0]).mean())
         print("baseline vs strawman:", (_percentiles("baseline")[0] / _percentiles("strawman")[0]).mean())
@@ -1065,8 +1070,21 @@ def cpu_graph(name, dst):
 
 
 def cpu_graph_tikz(name):
-    paths = _get_file_paths(f"{name}/*/", "*.log")
+    paths = _get_file_paths(name, "*full.csv")
+    if len(paths) > 0:
+        df = _load_k6_data(paths)
+        epochs = df.groupby('proxy')['epoch'].unique()
+
+        paths = []
+        for proxy in epochs.index:
+            for epoch in epochs[proxy]:
+                paths += _get_file_paths(name, f"{proxy}-cpu-e{epoch}.log")
+    else:
+        paths = _get_file_paths(name, "*cpu*.log")
+
     df = _load_cpu_data(paths)
+    df["timestamp"] /= 1e9
+    df = df.round({"timestamp": 0, "CPUPerc": 3})
 
     min_ts = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
     df = df.groupby(by=["proxy", "epoch", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
@@ -1084,15 +1102,28 @@ def cpu_graph_tikz(name):
             mask = (df["proxy"] == proxy) & (df["epoch"] == epoch)
             df.loc[mask, "timestamp"] -= min_ts.loc[(proxy, epoch), "timestamp"]
 
-    df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "mean"})
+    df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "mean"}).reset_index()
 
-    legend = ",".join(order)
+    def _usage(proxy, start=None, end=None):
+        mask = (df["proxy"] == proxy)
+        if start is not None:
+            mask &= (df["timestamp"] >= start)
+        if end is not None:
+            mask &= (df["timestamp"] <= end)
+
+        data = df[mask]
+        return data["timestamp"], data["CPUPerc"]
+
+    usages = []
+    for proxy in order:
+        usage = _usage(proxy, start=90, end=100)[1].mean()
+        print(proxy, usage)
+        usages.append(usage)
 
     plots = []
     for i, proxy in enumerate(order):
         color = f"{proxy}color" # predefined in latex
-        ys = df.xs(proxy, level="proxy")["CPUPerc"]
-        xs = df.xs(proxy, level="proxy").index.get_level_values("timestamp")
+        xs, ys = _usage(proxy)
 
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
@@ -1103,17 +1134,28 @@ def cpu_graph_tikz(name):
         }};"""
         plots.append(plot)
 
+    usages = ",".join([str(usage) for usage in usages])
     plots = "\n".join(plots)
     tikz = f"""\\begin{{tikzpicture}}
 \\begin{{axis}}[
 xlabel={{time [s]}},
-ylabel={{CPU Utilization [\\%]}},
+ylabel={{CPU Utilization [\\#]}},
+y tick label style={{
+    /pgf/number format/fixed,
+    /pgf/number format/precision=1,
+    /pgf/number format/1000 sep={{}},
+}},
 xmin=0, xmax=100,
 axis lines=left,
 xticklabel style={{rotate=-0, yshift=-0.4ex}},
 xlabel style={{anchor=north}},
-xmajorgrids=true,
-grid style=dashed,
+ytick={{{usages}}},
+tick style={{
+    grid style=dashed,
+}},
+grid=major,
+ymajorgrids=true,
+xmajorgrids=false,
 legend pos=north west,
 height=6cm,
 width=\\linewidth]
@@ -1288,7 +1330,7 @@ def dissect_graph(name, dst):
 
 
 def dissect_graph_tikz(name):
-    paths = _get_file_paths("mb_perf", "*wrk*.log")
+    paths = _get_file_paths("mb_perf3_100B", "*wrk*.log")
     wrk = _load_wrk_data(paths)
     baseline = wrk[wrk["proxy"] == "baseline"]["mean"].mean()
     strawman = wrk[wrk["proxy"] == "strawman"]["mean"].mean()
@@ -1297,6 +1339,8 @@ def dissect_graph_tikz(name):
 
     paths = _get_file_paths(name, "*wrk*.log")
     wrk = _load_wrk_data(paths)
+
+    print(wrk)
 
     paths = _get_file_paths(name, "*bpf*.log")
     df = _load_bpf_data(paths)
@@ -1312,13 +1356,14 @@ def dissect_graph_tikz(name):
     # df.loc[(slice(None), "user", slice(None)), "mean"] -= df.loc[(slice(None), "parse", slice(None)), "mean"].values
 
     # we add the network stack overhead
-    df.loc[("strawman", "ipc"), "mean"] += ns
-    df.loc[("naive", "ipc"), "mean"] += ns
+    df.loc[("strawman", "ns"), "mean"] = ns
+    df.loc[("naive", "ns"), "mean"] = ns
 
-    order = ["strawman", "naive", "beeline"]
+    order = ["strawman", "baseline", "naive", "beeline"]
     for proxy in order:
         overhead = df.loc[(proxy, slice(None)), "mean"].sum()
         total = wrk[wrk["proxy"] == proxy]["mean"].mean()
+        print(proxy, total, overhead)
         df.loc[(proxy, "echo"), "mean"] = total - overhead
 
     rename = {"user": "processing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
@@ -1328,7 +1373,7 @@ def dissect_graph_tikz(name):
     print(df)
 
     plots = []
-    funcs = ["echo", "processing", "parse", "IPC"]
+    funcs = ["echo", "processing", "parse", "ns", "IPC"]
     for f in funcs:
         coords = []
         for p in order:
@@ -1339,7 +1384,8 @@ def dissect_graph_tikz(name):
                 coords.append(f"({p}, 0)")
 
         coords = " ".join(coords)
-        plots.append(f"\\addplot+[ybar] plot coordinates {{{coords}}};")
+        style = "pattern=north west lines, draw=uchu-gray-5, pattern color=uchu-gray-5" if f == "echo" else ""
+        plots.append(f"\\addplot+[ybar, {style}] plot coordinates {{{coords}}};")
 
     plots = "\n".join(plots)
     legend = ",".join(funcs)
@@ -1354,9 +1400,9 @@ every axis plot/.style={{fill}},
 bar width=20pt,
 ylabel={{latency [ms]}},
 symbolic x coords={{{proxies}}},
-legend columns = 4,
-legend style={{at={{(0,1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.15cm}}}},
-xticklabels={{Envoy, {{Envoy w/\\\\Naive Fast Path}}, {{Envoy w/\\\\\\proj}}}},
+legend columns=2,
+legend style={{at={{(0,1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
+xticklabels={{Envoy, {{Envoy + L4\\\\ Fast Path}}, {{Envoy + Naive\\\\Fast Path}}, {{Envoy +\\\\\\proj}}}},
 xticklabel style={{align=center}},
 xtick=data,
 enlarge x limits={{abs=1.5cm}},

@@ -40,7 +40,6 @@ function stop_probes {
 function launch_echo {
     sudo -b -E systemd-run -q --scope -u mb-echo --slice beeline.slice ${ECHO_BIN} -a 127.0.0.1:$1 -H "signature: server1" -e conn-id > /dev/null 2>&1
     sleep 1
-    ECHO_PID=$(pidof echo)
     echo -e "${COLOR_GREEN}Launched echo service${COLOR_OFF}"
 }
 
@@ -58,6 +57,7 @@ case $ACTION in
         sudo systemctl stop mb-proxy-opt.scope > /dev/null 2>&1
         sudo systemctl stop mb-echo.scope > /dev/null 2>&1
         sudo systemctl stop mb-bpf-monitor.scope > /dev/null 2>&1
+        sudo systemctl stop mb-cpu.scope > /dev/null 2>&1
 
         echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
@@ -66,7 +66,9 @@ case $ACTION in
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
         if [ "${PROXY}" = "beeline" ]; then
-            BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${BEELINE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > /dev/null 2>&1
+            launch_echo 8000
+            BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BEELINE_BIN} -a 127.0.0.1:8080 -c config/naive/mb.yaml > /dev/null 2>&1
+            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
             sleep 5
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
 
@@ -74,6 +76,7 @@ case $ACTION in
                 sudo -b -E systemd-run -q --scope -u mb-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
             fi
         elif [ "${PROXY}" = "baseline" ]; then
+            launch_echo 8000
             sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
             sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BASELINE_BIN} -a 127.0.0.1 > /dev/null 2>&1
             sleep 1
@@ -96,6 +99,7 @@ case $ACTION in
                 sleep 5
             fi
         elif [ "${PROXY}" = "naive" ]; then
+            launch_echo 8000
             sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${NAIVE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log 2>&1
             sleep 5
             NAIVE_PID=$(pidof naive)
@@ -109,6 +113,7 @@ case $ACTION in
                 sudo -b funclatency-bpfcc -p ${NAIVE_PID} "__x64_sys_writev" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.write-e${EPOCH}.log 2>/dev/null
             fi
         elif [ "${PROXY}" = "strawman" ]; then
+            launch_echo 8000
             sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
             sleep 1
             ENVOY_PID=$(pidof envoy-static)
@@ -123,22 +128,26 @@ case $ACTION in
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.write-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.read-e${EPOCH}.log 2>/dev/null
 
+                ECHO_PID=$(pidof echo)
                 sudo -b funclatency-bpfcc -p ${ECHO_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.ipc-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ECHO_PID} -r "^vfs_writev?$" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.write-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ECHO_PID} -r "^vfs_readv?$" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.read-e${EPOCH}.log 2>/dev/null
 
                 sleep 5
             fi
-        elif [ "${PROXY}" = "none" ]; then
+        elif [ "${PROXY}" = "ideal" ]; then
+            launch_echo 8080
+            sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BASELINE_BIN} -a 127.0.0.1 > /dev/null 2>&1
+            sleep 1
+            echo -e "${COLOR_GREEN}Launched ideal${COLOR_OFF}"
+        elif [ "${PROXY}" = "vanilla" ]; then
             launch_echo 8080
         else
             echo "Invalid proxy: ${PROXY}"
             exit -1
         fi
 
-        if [ -z "${ECHO_PID}" ]; then
-            launch_echo 8000
-        fi
+        sudo -b systemd-run -q --scope -u mb-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
     ;;
     down)
         CPU_SYSTEM=0-39
@@ -148,6 +157,7 @@ case $ACTION in
         sudo systemctl stop mb-proxy-opt.scope > /dev/null 2>&1
         sudo systemctl stop mb-echo.scope > /dev/null 2>&1
         sudo systemctl stop mb-bpf-monitor.scope > /dev/null 2>&1
+        sudo systemctl stop mb-cpu.scope > /dev/null 2>&1
 
         if [ "${MONITOR}" = true ]; then
             if [ "${PROXY}" = "beeline" ]; then

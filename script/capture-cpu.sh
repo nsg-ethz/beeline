@@ -20,10 +20,9 @@ while getopts "n:p:e:" opt; do
 done
 
 ROOT=$(dirname "$(readlink -f "$0")")
-SUMMARY_DIR=${ROOT}/../res/runs/${NAME}/${PROXY}-cpu-e${EPOCH}
+SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 SOCIAL_NETWORK_DIR=${ROOT}/../social_network
 
-rm -rf ${SUMMARY_DIR} >/dev/null 2>&1
 mkdir -p ${SUMMARY_DIR}
 
 function read_cpu_usage() {
@@ -33,14 +32,16 @@ function read_cpu_usage() {
 TS=$(date +%s%N)
 CPU=$(read_cpu_usage)
 
-while sleep 1; do
-    FILE=${SUMMARY_DIR}/$(date +%s).log
+FILE=${SUMMARY_DIR}/${PROXY}-cpu-e${EPOCH}.log
+echo "timestamp,CPUPerc" > ${FILE}
 
+while sleep 1; do
     TS_NEW=$(date +%s%N)
     CPU_NEW=$(read_cpu_usage)
 
     RES=$(bc -l <<< "(${CPU_NEW} - ${CPU}) / (${TS_NEW} - ${TS}) * 1000")
-    echo ${RES} > ${FILE}
+    echo "${TS_NEW},${RES}" >> ${FILE}
+    sync
 
     TS=${TS_NEW}
     CPU=${CPU_NEW}
