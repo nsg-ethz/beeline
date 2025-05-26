@@ -182,7 +182,7 @@ void CastInfoHandler::ReadCastInfo(
     return_value = memcached_fetch(memcached_client, return_key,
         &return_key_length, &return_value_length, &flags, &memcached_rc);
     if (return_value == nullptr) {
-      LOG(debug) << "Memcached mget finished";
+      // LOG(debug) << "Memcached mget finished";
       break;
     }
     if (memcached_rc != MEMCACHED_SUCCESS) {

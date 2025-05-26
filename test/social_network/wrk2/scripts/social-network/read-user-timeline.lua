@@ -15,7 +15,7 @@ request = function()
   local method = "GET"
   local headers = {}
   headers["Content-Type"] = "application/x-www-form-urlencoded"
-  local path = "http://localhost:8080/wrk2-api/user-timeline/read?" .. args
+  local path = "/wrk2-api/user-timeline/read?" .. args
   return wrk.format(method, path, headers, nil)
 
 end

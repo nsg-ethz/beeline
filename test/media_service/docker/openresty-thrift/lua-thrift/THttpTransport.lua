@@ -99,6 +99,10 @@ function THttpTransport:_readMsg()
   end
 
   local length = tonumber(headers["Content-Length"])
+  if not length then
+      length = tonumber(headers["content-length"])
+  end
+
   if length then
     length = length - string.len(self.rBuf)
     self.rBuf = self.rBuf .. self.trans:readAll(length)
@@ -187,3 +191,5 @@ function THttpTransportFactory:getTransport(trans)
   end
   return THttpTransport:new{trans = trans}
 end
+
+return THttpTransport

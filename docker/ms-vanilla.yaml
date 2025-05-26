@@ -205,6 +205,7 @@ services:
             - ../test/media_service/nginx-web-server/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
             - ../test/media_service/nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
             - ../test/media_service/gen-lua:/gen-lua
+            - ../test/media_service/docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
 
     cast-info-service:
         build: ../test/media_service
