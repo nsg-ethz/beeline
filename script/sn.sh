@@ -62,7 +62,7 @@ case ${ACTION} in
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
         # this doesn't seem like a good idea but it works
-        sudo chmod -R o+r ${ROOT}/../social_network/config-*
+        sudo chmod -R o+r ${ROOT}/../test/social_network/config-*
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
         sleep 5 # waiting is not enough apparently
@@ -79,7 +79,7 @@ case ${ACTION} in
             echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
         fi
 
-        cd ${ROOT}/../social_network
+        cd ${ROOT}/../test/social_network
         python3 scripts/init_social_graph.py
 
         sudo -b systemd-run -q --scope -u sn-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}

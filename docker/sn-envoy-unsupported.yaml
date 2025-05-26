@@ -7,7 +7,7 @@ networks:
                 - subnet: 172.18.0.0/24
 services:
     social-graph-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: social-graph-service
         cgroup_parent: beeline.slice
         networks:
@@ -21,7 +21,7 @@ services:
         restart: always
         entrypoint: SocialGraphService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     social-graph-mongodb:
         image: mongo:4.4.6
@@ -44,7 +44,7 @@ services:
     # ---
 
     home-timeline-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: home-timeline-service
         cgroup_parent: beeline.slice
         networks:
@@ -56,7 +56,7 @@ services:
         restart: always
         entrypoint: HomeTimelineService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     home-timeline-redis:
         image: redis
@@ -70,7 +70,7 @@ services:
     # ---
 
     compose-post-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: compose-post-service
         cgroup_parent: beeline.slice
         networks:
@@ -82,12 +82,12 @@ services:
                 condition: service_started
         entrypoint: ComposePostService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     # ---
 
     post-storage-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: post-storage-service
         cgroup_parent: beeline.slice
         networks:
@@ -103,7 +103,7 @@ services:
                 condition: service_started
         entrypoint: PostStorageService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     post-storage-memcached:
         image: memcached
@@ -126,7 +126,7 @@ services:
     # ---
 
     user-timeline-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: user-timeline-service
         cgroup_parent: beeline.slice
         networks:
@@ -140,7 +140,7 @@ services:
                 condition: service_started
         entrypoint: UserTimelineService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     user-timeline-redis:
         image: redis
@@ -163,7 +163,7 @@ services:
     # ---
 
     url-shorten-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: url-shorten-service
         cgroup_parent: beeline.slice
         networks:
@@ -177,7 +177,7 @@ services:
             url-shorten-mongodb:
                 condition: service_started
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     url-shorten-memcached:
         image: memcached
@@ -200,7 +200,7 @@ services:
     # ---
 
     user-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: user-service
         cgroup_parent: beeline.slice
         networks:
@@ -214,7 +214,7 @@ services:
                 condition: service_started
         entrypoint: UserService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     user-memcached:
         image: memcached
@@ -237,7 +237,7 @@ services:
     # ---
 
     media-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: media-service
         cgroup_parent: beeline.slice
         networks:
@@ -251,7 +251,7 @@ services:
         restart: always
         entrypoint: MediaService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     media-memcached:
         image: memcached
@@ -274,7 +274,7 @@ services:
     # ---
 
     text-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: text-service
         cgroup_parent: beeline.slice
         networks:
@@ -286,12 +286,12 @@ services:
                 condition: service_started
         entrypoint: TextService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     # ---
 
     unique-id-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: unique-id-service
         cgroup_parent: beeline.slice
         networks:
@@ -303,12 +303,12 @@ services:
                 condition: service_started
         entrypoint: UniqueIdService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     # ---
 
     user-mention-service:
-        build: ../social_network
+        build: ../test/social_network
         hostname: user-mention-service
         cgroup_parent: beeline.slice
         networks:
@@ -320,7 +320,7 @@ services:
         restart: always
         entrypoint: UserMentionService
         volumes:
-            - ../social_network/config-envoy-unsupported:/social-network-microservices/config
+            - ../test/social_network/config-envoy-unsupported:/social-network-microservices/config
 
     # ---
 
@@ -338,12 +338,12 @@ services:
                 condition: service_started
         restart: always
         volumes:
-            - ../social_network/nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
-            - ../social_network/nginx-web-server/pages:/usr/local/openresty/nginx/pages
-            - ../social_network/nginx-web-server/conf/nginx-envoy.conf:/usr/local/openresty/nginx/conf/nginx.conf
-            - ../social_network/nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
-            - ../social_network/gen-lua:/gen-lua
-            - ../social_network/docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
+            - ../test/social_network/nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
+            - ../test/social_network/nginx-web-server/pages:/usr/local/openresty/nginx/pages
+            - ../test/social_network/nginx-web-server/conf/nginx-envoy.conf:/usr/local/openresty/nginx/conf/nginx.conf
+            - ../test/social_network/nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
+            - ../test/social_network/gen-lua:/gen-lua
+            - ../test/social_network/docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
 
     media-frontend:
         image: yg397/media-frontend:xenial
@@ -359,8 +359,8 @@ services:
             jaeger-agent:
                 condition: service_started
         volumes:
-            - ../social_network/media-frontend/lua-scripts:/usr/local/openresty/nginx/lua-scripts
-            - ../social_network/media-frontend/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+            - ../test/social_network/media-frontend/lua-scripts:/usr/local/openresty/nginx/lua-scripts
+            - ../test/social_network/media-frontend/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
 
     jaeger-agent:
         image: jaegertracing/all-in-one:1.62.0
@@ -388,5 +388,5 @@ services:
                 ipv4_address: 172.18.0.40
         restart: always
         volumes:
-            - ../social_network/config-envoy-unsupported/sidecar.yaml:/etc/envoy/envoy.yaml
-            - ../social_network/config-envoy-unsupported/uuid.lua:/var/lib/lua/uuid.lua
+            - ../test/social_network/config-envoy-unsupported/sidecar.yaml:/etc/envoy/envoy.yaml
+            - ../test/social_network/config-envoy-unsupported/uuid.lua:/var/lib/lua/uuid.lua

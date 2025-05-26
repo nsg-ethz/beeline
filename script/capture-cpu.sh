@@ -21,7 +21,7 @@ done
 
 ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
-SOCIAL_NETWORK_DIR=${ROOT}/../social_network
+SOCIAL_NETWORK_DIR=${ROOT}/../test/social_network
 
 mkdir -p ${SUMMARY_DIR}
 
