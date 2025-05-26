@@ -9,6 +9,7 @@
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransportUtils.h>
+#include <thrift/transport/THttpClient.h>
 #include <thrift/stdcxx.h>
 #include "logger.h"
 #include "GenericClient.h"
@@ -20,6 +21,7 @@ using apache::thrift::protocol::TBinaryProtocol;
 using apache::thrift::transport::TFramedTransport;
 using apache::thrift::transport::TSocket;
 using apache::thrift::transport::TTransport;
+using apache::thrift::transport::THttpClient;
 using apache::thrift::TException;
 
 template<class TThriftClient>
@@ -56,7 +58,9 @@ ThriftClient<TThriftClient>::ThriftClient(
   _addr = addr;
   _port = port;
   _socket = std::shared_ptr<TTransport>(new TSocket(addr, port));
-  _transport = std::shared_ptr<TTransport>(new TFramedTransport(_socket));
+  // _transport = std::shared_ptr<TTransport>(new TFramedTransport(_socket));
+  const std::string path = "/";
+  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, path));
   _protocol = std::shared_ptr<TProtocol>(new TBinaryProtocol(_transport));
   _client = new TThriftClient(_protocol);
 }

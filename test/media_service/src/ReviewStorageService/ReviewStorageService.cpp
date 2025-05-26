@@ -2,6 +2,7 @@
 #include <thrift/server/TThreadedServer.h>
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TBufferTransports.h>
+#include <thrift/transport/THttpServer.h>
 #include "nlohmann/json.hpp"
 #include <signal.h>
 
@@ -14,6 +15,7 @@ using apache::thrift::server::TThreadedServer;
 using apache::thrift::transport::TServerSocket;
 using apache::thrift::transport::TFramedTransportFactory;
 using apache::thrift::protocol::TBinaryProtocolFactory;
+using apache::thrift::transport::THttpServerTransportFactory;
 using namespace media_service;
 
 static memcached_pool_st* memcached_client_pool;
@@ -58,7 +60,7 @@ int main(int argc, char *argv[]) {
           std::make_shared<ReviewStorageHandler>(
               memcached_client_pool, mongodb_client_pool)),
       std::make_shared<TServerSocket>("0.0.0.0", port),
-      std::make_shared<TFramedTransportFactory>(),
+      std::make_shared<THttpServerTransportFactory>(),
       std::make_shared<TBinaryProtocolFactory>()
   );
 
