@@ -41,5 +41,5 @@ Next, install [bpftool](https://github.com/libbpf/bpftool) from source.
 
 Then, generate a new vmlinux file as follows:
 ```
-bpftool btf dump file /sys/kernel/btf/vmlinux format c > ./vmlinux.h
+bpftool btf dump file /sys/kernel/btf/vmlinux format c > include/vmlinux.h
 ```

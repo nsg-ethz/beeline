@@ -28,7 +28,7 @@ fn main() {
             OsStr::new("-D"),
             OsStr::new(format!("LOG_LEVEL={log_level}").as_str()),
             OsStr::new("-I"),
-            OsStr::new("src/bpf/vmlinux.h"),
+            OsStr::new("../include"),
         ])
         .build_and_generate(&out)
         .unwrap();

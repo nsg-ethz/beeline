@@ -32,7 +32,7 @@ fn main() {
             OsStr::new("-D"),
             OsStr::new(format!("BPF_PROFILE={bpf_profile}").as_str()),
             OsStr::new("-I"),
-            OsStr::new("src/bpf/vmlinux.h"),
+            OsStr::new("../include"),
         ])
         .build_and_generate(&out)
         .unwrap();
