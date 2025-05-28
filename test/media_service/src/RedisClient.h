@@ -11,7 +11,7 @@ namespace media_service {
 
 class RedisClient : public GenericClient {
  public:
-  RedisClient(const std::string &addr, int port);
+  RedisClient(const std::string &addr, int port, const std::string &path);
   RedisClient(const RedisClient &) = delete;
   RedisClient & operator=(const RedisClient &) = delete;
   RedisClient(RedisClient &&) = default;
@@ -31,7 +31,7 @@ class RedisClient : public GenericClient {
   cpp_redis::client * _client;
 };
 
-RedisClient::RedisClient(const std::string &addr, int port) {
+RedisClient::RedisClient(const std::string &addr, int port, const std::string &path) {
   _addr = addr;
   _port = port;
   _client = new cpp_redis::client();

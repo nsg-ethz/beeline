@@ -14,7 +14,7 @@ import string
 import uuid
 
 def main():
-    socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+    socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
     transport = TTransport.TFramedTransport(socket)
     protocol = TBinaryProtocol.TBinaryProtocol(transport)
     client = UserService.Client(protocol)

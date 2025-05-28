@@ -24,6 +24,8 @@ services:
         #      - 10001:9090
         restart: always
         entrypoint: UniqueIdService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     movie-id-service:
         build: ../test/media_service
@@ -33,6 +35,8 @@ services:
         #      - 10002:9090
         restart: always
         entrypoint: MovieIdService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     movie-id-mongodb:
         image: mongo:4.4.6
@@ -58,6 +62,8 @@ services:
         #      - 10003:9090
         restart: always
         entrypoint: TextService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     rating-service:
         build: ../test/media_service
@@ -67,6 +73,8 @@ services:
         #      - 10004:9090
         restart: always
         entrypoint: RatingService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     rating-redis:
         image: redis
@@ -84,6 +92,8 @@ services:
         #      - 10005:9090
         restart: always
         entrypoint: UserService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     user-mongodb:
         image: mongo:4.4.6
@@ -109,6 +119,8 @@ services:
         #      - 10006:9090
         restart: always
         entrypoint: ComposeReviewService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     compose-review-memcached:
         image: memcached
@@ -126,6 +138,8 @@ services:
         #      - 10007:9090
         restart: always
         entrypoint: ReviewStorageService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     review-storage-mongodb:
         image: mongo:4.4.6
@@ -151,6 +165,8 @@ services:
         #      - 10008:9090
         restart: always
         entrypoint: UserReviewService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     user-review-mongodb:
         image: mongo:4.4.6
@@ -176,6 +192,8 @@ services:
         #      - 10009:9090
         restart: always
         entrypoint: MovieReviewService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     movie-review-mongodb:
         image: mongo:4.4.6
@@ -215,6 +233,8 @@ services:
         #      - 10010:9090
         restart: always
         entrypoint: CastInfoService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     cast-info-mongodb:
         image: mongo:4.4.6
@@ -240,6 +260,8 @@ services:
         #      - 10011:9090
         restart: always
         entrypoint: PlotService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     plot-mongodb:
         image: mongo:4.4.6
@@ -265,6 +287,8 @@ services:
         #      - 10012:9090
         restart: always
         entrypoint: MovieInfoService
+        volumes:
+            - ../test/media_service/config-vanilla:/media-microservices/config
 
     movie-info-mongodb:
         image: mongo:4.4.6

@@ -35,8 +35,11 @@ int main(int argc, char *argv[]) {
 
   int port = config_json["movie-id-service"]["port"];
   std::string compose_addr = config_json["compose-review-service"]["addr"];
+  std::string compose_path = config_json["compose-review-service"]["path"];
   int compose_port = config_json["compose-review-service"]["port"];
+
   std::string rating_addr = config_json["rating-service"]["addr"];
+  std::string rating_path = config_json["rating-service"]["path"];
   int rating_port = config_json["rating-service"]["port"];
 
   memcached_pool_st *memcached_client_pool =
@@ -49,9 +52,9 @@ int main(int argc, char *argv[]) {
   }
 
   ClientPool<ThriftClient<ComposeReviewServiceClient>> compose_client_pool(
-      "compose-review-client", compose_addr, compose_port, 0, 128, 1000);
+      "compose-review-client", compose_addr, compose_port, compose_path, 0, 128, 1000);
   ClientPool<ThriftClient<RatingServiceClient>> rating_client_pool(
-      "rating-client", rating_addr, rating_port, 0, 128, 1000);
+      "rating-client", rating_addr, rating_port, rating_path, 0, 128, 1000);
 
   mongoc_client_t *mongodb_client = mongoc_client_pool_pop(mongodb_client_pool);
   if (!mongodb_client) {

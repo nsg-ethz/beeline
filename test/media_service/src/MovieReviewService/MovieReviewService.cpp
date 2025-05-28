@@ -34,19 +34,21 @@ int main(int argc, char *argv[]) {
   }
 
   int port = config_json["movie-review-service"]["port"];
-  std::string redis_addr =
-      config_json["movie-review-redis"]["addr"];
+  std::string redis_addr = config_json["movie-review-redis"]["addr"];
   int redis_port = config_json["movie-review-redis"]["port"];
-  int review_storage_port = config_json["review-storage-service"]["port"];
+  std::string redis_path = config_json["movie-review-redis"]["path"];
+
   std::string review_storage_addr = config_json["review-storage-service"]["addr"];
+  std::string review_storage_path = config_json["review-storage-service"]["path"];
+  int review_storage_port = config_json["review-storage-service"]["port"];
 
   mongoc_client_pool_t *mongodb_client_pool =
       init_mongodb_client_pool(config_json, "movie-review", 128);
   ClientPool<RedisClient> redis_client_pool("movie-review-redis",
-                                            redis_addr, redis_port, 0, 128, 1000);
+                                            redis_addr, redis_port, redis_path, 0, 128, 1000);
   ClientPool<ThriftClient<ReviewStorageServiceClient>>
       review_storage_client_pool("review-storage-client", review_storage_addr,
-                               review_storage_port, 0, 128, 1000);
+                               review_storage_port, review_storage_path, 0, 128, 1000);
 
   if (mongodb_client_pool == nullptr) {
     return EXIT_FAILURE;

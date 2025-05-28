@@ -13,7 +13,7 @@ import string
 
 def main():
     # Make socket
-    socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+    socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
 
     # Buffering is critical. Raw sockets are very slow
     transport = TTransport.TFramedTransport(socket)

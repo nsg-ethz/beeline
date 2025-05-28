@@ -14,7 +14,7 @@ import string
 from time import time
 
 def write_movie_review():
-  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
   transport = TTransport.TFramedTransport(socket)
   protocol = TBinaryProtocol.TBinaryProtocol(transport)
   client = MovieReviewService.Client(protocol)
@@ -30,7 +30,7 @@ def write_movie_review():
   transport.close()
 
 def read_movie_reviews():
-  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
   transport = TTransport.TFramedTransport(socket)
   protocol = TBinaryProtocol.TBinaryProtocol(transport)
   client = MovieReviewService.Client(protocol)

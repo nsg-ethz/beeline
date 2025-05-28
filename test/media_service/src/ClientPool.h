@@ -16,7 +16,7 @@ template<class TClient>
 class ClientPool {
  public:
   ClientPool(const std::string &client_type, const std::string &addr,
-      int port, int min_size, int max_size, int timeout_ms);
+      int port, const std::string &path, int min_size, int max_size, int timeout_ms);
   ~ClientPool();
 
   ClientPool(const ClientPool&) = delete;
@@ -32,6 +32,7 @@ class ClientPool {
  private:
   std::deque<TClient *> _pool;
   std::string _addr;
+  std::string _path;
   std::string _client_type;
   int _port;
   int _min_pool_size{};
@@ -45,17 +46,19 @@ class ClientPool {
 
 template<class TClient>
 ClientPool<TClient>::ClientPool(const std::string &client_type,
-    const std::string &addr, int port, int min_pool_size,
+    const std::string &addr, int port, const std::string &path, int min_pool_size,
     int max_pool_size, int timeout_ms) {
   _addr = addr;
   _port = port;
+  _path = path;
   _min_pool_size = min_pool_size;
   _max_pool_size = max_pool_size;
   _timeout_ms = timeout_ms;
   _client_type = client_type;
 
   for (int i = 0; i < min_pool_size; ++i) {
-    TClient *client = new TClient(addr, port);
+      LOG(error) << "Create client pool:" << addr << ":" << port << path;
+    TClient *client = new TClient(addr, port, path);
     _pool.emplace_back(client);
   }
   _curr_pool_size = min_pool_size;
@@ -78,7 +81,7 @@ TClient * ClientPool<TClient>::Pop() {
       // the max pool size.
       if (_curr_pool_size < _max_pool_size) {
         try {
-          client = new TClient(_addr, _port);
+          client = new TClient(_addr, _port, _path);
           _curr_pool_size++;
           break;
         } catch (...) {
@@ -112,7 +115,7 @@ TClient * ClientPool<TClient>::Pop() {
       LOG(error) << "Failed to connect " + _client_type;
       _pool.push_back(client);
       throw;
-    }    
+    }
   }
   return client;
 }

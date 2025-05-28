@@ -33,16 +33,18 @@ int main(int argc, char *argv[]) {
 
   int port = config_json["rating-service"]["port"];
   std::string compose_addr = config_json["compose-review-service"]["addr"];
+  std::string compose_path = config_json["compose-review-service"]["path"];
   int compose_port = config_json["compose-review-service"]["port"];
 
   std::string redis_addr = config_json["rating-redis"]["addr"];
+  std::string redis_path = config_json["rating-redis"]["path"];
   int redis_port = config_json["rating-redis"]["port"];
 
   ClientPool<ThriftClient<ComposeReviewServiceClient>> compose_client_pool(
-      "compose-review-client", compose_addr, compose_port, 0, 128, 1000);
+      "compose-review-client", compose_addr, compose_port, compose_path, 0, 128, 1000);
 
   ClientPool<RedisClient> redis_client_pool("rating-redis",
-      redis_addr, redis_port, 0, 128, 1000);
+      redis_addr, redis_port, redis_path, 0, 128, 1000);
 
   TThreadedServer server (
       std::make_shared<RatingServiceProcessor>(

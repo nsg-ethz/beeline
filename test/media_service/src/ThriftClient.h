@@ -27,7 +27,7 @@ using apache::thrift::TException;
 template<class TThriftClient>
 class ThriftClient : public GenericClient {
  public:
-  ThriftClient(const std::string &addr, int port);
+  ThriftClient(const std::string &addr, int port, const std::string &path);
 
   ThriftClient(const ThriftClient &) = delete;
   ThriftClient &operator=(const ThriftClient &) = delete;
@@ -54,12 +54,11 @@ class ThriftClient : public GenericClient {
 
 template<class TThriftClient>
 ThriftClient<TThriftClient>::ThriftClient(
-    const std::string &addr, int port) {
+    const std::string &addr, int port, const std::string &path) {
   _addr = addr;
   _port = port;
   _socket = std::shared_ptr<TTransport>(new TSocket(addr, port));
   // _transport = std::shared_ptr<TTransport>(new TFramedTransport(_socket));
-  const std::string path = "/";
   _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, path));
   _protocol = std::shared_ptr<TProtocol>(new TBinaryProtocol(_transport));
   _client = new TThriftClient(_protocol);

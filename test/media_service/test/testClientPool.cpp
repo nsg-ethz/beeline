@@ -24,7 +24,7 @@ void getClient(
 int main(int argc, char *argv[]) {
   init_logger();
   ClientPool<ThriftClient<ComposeReviewServiceClient>> client_pool(
-      0, 16, "compose-review-service", 9090);
+      0, 16, "compose-review-service", 9999);
   bool done = false;
   std::vector<std::thread> threads;
   for (int i = 0; i < 10; i++) {
@@ -34,4 +34,3 @@ int main(int argc, char *argv[]) {
     threads[i].join();
   }
 }
-

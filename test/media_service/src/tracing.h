@@ -52,12 +52,12 @@ class TextMapWriter : public opentracing::TextMapWriter {
 void SetUpTracer(
     const std::string &config_file_path,
     const std::string &service) {
-  auto configYAML = YAML::LoadFile(config_file_path);
-  auto config = jaegertracing::Config::parse(configYAML);
-  auto tracer = jaegertracing::Tracer::make(
-      service, config, jaegertracing::logging::consoleLogger());
-  opentracing::Tracer::InitGlobal(
-      std::static_pointer_cast<opentracing::Tracer>(tracer));
+  // auto configYAML = YAML::LoadFile(config_file_path);
+  // auto config = jaegertracing::Config::parse(configYAML);
+  // auto tracer = jaegertracing::Tracer::make(
+  //     service, config, jaegertracing::logging::consoleLogger());
+  // opentracing::Tracer::InitGlobal(
+  //     std::static_pointer_cast<opentracing::Tracer>(tracer));
 }
 
 

@@ -38,6 +38,7 @@ int main(int argc, char *argv[]) {
 
   int port = config_json["user-service"]["port"];
   std::string compose_addr = config_json["compose-review-service"]["addr"];
+  std::string compose_path = config_json["compose-review-service"]["path"];
   int compose_port = config_json["compose-review-service"]["port"];
 
   memcached_pool_st *memcached_client_pool =
@@ -57,7 +58,7 @@ int main(int argc, char *argv[]) {
   std::mutex thread_lock;
 
   ClientPool<ThriftClient<ComposeReviewServiceClient>> compose_client_pool(
-      "compose-review-client", compose_addr, compose_port, 0, 128, 1000);
+      "compose-review-client", compose_addr, compose_port, compose_path, 0, 128, 1000);
 
   TThreadedServer server(
       std::make_shared<UserServiceProcessor>(

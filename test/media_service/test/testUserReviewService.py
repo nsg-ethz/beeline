@@ -13,7 +13,7 @@ import random
 from time import time
 
 def write_user_review():
-  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
   transport = TTransport.TFramedTransport(socket)
   protocol = TBinaryProtocol.TBinaryProtocol(transport)
   client = UserReviewService.Client(protocol)
@@ -27,7 +27,7 @@ def write_user_review():
   transport.close()
 
 def read_user_reviews():
-  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9090)
+  socket = TSocket.TSocket("ath-8.ece.cornell.edu", 9999)
   transport = TTransport.TFramedTransport(socket)
   protocol = TBinaryProtocol.TBinaryProtocol(transport)
   client = UserReviewService.Client(protocol)
