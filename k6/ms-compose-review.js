@@ -1047,7 +1047,7 @@ export default () => {
 
     const body = `username=${username}&password=${password}&title=${title}&rating=${rating}&text=${randomText}`;
     const res = http.post(
-        "http://localhost:8080/wrk2-api/review/compose",
+        "http://moonshine:8080/wrk2-api/review/compose",
         body,
         params,
     );
