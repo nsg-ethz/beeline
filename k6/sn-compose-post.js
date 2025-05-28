@@ -1,8 +1,5 @@
 import { check } from "k6";
-import crypto from "k6/crypto";
 import http from "k6/http";
-import encoding from "k6/encoding";
-import exec from "k6/execution";
 import {
     randomString,
     randomIntBetween,
@@ -16,8 +13,11 @@ export const options = {
         compose_post: {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 300,
-            stages: [{ target: 4000, duration: "100s" }, { target: 4000, duration: "5s" }],
-	    gracefulStop: "3s"
+            stages: [
+                { target: 4000, duration: "100s" },
+                { target: 4000, duration: "5s" },
+            ],
+            gracefulStop: "3s",
         },
     },
     thresholds: {

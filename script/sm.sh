@@ -63,6 +63,7 @@ case ${ACTION} in
 
         # this doesn't seem like a good idea but it works
         sudo chmod -R o+r ${ROOT}/../test/social_network/config-*
+        sudo chmod -R o+r ${ROOT}/../test/media_service/config-*
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
         sleep 5 # waiting is not enough apparently
@@ -79,8 +80,15 @@ case ${ACTION} in
             echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
         fi
 
-        cd ${ROOT}/../test/social_network
-        python3 scripts/init_social_graph.py
+        if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
+            cd ${ROOT}/../test/social_network
+            python3 scripts/init_social_graph.py
+        elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
+            cd ${ROOT}/../test/media_service/scripts
+            python3 write_movie_info.py
+            ./register_movies.sh
+            ./register_users.sh
+        fi
 
         sudo -b systemd-run -q --scope -u sn-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;

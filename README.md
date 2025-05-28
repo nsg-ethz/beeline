@@ -20,7 +20,7 @@ Also, you might have to increase the limit of open files in `/etc/security/limit
 ```
 RUST_LOG=info taskset --cpu-list 1-35 cargo run -r -p beeline -- -a 172.17.0.1:9999 -c config/beeline/sn.yaml
 docker compose -f docker/sn-beeline.yaml up --force-recreate
-script/sn.sh -n [EXPERIMENT_NAME] -p beeline
+script/sm.sh -n [EXPERIMENT_NAME] -p beeline
 ```
 
 ## Requirements

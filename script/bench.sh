@@ -31,16 +31,21 @@ mkdir -p ${SUMMARY_DIR}
 for i in $(seq ${FROM} ${TO} ) ; do
 
     case ${BENCH} in
-        sn)
-            ssh -t moonshine "${ROOT}/sn.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
+        sm)
+            ssh -t moonshine "${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
 
             REPORT=${SUMMARY_DIR}/${PROXY}-k6-e${i}-full.csv
             SUMMARY=${SUMMARY_DIR}/${PROXY}-k6-e${i}-summary.log
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
-            k6 run ${ROOT}/../k6/compose-post.js --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
+            if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
+                K6_SCRIPT=${ROOT}/../k6/sn-compose-post.js
+            elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
+                K6_SCRIPT=${ROOT}/../k6/ms-compose-review.js
+            fi
+            k6 run ${K6_SCRIPT} --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
 
-            ssh -t moonshine "${ROOT}/sn.sh down -c ${ROOT}/../${CONFIG}"
+            ssh -t moonshine "${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG}"
             ;;
 
         mb)

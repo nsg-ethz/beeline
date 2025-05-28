@@ -1,13 +1,13 @@
-math.randomseed(os.time())
-math.random(); math.random(); math.random()
+import { check } from "k6";
+import http from "k6/http";
+import {
+    randomString,
+    randomIntBetween,
+} from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
-local charset = { 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', 'a', 's',
-    'd', 'f', 'g', 'h', 'j', 'k', 'l', 'z', 'x', 'c', 'v', 'b', 'n', 'm', 'Q',
-    'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', 'A', 'S', 'D', 'F', 'G', 'H',
-    'J', 'K', 'L', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '1', '2', '3', '4', '5',
-    '6', '7', '8', '9', '0' }
+const randomText = randomString(256);
 
-local movie_titles = {
+const movies = [
     "Avengers: Endgame",
     "Kamen Rider Heisei Generations FOREVER",
     "Captain Marvel",
@@ -1007,40 +1007,52 @@ local movie_titles = {
     "Lakeview Terrace",
     "The Boy Next Door",
     "The River Wild",
-    "Flood"
-}
+    "Flood",
+];
 
-function string.random(length)
-    if length > 0 then
-        return string.random(length - 1) .. charset[math.random(1, #charset)]
-    else
-        return ""
-    end
-end
+export const options = {
+    scenarios: {
+        compose_review: {
+            executor: "ramping-arrival-rate",
+            preAllocatedVUs: 300,
+            stages: [
+                { target: 4000, duration: "100s" },
+                { target: 4000, duration: "5s" },
+            ],
+            gracefulStop: "3s",
+        },
+    },
+    thresholds: {
+        http_req_failed: [{ threshold: "rate<0.01" }],
+    },
+    discardResponseBodies: true,
+};
 
-request = function()
-    local movie_index = math.random(1000)
-    local user_index = math.random(1000)
-    local username = "username_" .. tostring(user_index)
-    local password = "password_" .. tostring(user_index)
-    local title = urlEncode(movie_titles[movie_index])
-    local rating = math.random(0, 10)
-    local text = string.random(256)
+export default () => {
+    const userIndex = randomIntBetween(1, 1000);
+    const movieIndex = randomIntBetween(1, movies.length - 1);
 
-    local path = "/wrk2-api/review/compose"
-    local method = "POST"
-    local headers = {}
-    local body = "username=" .. username .. "&password=" .. password .. "&title=" ..
-        title .. "&rating=" .. rating .. "&text=" .. text
-    headers["Content-Type"] = "application/x-www-form-urlencoded"
+    const username = `username_${userIndex}`;
+    const password = `password_${userIndex}`;
+    const title = encodeURIComponent(movies[movieIndex]);
+    const rating = randomIntBetween(0, 10);
 
-    req = wrk.format(method, path, headers, body)
-    print(req)
+    const headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+    };
+    const params = {
+        headers: headers,
+        timeout: "3s",
+    };
 
-    return req
-end
+    const body = `username=${username}&password=${password}&title=${title}&rating=${rating}&text=${randomText}`;
+    const res = http.post(
+        "http://localhost:8080/wrk2-api/review/compose",
+        body,
+        params,
+    );
 
-function urlEncode(s)
-    s = string.gsub(s, "([^%w%.%- ])", function(c) return string.format("%%%02X", string.byte(c)) end)
-    return string.gsub(s, " ", "+")
-end
+    return check(res, {
+        "status is 200": (r) => r.status === 200,
+    });
+};
