@@ -1,0 +1,502 @@
+name: media-service
+
+networks:
+    default:
+        ipam:
+            config:
+                - subnet: 172.18.0.0/24
+
+services:
+    #   Enables resolving container hostnames from host machine
+    dns-media:
+        image: defreitas/dns-proxy-server
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.2
+        volumes:
+            - /opt/dns-proxy-server/conf:/app/conf
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /etc/resolv.conf:/etc/resolv.conf
+
+    unique-id-service:
+        build: ../test/media_service
+        hostname: unique-id-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.3
+        #    ports:
+        #      - 10001:9090
+        restart: always
+        entrypoint: UniqueIdService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    movie-id-service:
+        build: ../test/media_service
+        hostname: movie-id-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.4
+        #    ports:
+        #      - 10002:9090
+        restart: always
+        entrypoint: MovieIdService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    movie-id-mongodb:
+        image: mongo:4.4.6
+        hostname: movie-id-mongodb
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.5
+        #    ports:
+        #      - 27018:27017
+        restart: always
+
+    movie-id-memcached:
+        image: memcached
+        hostname: movie-id-memcached
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.6
+        #    ports:
+        #      - 11212:11211
+        restart: always
+
+    text-service:
+        build: ../test/media_service
+        hostname: text-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.7
+        #    ports:
+        #      - 10003:9090
+        restart: always
+        entrypoint: TextService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    rating-service:
+        build: ../test/media_service
+        hostname: rating-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.8
+        #    ports:
+        #      - 10004:9090
+        restart: always
+        entrypoint: RatingService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    rating-redis:
+        image: redis
+        hostname: rating-redis
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.9
+        #    ports:
+        #      - 6382:6379
+        restart: always
+
+    user-service:
+        build: ../test/media_service
+        hostname: user-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.10
+        #    ports:
+        #      - 10005:9090
+        restart: always
+        entrypoint: UserService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    user-mongodb:
+        image: mongo:4.4.6
+        hostname: user-mongodb
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.11
+        #    ports:
+        #      - 27019:27017
+        restart: always
+
+    user-memcached:
+        image: memcached
+        hostname: user-memcached
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.12
+        #    ports:
+        #      - 11213:11211
+        restart: always
+
+    compose-review-service:
+        build: ../test/media_service
+        hostname: compose-review-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.13
+        #    ports:
+        #      - 10006:9090
+        restart: always
+        entrypoint: ComposeReviewService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    compose-review-memcached:
+        image: memcached
+        hostname: compose-review-memcached
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.14
+        #    ports:
+        #      - 11214:11211
+        restart: always
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    review-storage-service:
+        build: ../test/media_service
+        hostname: review-storage-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.15
+        #    ports:
+        #      - 10007:9090
+        restart: always
+        entrypoint: ReviewStorageService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    review-storage-mongodb:
+        image: mongo:4.4.6
+        hostname: review-storage-mongodb
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.16
+        #    ports:
+        #      - 27020:27017
+        restart: always
+
+    review-storage-memcached:
+        image: memcached
+        hostname: review-storage-memcached
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.17
+        #    ports:
+        #      - 11215:11211
+        restart: always
+
+    user-review-service:
+        build: ../test/media_service
+        hostname: user-review-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.18
+        #    ports:
+        #      - 10008:9090
+        restart: always
+        entrypoint: UserReviewService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    user-review-mongodb:
+        image: mongo:4.4.6
+        hostname: user-review-mongodb
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.19
+        #    ports:
+        #      - 27021:27017
+        restart: always
+
+    user-review-redis:
+        image: redis
+        hostname: user-review-redis
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.20
+        #    ports:
+        #      - 6381:6379
+        restart: always
+
+    movie-review-service:
+        build: ../test/media_service
+        hostname: movie-review-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.21
+        #    ports:
+        #      - 10009:9090
+        restart: always
+        entrypoint: MovieReviewService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    movie-review-mongodb:
+        image: mongo:4.4.6
+        hostname: movie-review-mongodb
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.22
+        ports:
+            - 27022:27017
+        restart: always
+
+    movie-review-redis:
+        image: redis
+        hostname: movie-review-redis
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.23
+        #    ports:
+        #      - 6380:6379
+        restart: always
+
+    nginx-web-server:
+        image: yg397/openresty-thrift:xenial
+        hostname: nginx-thrift
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.24
+        ports:
+            - 8080:8080
+        restart: always
+        volumes:
+            - ../test/media_service/nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
+            - ../test/media_service/nginx-web-server/conf/nginx-envoy.conf:/usr/local/openresty/nginx/conf/nginx.conf
+            - ../test/media_service/nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
+            - ../test/media_service/gen-lua:/gen-lua
+            - ../test/media_service/docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
+
+    cast-info-service:
+        build: ../test/media_service
+        hostname: cast-info-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.25
+        #    ports:
+        #      - 10010:9090
+        restart: always
+        entrypoint: CastInfoService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    cast-info-mongodb:
+        image: mongo:4.4.6
+        hostname: cast-info-mongodb
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.26
+        #    ports:
+        #      - 27024:27017
+        restart: always
+
+    cast-info-memcached:
+        image: memcached
+        hostname: cast-info-memcached
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.27
+        #    ports:
+        #      - 11219:11211
+        restart: always
+
+    plot-service:
+        build: ../test/media_service
+        hostname: plot-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.28
+        #    ports:
+        #      - 10011:9090
+        restart: always
+        entrypoint: PlotService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    plot-mongodb:
+        image: mongo:4.4.6
+        hostname: plot-mongodb
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.29
+        #    ports:
+        #      - 27025:27017
+        restart: always
+
+    plot-memcached:
+        image: memcached
+        hostname: plot-memcached
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.30
+        #    ports:
+        #      - 11220:11211
+        restart: always
+
+    movie-info-service:
+        build: ../test/media_service
+        hostname: movie-info-service
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.31
+        #    ports:
+        #      - 10012:9090
+        restart: always
+        entrypoint: MovieInfoService
+        volumes:
+            - ../test/media_service/config-envoy:/media-microservices/config
+
+    movie-info-mongodb:
+        image: mongo:4.4.6
+        hostname: movie-info-mongodb
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.32
+        #    ports:
+        #      - 27026:27017
+        restart: always
+
+    movie-info-memcached:
+        image: memcached
+        hostname: movie-info-memcached
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.33
+        #    ports:
+        #      - 11221:11211
+        restart: always
+
+    jaeger:
+        image: jaegertracing/all-in-one:latest
+        hostname: jaeger
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.34
+        ports:
+            #      - 5775:5775/udp
+            #      - 6831:6831/udp
+            #      - 6832:6832/udp
+            #      - 5778:5778
+            - 16686:16686
+        #      - 14268:14268
+        #      - 9411:9411
+        environment:
+            - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+
+    sidecar:
+        image: envoyproxy/envoy:v1.33-latest
+        hostname: sidecar
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.40
+        restart: always
+        volumes:
+            - ../test/media_service/config-envoy/sidecar.yaml:/etc/envoy/envoy.yaml
