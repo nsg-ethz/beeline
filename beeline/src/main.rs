@@ -9,7 +9,7 @@ struct Args {
     #[arg(short, long, default_value = "127.0.0.1:3000")]
     address: String,
 
-    #[arg(short, long, default_value = "config/debug.yaml")]
+    #[arg(short, long, default_value = "config/beeline/debug.yaml")]
     config: String,
 }
 
