@@ -6,12 +6,12 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-// struct bpf_crypto_ctx *bpf_crypto_ctx_create(const struct bpf_crypto_params *params, u32 params__sz, int *err) __ksym;
-// struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym;
-// void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
-// int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
-// int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
-// int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
+struct bpf_crypto_ctx *bpf_crypto_ctx_create(const struct bpf_crypto_params *params, u32 params__sz, int *err) __ksym;
+struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym;
+void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
+int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
+int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
+int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
 
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
@@ -429,55 +429,55 @@ struct {
     __type(value, struct us_conn_state);
 } us_conns SEC(".maps");
 
-// enum pr_action authorize(struct pipeline_ctx *ctx) {
-//     if (!ctx) return PR_DROP;
-//     if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
-//         bpf_err("ERROR: No JWT parsed");
-//         return PR_DROP;
-//     }
+enum pr_action authorize(struct pipeline_ctx *ctx) {
+    if (!ctx) return PR_DROP;
+    if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
+        bpf_err("ERROR: No JWT parsed");
+        return PR_DROP;
+    }
 
-//     struct cctx_val *cctx_val = cctx_val_lookup();
-//     if (cctx_val == NULL) {
-//         bpf_err("ERROR: Failed to find crypto context");
-//         return PR_DROP;
-//     }
+    struct cctx_val *cctx_val = cctx_val_lookup();
+    if (cctx_val == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return PR_DROP;
+    }
 
-//     struct bpf_crypto_ctx *cctx = cctx_val->ctx;
-//     if (cctx == NULL) {
-//         bpf_err("ERROR: Failed to find crypto context");
-//         return PR_DROP;
-//     }
+    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
+    if (cctx == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return PR_DROP;
+    }
 
-//     // bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
+    bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
 
-//     if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
-//         bpf_err("ERROR: Failed to digest msg");
-//         return PR_DROP;
-//     }
+    if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
+        bpf_err("ERROR: Failed to digest msg");
+        return PR_DROP;
+    }
 
-//     int sig_len = bpf_base64url_encode(ctx->jwt_claims, 32, ctx->tmp, 512);
-//     if (sig_len < 0) {
-//         bpf_err("ERROR: Failed to encode signature");
-//         return PR_DROP;
-//     }
+    int sig_len = bpf_base64url_encode(ctx->jwt_claims, 32, ctx->tmp, 512);
+    if (sig_len < 0) {
+        bpf_err("ERROR: Failed to encode signature");
+        return PR_DROP;
+    }
 
-//     if (sig_len > 50) sig_len = 50;
-//     ctx->tmp[50] = '\0';
+    if (sig_len > 50) sig_len = 50;
+    ctx->tmp[50] = '\0';
 
-//     // bpf_log("Computed signature: %s", ctx->tmp);
+    // bpf_log("Computed signature: %s", ctx->tmp);
 
-//     u32 i;
-//     bpf_for(i, 0, sig_len) {
-//         if (ctx->jwt_sig[i] != ctx->tmp[i]) {
-//             bpf_err("ERROR: Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
-//             return PR_DROP;
-//         }
-//     }
+    u32 i;
+    bpf_for(i, 0, sig_len) {
+        if (ctx->jwt_sig[i] != ctx->tmp[i]) {
+            bpf_err("ERROR: Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
+            return PR_DROP;
+        }
+    }
 
-//     bpf_log("JWT verified successfully");
+    bpf_log("JWT verified successfully");
 
-//     return PR_PASS;
-// }
+    return PR_PASS;
+}
 
 __noinline enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ctx == NULL) return PR_DROP;
@@ -739,11 +739,11 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     enum pr_action res = PR_DROP;
 
     if (is_downstream) {
-        // res = authorize(ctx);
-        // if (res == PR_DROP) {
-        //     bpf_log("PLUGIN: Drop downstream msg");
-        //     return PR_DROP;
-        // }
+        res = authorize(ctx);
+        if (res == PR_DROP) {
+            bpf_log("PLUGIN: Drop downstream msg");
+            return PR_DROP;
+        }
 
         if (update_ds_state(ikey, ctx) != PR_PASS) {
             bpf_err("ERROR: Updating downstream connection state failed.");
@@ -896,36 +896,36 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 u32 key_len = 16;
 u8 key[16] = "testtest12345678";
 
-// SEC("syscall")
-// int crypto_setup() {
-//     struct bpf_crypto_ctx *cctx;
-//     struct bpf_crypto_params params = {
-//         .type = "shash",
-//         .algo = "hmac(sha256)",
-//         // .type = "skcipher",
-//         // .algo = "ecb(aes)",
-//         .key_len = key_len,
-//         .authsize = 0,
-//     };
-//     int err = -EINVAL;
-//     if (!key_len || key_len > 256) {
-//         return err;
-//     }
+SEC("syscall")
+int crypto_setup() {
+    struct bpf_crypto_ctx *cctx;
+    struct bpf_crypto_params params = {
+        .type = "shash",
+        .algo = "hmac(sha256)",
+        // .type = "skcipher",
+        // .algo = "ecb(aes)",
+        .key_len = key_len,
+        .authsize = 0,
+    };
+    int err = -EINVAL;
+    if (!key_len || key_len > 256) {
+        return err;
+    }
 
-//     // __builtin_memcpy(&params.algo, cipher, sizeof(cipher));
-//     __builtin_memcpy(&params.key, key, 16);
-//     cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
+    // __builtin_memcpy(&params.algo, cipher, sizeof(cipher));
+    __builtin_memcpy(&params.key, key, 16);
+    cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
 
-//     if (!cctx) {
-//         return -err;
-//     }
+    if (!cctx) {
+        return -err;
+    }
 
-//     err = crypto_ctx_insert(cctx);
-//     if (err && err != -EEXIST)
-//         return -err;
+    err = crypto_ctx_insert(cctx);
+    if (err && err != -EEXIST)
+        return -err;
 
-//     return 0;
-// }
+    return 0;
+}
 
 SEC("syscall")
 int print_profile_stats() {
