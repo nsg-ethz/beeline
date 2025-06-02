@@ -210,6 +210,7 @@ impl Pipeline {
         dest
     }
 
+    #[allow(dead_code)]
     fn authenticate(&self, ctx: &mut Context) -> Result<()> {
         let token = ctx
             .hdrs
