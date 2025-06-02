@@ -2,8 +2,6 @@ use rand::{self, seq::SliceRandom};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr};
 
-mod envoy;
-
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
     pub hosts: Vec<Host>,
@@ -40,20 +38,5 @@ impl Config {
         let host = self.hosts.iter().find(|host| host.name == *backend)?;
 
         Some(&host.instances)
-    }
-}
-
-impl From<envoy::Config> for Config {
-    fn from(config: envoy::Config) -> Self {
-        let hosts = Vec::new();
-
-        // for cluster in config.clusters {
-        //     hosts.push(Host { name, instances });
-        // }
-
-        Config {
-            hosts,
-            patterns: Patterns::default(),
-        }
     }
 }
