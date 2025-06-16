@@ -59,7 +59,8 @@ ThriftClient<TThriftClient>::ThriftClient(
   _port = port;
   _socket = std::shared_ptr<TTransport>(new TSocket(addr, port));
   // _transport = std::shared_ptr<TTransport>(new TFramedTransport(_socket));
-  _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, path));
+  // _transport = std::shared_ptr<TTransport>(new THttpClient(std::static_pointer_cast<TTransport>(_socket), addr, path));
+  _transport = std::shared_ptr<TTransport>(new HttpClient(std::static_pointer_cast<TTransport>(_socket), addr, path));
   _protocol = std::shared_ptr<TProtocol>(new TBinaryProtocol(_transport));
   _client = new TThriftClient(_protocol);
 }
