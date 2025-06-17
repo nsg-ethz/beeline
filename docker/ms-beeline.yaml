@@ -49,9 +49,6 @@ services:
         #    ports:
         #      - 10002:9090
         restart: always
-        depends_on:
-            - movie-id-memcached
-            - movie-id-mongodb
         entrypoint: MovieIdService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -110,8 +107,6 @@ services:
         #    ports:
         #      - 10004:9090
         restart: always
-        depends_on:
-            - rating-redis
         entrypoint: RatingService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -141,9 +136,6 @@ services:
         #    ports:
         #      - 10005:9090
         restart: always
-        depends_on:
-            - user-mongodb
-            - user-memcached
         entrypoint: UserService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -186,8 +178,6 @@ services:
         #    ports:
         #      - 10006:9090
         restart: always
-        depends_on:
-            - compose-review-memcached
         entrypoint: ComposeReviewService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -219,9 +209,6 @@ services:
         #    ports:
         #      - 10007:9090
         restart: always
-        depends_on:
-            - review-storage-memcached
-            - review-storage-mongodb
         entrypoint: ReviewStorageService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -264,9 +251,6 @@ services:
         #    ports:
         #      - 10008:9090
         restart: always
-        depends_on:
-            - user-review-redis
-            - user-review-mongodb
         entrypoint: UserReviewService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -309,9 +293,6 @@ services:
         #    ports:
         #      - 10009:9090
         restart: always
-        depends_on:
-            - movie-review-redis
-            - movie-review-mongodb
         entrypoint: MovieReviewService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -356,7 +337,7 @@ services:
         restart: always
         volumes:
             - ../test/media_service/nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
-            - ../test/media_service/nginx-web-server/conf/nginx-beeline.conf:/usr/local/openresty/nginx/conf/nginx.conf
+            - ../test/media_service/nginx-web-server/conf/nginx-envoy.conf:/usr/local/openresty/nginx/conf/nginx.conf
             - ../test/media_service/nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
             - ../test/media_service/gen-lua:/gen-lua
             - ../test/media_service/docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
@@ -373,9 +354,6 @@ services:
         #    ports:
         #      - 10010:9090
         restart: always
-        depends_on:
-            - cast-info-memcached
-            - cast-info-mongodb
         entrypoint: CastInfoService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -418,9 +396,6 @@ services:
         #    ports:
         #      - 10011:9090
         restart: always
-        depends_on:
-            - plot-memcached
-            - plot-mongodb
         entrypoint: PlotService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
@@ -463,9 +438,6 @@ services:
         #    ports:
         #      - 10012:9090
         restart: always
-        depends_on:
-            - movie-info-memcached
-            - movie-info-mongodb
         entrypoint: MovieInfoService
         volumes:
             - ../test/media_service/config-beeline:/media-microservices/config
