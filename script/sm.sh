@@ -52,8 +52,8 @@ case ${ACTION} in
         docker container prune -f
         docker volume prune -f
 
-        sudo systemctl stop sn-proxy.scope > /dev/null 2>&1
-        sudo systemctl stop sn-cpu.scope > /dev/null 2>&1
+        sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 
         echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
@@ -66,38 +66,46 @@ case ${ACTION} in
         sudo chmod -R o+r ${ROOT}/../test/media_service/config-*
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
-        sleep 5 # waiting is not enough apparently
 
         if [ "${PROXY}" = "beeline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b systemd-run -q --scope -u sn-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/sn.yaml
+            if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
+                SM_APP=sn cargo b -r -p beeline
+                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/sn.yaml
+            elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
+                SM_APP=ms cargo b -r -p beeline
+                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/ms.yaml
+            fi
+
             sleep 5
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b systemd-run -q --scope -u sn-proxy --slice beeline.slice ${PROXY_BIN} -a 172.18.0.40
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.18.0.40
             sleep 5
             echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
         fi
 
+        # populate dbs with data
+        CWD=${PWD}
         if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
             cd ${ROOT}/../test/social_network
             python3 scripts/init_social_graph.py
         elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
             cd ${ROOT}/../test/media_service/scripts
             python3 write_movie_info.py
-            ./register_movies.sh
             ./register_users.sh
         fi
+        cd ${CWD}
 
-        sudo -b systemd-run -q --scope -u sn-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
+        sudo -b systemd-run -q --scope -u sm-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
 
     down)
         CPU_SYSTEM=0-39
 
-        sudo systemctl stop sn-proxy.scope > /dev/null 2>&1
-        sudo systemctl stop sn-cpu.scope > /dev/null 2>&1
+        sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 
         docker compose -f ${DOCKER_CONFIG} down
 

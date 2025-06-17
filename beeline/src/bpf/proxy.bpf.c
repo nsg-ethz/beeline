@@ -223,7 +223,9 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
 
     // we first have to linearize the data
     // TODO: figure out if we have to pull the data for every single modification
-    if (bpf_msg_pull_data(msg, 0, idx+str_len, 0) < 0) return -1;
+    s16 end = idx + str_len;
+    if (end > msg->size) end = msg->size;
+    if (bpf_msg_pull_data(msg, 0, end, 0) < 0) return -1;
 
     if (delta > 0) {
         if (bpf_msg_push_data(msg, idx, delta, 0) < 0) return -1;
@@ -244,7 +246,7 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     char *data_end = (char *)(long)msg->data_end;
 
     u32 i;
-    bpf_for(i, 0, str_len+1) {
+    bpf_for(i, 0, str_len) {
         if (data + i + 1 > data_end) return -1;
         data[i] = str[i];
     }
@@ -282,7 +284,7 @@ static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, st
 
     struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
     if (pqueue == NULL) {
-        bpf_err("WARN: No pqueue found for forwarding token {%pI4:%u, %d, %d, %d}", &ft->addr.ip4, ft->addr.port, ft->direction, ft->path, ft->num_bytes_min);
+        bpf_err("ERROR: No pqueue found for forwarding token {%pI4:%u, %d, %d, %d}", &ft->addr.ip4, ft->addr.port, ft->direction, ft->path, ft->num_bytes_min);
         return PR_UTRN;
     }
 
@@ -326,17 +328,29 @@ enum ft_direction {
 };
 
 enum ft_backend {
-    PR_SOCIAL_GRAPH = 1,
-    PR_HOME_TIMELINE,
-    PR_COMPOSE_POST,
-    PR_POST_STORAGE,
-    PR_USER_TIMELINE,
-    PR_URL_SHORTEN,
-    PR_USER,
-    PR_MEDIA,
-    PR_TEXT,
-    PR_UNIQUE_ID,
-    PR_USER_MENTION,
+    SN_SOCIAL_GRAPH = 1,
+    SN_HOME_TIMELINE,
+    SN_COMPOSE_POST,
+    SN_POST_STORAGE,
+    SN_USER_TIMELINE,
+    SN_URL_SHORTEN,
+    SN_USER,
+    SN_MEDIA,
+    SN_TEXT,
+    SN_UNIQUE_ID,
+    SN_USER_MENTION,
+    MS_UNIQUE_ID,
+    MS_MOVIE_ID,
+    MS_TEXT,
+    MS_RATING,
+    MS_USER,
+    MS_COMPOSE_REVIEW,
+    MS_REVIEW_STORAGE,
+    MS_USER_REVIEW,
+    MS_MOVIE_REVIEW,
+    MS_CAST_INFO,
+    MS_PLOT,
+    MS_MOVIE_INFO,
 };
 
 static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_idx, const struct prange *pranges, struct pipeline_ctx *ctx) {
@@ -375,22 +389,43 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     ctx->ft = (struct frwd_token){ 0 };
 }
 
-static __always_inline enum ft_backend _res_origin(const struct sock_key *key) {
+static __always_inline enum ft_backend _res_origin_sn(const struct sock_key *key) {
     if (key == NULL) return 0;
 
     u8 lo = key->local.ip4 >> 24;
     switch (lo) {
-    case 2: return PR_SOCIAL_GRAPH;
-    case 6: return PR_HOME_TIMELINE;
-    case 9: return PR_COMPOSE_POST;
-    case 11: return PR_POST_STORAGE;
-    case 15: return PR_USER_TIMELINE;
-    case 19: return PR_URL_SHORTEN;
-    case 23: return PR_USER;
-    case 27: return PR_MEDIA;
-    case 31: return PR_TEXT;
-    case 33: return PR_UNIQUE_ID;
-    case 35: return PR_USER_MENTION;
+    case 2: return SN_SOCIAL_GRAPH;
+    case 6: return SN_HOME_TIMELINE;
+    case 9: return SN_COMPOSE_POST;
+    case 11: return SN_POST_STORAGE;
+    case 15: return SN_USER_TIMELINE;
+    case 19: return SN_URL_SHORTEN;
+    case 23: return SN_USER;
+    case 27: return SN_MEDIA;
+    case 31: return SN_TEXT;
+    case 33: return SN_UNIQUE_ID;
+    case 35: return SN_USER_MENTION;
+    default: return 0;
+    }
+}
+
+static __always_inline enum ft_backend _res_origin_ms(const struct sock_key *key) {
+    if (key == NULL) return 0;
+
+    u8 lo = key->local.ip4 >> 24;
+    switch (lo) {
+    case 3: return MS_UNIQUE_ID;
+    case 4: return MS_MOVIE_ID;
+    case 7: return MS_TEXT;
+    case 8: return MS_RATING;
+    case 10: return MS_USER;
+    case 13: return MS_COMPOSE_REVIEW;
+    case 15: return MS_REVIEW_STORAGE;
+    case 18: return MS_USER_REVIEW;
+    case 21: return MS_MOVIE_REVIEW;
+    case 25: return MS_CAST_INFO;
+    case 28: return MS_PLOT;
+    case 31: return MS_MOVIE_INFO;
     default: return 0;
     }
 }
@@ -432,8 +467,8 @@ struct {
 enum pr_action authorize(struct pipeline_ctx *ctx) {
     if (!ctx) return PR_DROP;
     if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
-        bpf_err("ERROR: No JWT parsed");
-        return PR_DROP;
+        bpf_err("WARN: No JWT parsed");
+        return PR_PASS; // we let this pass to make it easier to init the service
     }
 
     struct cctx_val *cctx_val = cctx_val_lookup();
@@ -518,9 +553,7 @@ __noinline enum pr_action update_us_state(const struct sock_key *ukey, struct pi
     return PR_PASS;
 }
 
-__noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
-    if (dkey == NULL || ctx == NULL) return PR_DROP;
-
+__always_inline enum pr_action _forward_ds_conn_sn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     const char *compose_post = "/compose-post-service";
     bool path_is_compose_post = bpf_strncmp(ctx->path, sizeof(compose_post)-1, compose_post);
     const char *home_timeline = "/home-timeline-service";
@@ -544,17 +577,17 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     const char *user_mention = "/user-mention-service";
     bool path_is_user_mention = bpf_strncmp(ctx->path, sizeof(user_mention)-1, user_mention);
 
-    if (path_is_compose_post == 0) ctx->ft.path = PR_COMPOSE_POST;
-        else if (path_is_home_timeline == 0) ctx->ft.path = PR_HOME_TIMELINE;
-            else if (path_is_media == 0) ctx->ft.path = PR_MEDIA;
-                else if (path_is_post_storage == 0) ctx->ft.path = PR_POST_STORAGE;
-                    else if (path_is_social_graph == 0) ctx->ft.path = PR_SOCIAL_GRAPH;
-                        else if (path_is_text == 0) ctx->ft.path = PR_TEXT;
-                            else if (path_is_unique_id == 0) ctx->ft.path = PR_UNIQUE_ID;
-                                else if (path_is_url_shorten == 0) ctx->ft.path = PR_URL_SHORTEN;
-                                    else if (path_is_user == 0) ctx->ft.path = PR_USER;
-                                        else if (path_is_user_timeline == 0) ctx->ft.path = PR_USER_TIMELINE;
-                                            else if (path_is_user_mention == 0) ctx->ft.path = PR_USER_MENTION;
+    if (path_is_compose_post == 0) ctx->ft.path = SN_COMPOSE_POST;
+        else if (path_is_home_timeline == 0) ctx->ft.path = SN_HOME_TIMELINE;
+            else if (path_is_media == 0) ctx->ft.path = SN_MEDIA;
+                else if (path_is_post_storage == 0) ctx->ft.path = SN_POST_STORAGE;
+                    else if (path_is_social_graph == 0) ctx->ft.path = SN_SOCIAL_GRAPH;
+                        else if (path_is_text == 0) ctx->ft.path = SN_TEXT;
+                            else if (path_is_unique_id == 0) ctx->ft.path = SN_UNIQUE_ID;
+                                else if (path_is_url_shorten == 0) ctx->ft.path = SN_URL_SHORTEN;
+                                    else if (path_is_user == 0) ctx->ft.path = SN_USER;
+                                        else if (path_is_user_timeline == 0) ctx->ft.path = SN_USER_TIMELINE;
+                                            else if (path_is_user_mention == 0) ctx->ft.path = SN_USER_MENTION;
                     else {
                         ctx->ft.direction = PR_REVERSE_PROXY;
                         ctx->ft.num_bytes_min = true;
@@ -565,10 +598,72 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     ctx->ft.direction = PR_UPSTREAM;
     ctx->ft.num_bytes_min = true;
 
-    // ctx->ft.direction = PR_REVERSE_PROXY;
-    // ctx->ft.num_bytes_min = true;
+    return PR_PASS;
+}
+
+__always_inline enum pr_action _forward_ds_conn_ms(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    const char *unique_id = "/unique-id-service";
+    bool path_is_unique_id = bpf_strncmp(ctx->path, sizeof(unique_id)-1, unique_id);
+    const char *movie_id = "/movie-id-service";
+    bool path_is_movie_id = bpf_strncmp(ctx->path, sizeof(movie_id)-1, movie_id);
+    const char *text = "/text-service";
+    bool path_is_text = bpf_strncmp(ctx->path, sizeof(text)-1, text);
+    const char *rating = "/rating-service";
+    bool path_is_rating = bpf_strncmp(ctx->path, sizeof(rating)-1, rating);
+    const char *user = "/user-service";
+    bool path_is_user = bpf_strncmp(ctx->path, sizeof(user)-1, user);
+    const char *compose_review = "/compose-review-service";
+    bool path_is_compose_review = bpf_strncmp(ctx->path, sizeof(compose_review)-1, compose_review);
+    const char *review_storage = "/review-storage-service";
+    bool path_is_review_storage = bpf_strncmp(ctx->path, sizeof(review_storage)-1, review_storage);
+    const char *user_review = "/user-review-service";
+    bool path_is_user_review = bpf_strncmp(ctx->path, sizeof(user_review)-1, user_review);
+    const char *movie_review = "/movie-review-service";
+    bool path_is_movie_review = bpf_strncmp(ctx->path, sizeof(movie_review)-1, movie_review);
+    const char *cast_info = "/cast-info-service";
+    bool path_is_cast_info = bpf_strncmp(ctx->path, sizeof(cast_info)-1, cast_info);
+    const char *plot = "/plot-service";
+    bool path_is_plot = bpf_strncmp(ctx->path, sizeof(plot)-1, plot);
+    const char *movie_info = "/movie-info-service";
+    bool path_is_movie_info = bpf_strncmp(ctx->path, sizeof(movie_info)-1, movie_info);
+
+    if (path_is_unique_id == 0) ctx->ft.path = MS_UNIQUE_ID;
+        else if (path_is_movie_id == 0) ctx->ft.path = MS_MOVIE_ID;
+            else if (path_is_text == 0) ctx->ft.path = MS_TEXT;
+                else if (path_is_rating == 0) ctx->ft.path = MS_RATING;
+                    else if (path_is_user == 0) ctx->ft.path = MS_USER;
+                        else if (path_is_compose_review == 0) ctx->ft.path = MS_COMPOSE_REVIEW;
+                            else if (path_is_review_storage == 0) ctx->ft.path = MS_REVIEW_STORAGE;
+                                else if (path_is_user_review == 0) ctx->ft.path = MS_USER_REVIEW;
+                                    else if (path_is_movie_review == 0) ctx->ft.path = MS_MOVIE_REVIEW;
+                                        else if (path_is_cast_info == 0) ctx->ft.path = MS_CAST_INFO;
+                                            else if (path_is_plot == 0) ctx->ft.path = MS_PLOT;
+                                                else if (path_is_movie_info == 0) ctx->ft.path = MS_MOVIE_INFO;
+                    else {
+                        ctx->ft.direction = PR_REVERSE_PROXY;
+                        ctx->ft.num_bytes_min = true;
+
+                        return PR_PASS;
+                    }
+
+    ctx->ft.direction = PR_UPSTREAM;
+    ctx->ft.num_bytes_min = true;
 
     return PR_PASS;
+}
+
+__noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    if (dkey == NULL || ctx == NULL) return PR_DROP;
+
+    #if SM_APP == 1
+    return _forward_ds_conn_sn(dkey, ctx);
+    #elif SM_APP == 2
+    return _forward_ds_conn_ms(dkey, ctx);
+    #else
+    ctx->ft.direction = PR_REVERSE_PROXY;
+    ctx->ft.num_bytes_min = true;
+    return PR_PASS;
+    #endif
 }
 
 __noinline enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
@@ -603,13 +698,21 @@ __noinline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, cons
 __noinline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
     u8 dir = (ukey->local.ip4 >> 24 == 40) ? PR_REVERSE_PROXY : PR_UPSTREAM;
-    // u8 dir = PR_REVERSE_PROXY;
+    enum ft_backend path = 0;
+
+    #if SM_APP == 1
+    path = _res_origin_sn(ukey);
+    #elif SM_APP == 2
+    path = _res_origin_ms(ukey);
+    #else
+    dir = PR_REVERSE_PROXY;
+    #endif
 
     // make upstream connection available for new requests
     struct frwd_token ft = {
         .addr = { 0 },
         .direction = dir,
-        .path = _res_origin(ukey),
+        .path = path,
         .num_bytes_min = true
     };
     if (_fib_insert(&ft, ukey) < 0) {
@@ -741,13 +844,25 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     if (is_downstream) {
         res = authorize(ctx);
         if (res == PR_DROP) {
-            bpf_log("PLUGIN: Drop downstream msg");
+            bpf_err("PLUGIN: Drop downstream msg");
             return PR_DROP;
         }
 
         if (update_ds_state(ikey, ctx) != PR_PASS) {
             bpf_err("ERROR: Updating downstream connection state failed.");
         }
+
+        struct prange hdr_range = {
+            .idx = ctx->done_idx,
+            .len = 0
+        };
+        const char *internal_hdr = "x-beeline-internal: true\r\n";
+        if (_modify(msg, hdr_range, internal_hdr, 26) < 0) {
+            bpf_err("ERROR: Failed to add internal header");
+            return PR_DROP;
+        }
+
+        ctx->done_idx += 26;
 
         // if (ctx->backend_range.len == 0) return PR_DROP;
         enum pr_action res = forward_ds_conn(ikey, ctx);

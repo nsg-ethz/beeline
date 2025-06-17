@@ -225,17 +225,17 @@ impl<'obj> Proxy<'obj> {
         let new_upstream = pipeline.create_new_upstream()?;
         let new_upstream = Mutex::new(new_upstream);
 
-        // let crypto = &skel.progs.crypto_setup;
-        // let input = libbpf_rs::ProgramInput::default();
+        let crypto = &skel.progs.crypto_setup;
+        let input = libbpf_rs::ProgramInput::default();
 
-        // let res = crypto.test_run(input)?;
-        // if res.return_value != 0 {
-        //     let err = std::io::Error::from_raw_os_error(res.return_value as i32);
-        //     error!("Crypto setup failed: {:?}", err);
-        //     bail!("Crypto setup failed");
-        // }
+        let res = crypto.test_run(input)?;
+        if res.return_value != 0 {
+            let err = std::io::Error::from_raw_os_error(res.return_value as i32);
+            error!("Crypto setup failed: {:?}", err);
+            bail!("Crypto setup failed");
+        }
 
-        // debug!("Crypto setup successful");
+        debug!("Crypto setup successful");
 
         Ok(Self {
             address,
@@ -445,29 +445,6 @@ impl<'obj> Proxy<'obj> {
 
         Ok(())
     }
-
-    // fn trigger_timers(&self) -> Result<()> {
-    //     // TODO: timers can have their own frequency
-    //     let timers = self.timers.clone();
-    //     let update_freq = Duration::from_micros(500);
-
-    //     task::spawn(async move {
-    //         let mut interval = time::interval(update_freq);
-
-    //         loop {
-    //             interval.tick().await;
-
-    //             let res = timers[0].lock().unwrap().trigger();
-
-    //             // TODO: report error with name of timer
-    //             if let Err(e) = res {
-    //                 error!("An error occured in timer {}: {:?}", "UpdateForwardMap", e);
-    //             }
-    //         }
-    //     });
-
-    //     Ok(())
-    // }
 
     fn get_sock_wait_list(&self) -> Result<MapHandle> {
         let id = self.skel.maps.sock_wait_list.info()?.info.id;

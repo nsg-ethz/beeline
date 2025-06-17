@@ -35,7 +35,7 @@ services:
         restart: always
         entrypoint: UniqueIdService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     movie-id-service:
         build: ../test/media_service
@@ -49,9 +49,12 @@ services:
         #    ports:
         #      - 10002:9090
         restart: always
+        depends_on:
+            - movie-id-memcached
+            - movie-id-mongodb
         entrypoint: MovieIdService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     movie-id-mongodb:
         image: mongo:4.4.6
@@ -93,7 +96,7 @@ services:
         restart: always
         entrypoint: TextService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     rating-service:
         build: ../test/media_service
@@ -107,9 +110,11 @@ services:
         #    ports:
         #      - 10004:9090
         restart: always
+        depends_on:
+            - rating-redis
         entrypoint: RatingService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     rating-redis:
         image: redis
@@ -136,9 +141,12 @@ services:
         #    ports:
         #      - 10005:9090
         restart: always
+        depends_on:
+            - user-mongodb
+            - user-memcached
         entrypoint: UserService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     user-mongodb:
         image: mongo:4.4.6
@@ -178,9 +186,11 @@ services:
         #    ports:
         #      - 10006:9090
         restart: always
+        depends_on:
+            - compose-review-memcached
         entrypoint: ComposeReviewService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     compose-review-memcached:
         image: memcached
@@ -195,7 +205,7 @@ services:
         #      - 11214:11211
         restart: always
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     review-storage-service:
         build: ../test/media_service
@@ -209,9 +219,12 @@ services:
         #    ports:
         #      - 10007:9090
         restart: always
+        depends_on:
+            - review-storage-memcached
+            - review-storage-mongodb
         entrypoint: ReviewStorageService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     review-storage-mongodb:
         image: mongo:4.4.6
@@ -251,9 +264,12 @@ services:
         #    ports:
         #      - 10008:9090
         restart: always
+        depends_on:
+            - user-review-redis
+            - user-review-mongodb
         entrypoint: UserReviewService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     user-review-mongodb:
         image: mongo:4.4.6
@@ -293,9 +309,12 @@ services:
         #    ports:
         #      - 10009:9090
         restart: always
+        depends_on:
+            - movie-review-redis
+            - movie-review-mongodb
         entrypoint: MovieReviewService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     movie-review-mongodb:
         image: mongo:4.4.6
@@ -306,8 +325,8 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.22
-        ports:
-            - 27022:27017
+        # ports:
+        #     - 27022:27017
         restart: always
 
     movie-review-redis:
@@ -337,7 +356,7 @@ services:
         restart: always
         volumes:
             - ../test/media_service/nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
-            - ../test/media_service/nginx-web-server/conf/nginx-envoy.conf:/usr/local/openresty/nginx/conf/nginx.conf
+            - ../test/media_service/nginx-web-server/conf/nginx-beeline.conf:/usr/local/openresty/nginx/conf/nginx.conf
             - ../test/media_service/nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
             - ../test/media_service/gen-lua:/gen-lua
             - ../test/media_service/docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
@@ -354,9 +373,12 @@ services:
         #    ports:
         #      - 10010:9090
         restart: always
+        depends_on:
+            - cast-info-memcached
+            - cast-info-mongodb
         entrypoint: CastInfoService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     cast-info-mongodb:
         image: mongo:4.4.6
@@ -396,9 +418,12 @@ services:
         #    ports:
         #      - 10011:9090
         restart: always
+        depends_on:
+            - plot-memcached
+            - plot-mongodb
         entrypoint: PlotService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     plot-mongodb:
         image: mongo:4.4.6
@@ -438,9 +463,12 @@ services:
         #    ports:
         #      - 10012:9090
         restart: always
+        depends_on:
+            - movie-info-memcached
+            - movie-info-mongodb
         entrypoint: MovieInfoService
         volumes:
-            - ../test/media_service/config-envoy:/media-microservices/config
+            - ../test/media_service/config-beeline:/media-microservices/config
 
     movie-info-mongodb:
         image: mongo:4.4.6
@@ -499,4 +527,4 @@ services:
                 ipv4_address: 172.18.0.40
         restart: always
         volumes:
-            - ../test/media_service/config-envoy/sidecar.yaml:/etc/envoy/envoy.yaml
+            - ../test/media_service/config-beeline/sidecar.yaml:/etc/envoy/envoy.yaml

@@ -52,7 +52,7 @@ function encode(payload, secret, algorithm) {
     return [header, payload, sig].join(".");
 }
 
-function generateWebToken(id, valid) {
+export function generateWebToken(id, valid) {
     const claim = {
         sub: id,
         name: "John Doe",

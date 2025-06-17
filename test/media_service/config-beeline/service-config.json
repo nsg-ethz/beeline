@@ -1,0 +1,158 @@
+{
+    "secret": "secret",
+    "unique-id-service": {
+        "addr": "beeline",
+        "path": "/unique-id-service",
+        "port": 9999
+    },
+    "movie-id-service": {
+        "addr": "beeline",
+        "path": "/movie-id-service",
+        "port": 9999
+    },
+    "movie-id-mongodb": {
+        "addr": "movie-id-mongodb",
+        "path": "/",
+        "port": 27017
+    },
+    "movie-id-memcached": {
+        "addr": "movie-id-memcached",
+        "path": "/",
+        "port": 11211
+    },
+    "user-mongodb": {
+        "addr": "user-mongodb",
+        "path": "/",
+        "port": 27017
+    },
+    "user-memcached": {
+        "addr": "user-memcached",
+        "path": "/",
+        "port": 11211
+    },
+    "text-service": {
+        "addr": "beeline",
+        "path": "/text-service",
+        "port": 9999
+    },
+    "rating-service": {
+        "addr": "beeline",
+        "path": "/rating-service",
+        "port": 9999
+    },
+    "rating-redis": {
+        "addr": "rating-redis",
+        "path": "/",
+        "port": 6379
+    },
+    "user-service": {
+        "addr": "beeline",
+        "path": "/user-service",
+        "port": 9999
+    },
+    "compose-review-service": {
+        "addr": "beeline",
+        "path": "/compose-review-service",
+        "port": 9999
+    },
+    "compose-review-memcached": {
+        "addr": "compose-review-memcached",
+        "path": "/",
+        "port": 11211
+    },
+    "review-storage-service": {
+        "addr": "beeline",
+        "path": "/review-storage-service",
+        "port": 9999
+    },
+    "review-storage-mongodb": {
+        "addr": "review-storage-mongodb",
+        "path": "/",
+        "port": 27017
+    },
+    "review-storage-memcached": {
+        "addr": "review-storage-memcached",
+        "path": "/",
+        "port": 11211
+    },
+    "user-review-service": {
+        "addr": "beeline",
+        "path": "/user-review-service",
+        "port": 9999
+    },
+    "user-review-mongodb": {
+        "addr": "user-review-mongodb",
+        "path": "/",
+        "port": 27017
+    },
+    "user-review-redis": {
+        "addr": "user-review-redis",
+        "path": "/",
+        "port": 6379
+    },
+    "movie-review-service": {
+        "addr": "beeline",
+        "path": "/movie-review-service",
+        "port": 9999
+    },
+    "movie-review-mongodb": {
+        "addr": "movie-review-mongodb",
+        "path": "/",
+        "port": 27017
+    },
+    "movie-review-redis": {
+        "addr": "movie-review-redis",
+        "path": "/",
+        "port": 6379
+    },
+    "cast-info-service": {
+        "addr": "beeline",
+        "path": "/cast-info-service",
+        "port": 9999
+    },
+    "cast-info-mongodb": {
+        "addr": "cast-info-mongodb",
+        "path": "/",
+        "port": 27017
+    },
+    "cast-info-memcached": {
+        "addr": "cast-info-memcached",
+        "path": "/",
+        "port": 11211
+    },
+    "plot-service": {
+        "addr": "beeline",
+        "path": "/plot-service",
+        "port": 9999
+    },
+    "plot-mongodb": {
+        "addr": "plot-mongodb",
+        "path": "/",
+        "port": 27017
+    },
+    "plot-memcached": {
+        "addr": "plot-memcached",
+        "path": "/",
+        "port": 11211
+    },
+    "movie-info-service": {
+        "addr": "beeline",
+        "path": "/movie-info-service",
+        "port": 9999
+    },
+    "movie-info-mongodb": {
+        "addr": "movie-info-mongodb",
+        "path": "/",
+        "port": 27017
+    },
+    "movie-info-memcached": {
+        "addr": "movie-info-memcached",
+        "path": "/",
+        "port": 11211
+    },
+    "page-service": {
+        "addr": "beeline",
+        "path": "/page-service",
+        "port": 9999
+    }
+}

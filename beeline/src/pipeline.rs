@@ -64,13 +64,10 @@ impl NewUpstream for ConnectToBackend {
     }
 
     fn all_upstream_fts(&self) -> Vec<frwd_token> {
-        self.config
-            .hosts
-            .iter()
-            .enumerate()
-            .map(|(idx, _)| frwd_token {
+        (1..=23) // all elements of ft_backend
+            .map(|idx| frwd_token {
                 direction: 2,
-                path: (idx + 1) as u8,
+                path: idx as u8,
                 addr: addr_key { ip4: 0, port: 0 },
                 num_bytes_min: 1,
                 padding: 0,
@@ -93,6 +90,18 @@ impl NewUpstream for ConnectToBackend {
                     9 => "text-service",
                     10 => "unique-id-service",
                     11 => "user-mention-service",
+                    12 => "unique-id-service",
+                    13 => "movie-id-service",
+                    14 => "text-service",
+                    15 => "rating-service",
+                    16 => "user-service",
+                    17 => "compose-review-service",
+                    18 => "review-storage-service",
+                    19 => "user-review-service",
+                    20 => "movie-review-service",
+                    21 => "cast-info-service",
+                    22 => "plot-service",
+                    23 => "movie-info-service",
                     _ => bail!("Invalid path {}", ft.path),
                 };
                 match self.config.select_backend_instance(&name) {

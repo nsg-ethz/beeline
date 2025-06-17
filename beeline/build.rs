@@ -24,6 +24,16 @@ fn main() {
     };
     println!("cargo:rerun-if-env-changed=RUST_LOG");
 
+    let sm = std::env::var("SM_APP").unwrap_or("mb".to_string());
+    let sm = if sm.eq_ignore_ascii_case("sn") {
+        "1"
+    } else if log_level.eq_ignore_ascii_case("ms") {
+        "2"
+    } else {
+        "0"
+    };
+    println!("cargo:rerun-if-env-changed=SM_APP");
+
     SkeletonBuilder::new()
         .source(SRC)
         .clang_args([
@@ -31,6 +41,8 @@ fn main() {
             OsStr::new(format!("LOG_LEVEL={log_level}").as_str()),
             OsStr::new("-D"),
             OsStr::new(format!("BPF_PROFILE={bpf_profile}").as_str()),
+            OsStr::new("-D"),
+            OsStr::new(format!("SM_APP={sm}").as_str()),
             OsStr::new("-I"),
             OsStr::new("../include"),
         ])

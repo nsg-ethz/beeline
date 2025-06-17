@@ -1,4 +1,6 @@
+import { generateWebToken } from "./common.js";
 import { check } from "k6";
+import exec from "k6/execution";
 import http from "k6/http";
 import {
     randomString,
@@ -63,8 +65,10 @@ export default () => {
 
     text += ` http://${randomUrl}/media/${randomString(32)}`;
 
+    const id = exec.scenario.iterationInInstance.toString();
     const headers = {
         "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: "Bearer " + generateWebToken(id, true),
     };
     const params = {
         headers: headers,
@@ -83,6 +87,7 @@ export default () => {
         body,
         params,
     );
+
     return check(res, {
         "status is 200": (r) => r.status === 200,
     });

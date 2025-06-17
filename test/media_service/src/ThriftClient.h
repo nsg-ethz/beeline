@@ -13,6 +13,7 @@
 #include <thrift/stdcxx.h>
 #include "logger.h"
 #include "GenericClient.h"
+#include "HttpClient.h"
 
 namespace media_service {
 
