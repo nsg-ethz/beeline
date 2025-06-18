@@ -423,7 +423,7 @@ services:
             - COLLECTOR_ZIPKIN_HTTP_PORT=9411
 
     sidecar:
-        image: envoyproxy/envoy:v1.33-latest
+        image: envoyproxy/envoy:v1.34-latest
         hostname: sidecar
         cgroup_parent: beeline.slice
         networks:

@@ -1,0 +1,239 @@
+{
+    "social-graph-mongodb": {
+        "keepalive_ms": 10000,
+        "addr": "social-graph-mongodb",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 27017,
+        "connections": 512
+    },
+    "secret": "secret",
+    "unique-id-service": {
+        "keepalive_ms": 10000,
+        "netif": "eth0",
+        "addr": "sidecar",
+        "path": "/unique-id-service",
+        "connections": 512,
+        "timeout_ms": 10000,
+        "port": 9999
+    },
+    "media-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/media-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "url-shorten-memcached": {
+        "keepalive_ms": 10000,
+        "addr": "url-shorten-memcached",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 11211,
+        "connections": 512,
+        "binary_protocol": 1
+    },
+    "social-graph-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/social-graph-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "user-timeline-redis": {
+        "keepalive_ms": 10000,
+        "addr": "user-timeline-redis",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 6379,
+        "connections": 512,
+        "use_cluster": 0,
+        "use_replica": 0
+    },
+    "social-graph-redis": {
+        "keepalive_ms": 10000,
+        "addr": "social-graph-redis",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 6379,
+        "connections": 512,
+        "use_cluster": 0,
+        "use_replica": 0
+    },
+    "post-storage-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/post-storage-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "compose-post-redis": {
+        "keepalive_ms": 10000,
+        "addr": "compose-post-redis",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 6379,
+        "connections": 512,
+        "use_cluster": 0
+    },
+    "user-timeline-mongodb": {
+        "keepalive_ms": 10000,
+        "addr": "user-timeline-mongodb",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 27017,
+        "connections": 512
+    },
+    "user-mongodb": {
+        "keepalive_ms": 10000,
+        "addr": "user-mongodb",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 27017,
+        "connections": 512
+    },
+    "user-memcached": {
+        "keepalive_ms": 10000,
+        "addr": "user-memcached",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 11211,
+        "connections": 512,
+        "binary_protocol": 1
+    },
+    "ssl": {
+        "serverKeyPath": "/keys/server.key",
+        "caPath": "/keys/CA.pem",
+        "enabled": false,
+        "serverCertPath": "/keys/server.crt",
+        "ciphers": "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH"
+    },
+    "text-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/text-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "write-home-timeline-service": {
+        "keepalive_ms": 10000,
+        "workers": 32,
+        "connections": 512,
+        "addr": "sidecar",
+        "path": "/write-home-timeline-service",
+        "timeout_ms": 10000,
+        "port": 9999
+    },
+    "home-timeline-redis": {
+        "keepalive_ms": 10000,
+        "addr": "home-timeline-redis",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 6379,
+        "connections": 512,
+        "use_cluster": 0,
+        "use_replica": 0
+    },
+    "compose-post-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/compose-post-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "user-service": {
+        "keepalive_ms": 10000,
+        "netif": "eth0",
+        "addr": "sidecar",
+        "path": "/user-service",
+        "connections": 512,
+        "timeout_ms": 10000,
+        "port": 9999
+    },
+    "write-home-timeline-rabbitmq": {
+        "keepalive_ms": 10000,
+        "addr": "write-home-timeline-rabbitmq",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 5672,
+        "connections": 512
+    },
+    "post-storage-memcached": {
+        "keepalive_ms": 10000,
+        "addr": "post-storage-memcached",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 11211,
+        "connections": 512,
+        "binary_protocol": 1
+    },
+    "user-mention-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/user-mention-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "post-storage-mongodb": {
+        "keepalive_ms": 10000,
+        "addr": "post-storage-mongodb",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 27017,
+        "connections": 512
+    },
+    "user-timeline-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/user-timeline-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "home-timeline-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/home-timeline-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "url-shorten-mongodb": {
+        "keepalive_ms": 10000,
+        "addr": "url-shorten-mongodb",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 27017,
+        "connections": 512
+    },
+    "url-shorten-service": {
+        "keepalive_ms": 10000,
+        "addr": "sidecar",
+        "path": "/url-shorten-service",
+        "timeout_ms": 10000,
+        "port": 9999,
+        "connections": 512
+    },
+    "redis-primary": {
+        "keepalive_ms": 10000,
+        "addr": "redis-primary",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 6379,
+        "connections": 512
+    },
+    "redis-replica": {
+        "keepalive_ms": 10000,
+        "addr": "redis-replica",
+        "path": "/",
+        "timeout_ms": 10000,
+        "port": 6379,
+        "connections": 512
+    }
+}
