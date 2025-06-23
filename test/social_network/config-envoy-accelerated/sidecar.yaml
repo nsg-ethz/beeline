@@ -18,6 +18,25 @@ static_resources:
                       typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                           http_filters:
+                              - name: envoy.filters.http.JwtAuthentication
+                                typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                                    providers:
+                                        jwt_provider1:
+                                            issuer: https://example.com
+                                            audiences:
+                                                - audience1
+                                            local_jwks:
+                                                inline_string: >-
+                                                    {"keys": [
+                                                      {"kty":"oct",
+                                                      "k": "dGVzdHRlc3QxMjM0NTY3OA==",
+                                                      "alg":"HS256"}]}
+                                    rules:
+                                        - match:
+                                              prefix: "*"
+                                          requires:
+                                              provider_name: jwt_provider1
                               - name: envoy.filters.http.router
                                 typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -31,82 +50,182 @@ static_resources:
                                     routes:
                                         - match:
                                               prefix: "/compose-post-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: compose-post-service
                                         - match:
                                               prefix: "/compose-post-redis"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: compose-post-redis
                                         - match:
                                               prefix: "/write-home-timeline-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: write-home-timeline-service
                                         - match:
                                               prefix: "/media-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: media-service
                                         - match:
                                               prefix: "/post-storage-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: post-storage-service
                                         - match:
                                               prefix: "/social-graph-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: social-graph-service
                                         - match:
                                               prefix: "/social-graph-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: social-graph-mongodb
                                         - match:
                                               prefix: "/social-graph-redis"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: social-graph-redis
                                         - match:
                                               prefix: "/text-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: text-service
                                         - match:
                                               prefix: "/unique-id-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: unique-id-service
                                         - match:
                                               prefix: "/url-shorten-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: url-shorten-service
                                         - match:
                                               prefix: "/url-shorten-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: url-shorten-memcached
                                         - match:
                                               prefix: "/user-mention-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-mention-service
                                         - match:
                                               prefix: "/user-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-service
                                         - match:
                                               prefix: "/user-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-mongodb
                                         - match:
                                               prefix: "/user-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-memcached
                                         - match:
                                               prefix: "/user-timeline-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-timeline-service
                                         - match:
                                               prefix: "/user-timeline-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-timeline-mongodb
                                         - match:
                                               prefix: "/user-timeline-redis"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-timeline-redis
                                         - match:
                                               prefix: "/home-timeline-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: home-timeline-service
     clusters:
