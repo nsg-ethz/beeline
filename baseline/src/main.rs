@@ -6,8 +6,8 @@ use std::{mem::MaybeUninit, time::Duration};
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value = "127.0.0.1:3000")]
-    address: String,
+    #[arg(short, long, default_value = "3000")]
+    port: u16,
 }
 
 #[tokio::main]
@@ -16,9 +16,9 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let mut open_obj = MaybeUninit::uninit();
-    let proxy = Proxy::attach(&args.address, &mut open_obj)?;
+    let proxy = Proxy::attach(args.port, &mut open_obj)?;
 
-    info!("Listening on {}", args.address);
+    info!("Listening on localhost:{}", args.port);
     tokio::time::sleep(Duration::from_secs(u64::MAX)).await;
 
     drop(proxy);
