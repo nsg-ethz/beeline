@@ -55,6 +55,9 @@ case ${ACTION} in
         sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
         sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 
+        echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
+        echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
         echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
@@ -67,12 +70,15 @@ case ${ACTION} in
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
 
+        CWD=${PWD}
         if [ "${PROXY}" = "beeline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
             if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
+                cd ${ROOT}/..
                 SM_APP=sn cargo b -r -p beeline
                 sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/sn.yaml
             elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
+                cd ${ROOT}/..
                 SM_APP=ms cargo b -r -p beeline
                 sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/ms.yaml
             fi
@@ -81,13 +87,12 @@ case ${ACTION} in
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.18.0.40
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -p 9999
             sleep 5
             echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
         fi
 
         # populate dbs with data
-        CWD=${PWD}
         if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
             cd ${ROOT}/../test/social_network
             python3 scripts/init_social_graph.py
@@ -108,6 +113,9 @@ case ${ACTION} in
         sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 
         docker compose -f ${DOCKER_CONFIG} down
+
+        echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
+        echo schedutil | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 
         echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}

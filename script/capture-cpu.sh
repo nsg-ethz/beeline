@@ -35,6 +35,9 @@ CPU=$(read_cpu_usage)
 FILE=${SUMMARY_DIR}/${PROXY}-cpu-e${EPOCH}.log
 echo "timestamp,CPUPerc" > ${FILE}
 
+SUDO_GROUP=$(id -gn "$SUDO_USER")
+chown "$SUDO_USER:$SUDO_GROUP" -R ${SUMMARY_DIR}
+
 while sleep 1; do
     TS_NEW=$(date +%s%N)
     CPU_NEW=$(read_cpu_usage)

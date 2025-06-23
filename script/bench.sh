@@ -32,7 +32,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
     case ${BENCH} in
         sm)
-            ssh -t moonshine "${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
+            ssh -t moonshine "source ~/.profile && ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
 
             REPORT=${SUMMARY_DIR}/${PROXY}-k6-e${i}-full.csv
             SUMMARY=${SUMMARY_DIR}/${PROXY}-k6-e${i}-summary.log
@@ -45,7 +45,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
             fi
             k6 run ${K6_SCRIPT} --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
 
-            ssh -t moonshine "${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG}"
+            ssh -t moonshine "source ~/.profile && ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG}"
             ;;
 
         mb)
