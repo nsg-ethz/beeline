@@ -7,7 +7,7 @@ import { randomString } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
 export const url = __ENV.URL || "http://127.0.0.1:9999";
 export const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
-export const randomData = randomString(payloadSize);
+const randomBody = randomString(payloadSize);
 
 function sign(data, hashAlg, secret) {
     let hasher = crypto.createHMAC(hashAlg, secret);
@@ -55,7 +55,7 @@ export function request() {
 
 export function requestTo(url, headers = {}) {
     const id = exec.scenario.iterationInInstance.toString();
-    const payload = randomData.substring(0, payloadSize - id.length) + id;
+    const payload = randomBody.substring(0, payloadSize - id.length) + id;
 
     const params = {
         headers: headers,

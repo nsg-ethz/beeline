@@ -4,7 +4,7 @@ const vus = __ENV.VUS || 3000;
 
 export const options = {
     scenarios: {
-        rps: {
+        jwt: {
             executor: "constant-arrival-rate",
             duration: "1m",
             rate: rate,

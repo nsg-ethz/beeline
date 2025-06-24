@@ -1,12 +1,12 @@
-import { url, requestTo, randomData, payloadSize } from "./common.js";
-import exec from "k6/execution";
+import { url, requestTo, payloadSize } from "./common.js";
+import { randomString } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
 const rate = __ENV.RATE || 20000;
 const vus = __ENV.VUS || 3000;
 const maxHeaderLength = __ENV.LEN || 1024;
 
 const statusLine = "POST / HTTP/1.1";
-const maxHeaderValueLength =
+const randomHeaderLength =
     maxHeaderLength -
     statusLine.length -
     "host".length -
@@ -18,13 +18,13 @@ const maxHeaderValueLength =
     "content-length".length -
     payloadSize.toString().length -
     4 -
-    "test".length -
-    4 -
+    "Authorization: Bearer ".length -
     2;
+const randomHeader = randomString(randomHeaderLength);
 
 export const options = {
     scenarios: {
-        rps: {
+        parse: {
             executor: "constant-arrival-rate",
             duration: "1m",
             rate: rate,
@@ -47,10 +47,6 @@ export const options = {
 };
 
 export default function () {
-    const randomHeaderLength = Math.round(
-        exec.scenario.progress * maxHeaderValueLength,
-    );
-    const randomHeader = randomData.substring(0, randomHeaderLength);
     const headers = { test: randomHeader };
     requestTo(url, headers);
 }
