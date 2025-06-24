@@ -3,24 +3,11 @@ import crypto from "k6/crypto";
 import http from "k6/http";
 import encoding from "k6/encoding";
 import exec from "k6/execution";
-import {
-    randomString,
-    randomIntBetween,
-} from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
-import { Counter } from "k6/metrics";
+import { randomString } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
-const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
-const validJWTRate = __ENV.AUTH || 1;
-const data = randomString(payloadSize);
-
-const backends = [
-    new Counter("backend1"),
-    new Counter("backend2"),
-    new Counter("backend3"),
-    new Counter("backend4"),
-    new Counter("envoy"),
-];
-const authorized = new Counter("authorized");
+export const url = __ENV.URL || "http://127.0.0.1:9999";
+export const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
+export const randomData = randomString(payloadSize);
 
 function sign(data, hashAlg, secret) {
     let hasher = crypto.createHMAC(hashAlg, secret);
@@ -52,9 +39,9 @@ function encode(payload, secret, algorithm) {
     return [header, payload, sig].join(".");
 }
 
-export function generateWebToken(id, valid) {
+export function generateWebToken(valid) {
     const claim = {
-        sub: id,
+        sub: exec.scenario.iterationInInstance.toString(),
         name: "John Doe",
     };
     const secret = valid ? "testtest12345678" : "invalid";
@@ -62,35 +49,14 @@ export function generateWebToken(id, valid) {
     return encode(claim, secret);
 }
 
-export function randomRequest() {
-    const server = __ENV.BACKEND || randomIntBetween(1, 4);
-    var url = null;
-    const direct = (__ENV.DIRECT || "0") == "1";
-    if (direct) {
-        const port = randomIntBetween(1, 4);
-        url = `http://10.0.${server}.1:800${port}`;
-    } else {
-        url = `http://127.0.0.1:9999`;
-    }
-
-    requestTo(url, server);
+export function request() {
+    requestTo(url);
 }
 
-export function requestTo(url, server) {
-    const signature = `server${server}`;
-    backends[server - 1].add(1);
-
-    const isAuthorized = Math.random() < validJWTRate;
-    if (isAuthorized) {
-        authorized.add(1);
-    }
-
+export function requestTo(url, headers = {}) {
     const id = exec.scenario.iterationInInstance.toString();
-    const payload = data.substring(0, payloadSize - id.length) + id;
-    const headers = {
-        backend: signature,
-        Authorization: "Bearer " + generateWebToken(id, isAuthorized),
-    };
+    const payload = randomData.substring(0, payloadSize - id.length) + id;
+
     const params = {
         headers: headers,
         timeout: "3s",
@@ -99,8 +65,6 @@ export function requestTo(url, server) {
     const res = http.post(url, payload, params);
     let passed = check(res, {
         "status is 200": (r) => r.status === 200,
-        "processed by correct backend": (r) =>
-            r.headers["Signature"] == signature,
         "body is the same": (r) => r.body === payload,
     });
 

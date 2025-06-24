@@ -66,11 +66,6 @@ time_profile = subparsers.add_parser("time_profile")
 time_profile.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
 time_profile.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
-surface = subparsers.add_parser("surface")
-surface.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
-surface.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-surface.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-
 stats = subparsers.add_parser("stats")
 stats = subparsers.add_parser("stats_tikz")
 
@@ -790,48 +785,6 @@ def time_profile_graph_tikz(name, metric, agg):
 \\end{{axis}}
 \\end{{tikzpicture}}"""
     print(tikz)
-
-
-
-def surface_graph(name, proxy, metric, agg, dst):
-    paths = _get_file_paths(name)
-    df = _load_k6_summaries(paths)
-    df = df[df.index.get_level_values("proxy") == proxy]
-    df = df.reset_index().set_index("payload_size")
-
-    val = df[df["metric_name"] == metric][agg]
-    rate = df[df["metric_name"] == "http_reqs"]["rate"]
-    payload_sizes = val.index
-
-    assert(np.all(val.index == rate.index))
-
-    file = df[df["metric_name"] == metric]["file"]
-    stats = pd.DataFrame({"rate": rate, metric: val, "file": file})
-    stats = stats.sort_values(by=["payload_size", "rate"])
-
-    # otherwise benchmark was broken
-    if np.any(rate < 3000):
-        print("Warning: low rate detected")
-        print(stats[stats["rate"] < 3000])
-        exit(-1)
-    else:
-        print(stats)
-
-    fig = plt.figure()
-    ax = fig.add_subplot(projection="3d")
-    ax.plot_trisurf(payload_sizes, rate, val, cmap=plt.cm.viridis, linewidth=0.2)
-
-    ax.set_ylabel("rate [req/s]")
-    ax.yaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-    ax.set_yticks([5000, 10000, 15000, 20000])
-    ax.set_ylim([5000, 20000])
-    ax.set_xlabel("payload size [B]")
-    ax.set_xticks([128, 4096, 8192, 16384])
-    ax.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-    ax.set_xlim([16384, 128])
-    ax.set_zlabel("latency [ms]")
-
-    _save_to_path(f"surface-{proxy}-{metric}-{agg}", os.path.join(dst, name))
 
 
 def lat_graph(name, agg, dst):

@@ -47,8 +47,8 @@ case $ACTION in
     up)
         mkdir -p ${SUMMARY_DIR}
 
-        CPU_SYSTEM=0,1,20,21
-        CPU_BEELINE=2-19,22-39
+        CPU_SYSTEM=0-10,20-30
+        CPU_BEELINE=11-19,31-39
         TASKSET="taskset -c ${CPU_BEELINE}"
 
         # cleanup just to be safe
@@ -59,15 +59,23 @@ case $ACTION in
         sudo systemctl stop mb-bpf-monitor.scope > /dev/null 2>&1
         sudo systemctl stop mb-cpu.scope > /dev/null 2>&1
 
+        echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
+        echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
         echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
         sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
+        CWD=${PWD}
         if [ "${PROXY}" = "beeline" ]; then
+            cd ${ROOT}/..
+            BPF_PROFILE=1 cargo b -r -p beeline
+
             launch_echo 8000
             BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BEELINE_BIN} -a 127.0.0.1:8080 -c config/naive/mb.yaml > /dev/null 2>&1
+
             sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
             sleep 5
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
@@ -76,6 +84,9 @@ case $ACTION in
                 sudo -b -E systemd-run -q --scope -u mb-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
             fi
         elif [ "${PROXY}" = "baseline" ]; then
+            cd ${ROOT}/..
+            cargo b -r -p baseline
+
             launch_echo 8000
             sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
             sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BASELINE_BIN} -a 127.0.0.1 > /dev/null 2>&1
@@ -146,6 +157,7 @@ case $ACTION in
             echo "Invalid proxy: ${PROXY}"
             exit -1
         fi
+        cd ${CWD}
 
         sudo -b systemd-run -q --scope -u mb-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
     ;;
@@ -170,6 +182,9 @@ case $ACTION in
                 rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
             fi
         fi
+
+        echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
+        echo schedutil | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 
         echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
         sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}

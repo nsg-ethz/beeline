@@ -1,5 +1,4 @@
-import { request } from "./common.js";
-
+import { generateWebToken, url, requestTo } from "./common.js";
 const rate = __ENV.RATE || 20000;
 const vus = __ENV.VUS || 3000;
 
@@ -27,4 +26,9 @@ export const options = {
     ],
 };
 
-export default request;
+export default function () {
+    const headers = {
+        Authorization: "Bearer " + generateWebToken(true),
+    };
+    requestTo(url, headers);
+}

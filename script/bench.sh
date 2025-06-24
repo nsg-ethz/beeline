@@ -9,13 +9,14 @@ BENCH=$1
 shift 1
 
 # Parse arguments
-while getopts "c:f:t:n:p:" opt; do
+while getopts "c:f:t:n:p:s:" opt; do
     case $opt in
         f ) FROM=${OPTARG} ;;
         t ) TO=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
         c ) CONFIG=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
+        s ) SCRIPT=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
             ;;
@@ -30,12 +31,12 @@ mkdir -p ${SUMMARY_DIR}
 
 for i in $(seq ${FROM} ${TO} ) ; do
 
+    REPORT=${SUMMARY_DIR}/${PROXY}-k6-e${i}-full.csv
+    SUMMARY=${SUMMARY_DIR}/${PROXY}-k6-e${i}-summary.log
+
     case ${BENCH} in
         sm)
             ssh -t moonshine "source ~/.profile && ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
-
-            REPORT=${SUMMARY_DIR}/${PROXY}-k6-e${i}-full.csv
-            SUMMARY=${SUMMARY_DIR}/${PROXY}-k6-e${i}-summary.log
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
             if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
@@ -50,11 +51,9 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
         mb)
             ${ROOT}/mb.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}
-
-            SUMMARY=${SUMMARY_DIR}/${PROXY}-wrk-e${i}-summary.log
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
-            PAYLOAD_SIZE=100 BACKEND=1 sudo -E systemd-run -q --scope -u mb-wrk --slice beeline.slice wrk -L -d 120s -R 30000 -t 10 -c 100 -s wrk/rps.lua http://localhost:8080 > ${SUMMARY}
+            k6 run ${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=30000 -e URL=http://localhost:8080 --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
 
             ${ROOT}/mb.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}
             ;;
