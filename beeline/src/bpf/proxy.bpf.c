@@ -207,6 +207,10 @@ struct {
 // ----------------------------------------------
 // plugin helpers
 
+bpf_profile_def(prelinearize);
+bpf_profile_def(postlinearize);
+bpf_profile_def(alloc);
+bpf_profile_def(copy);
 static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
     u16 len = r.len;
     u16 idx = r.idx;
@@ -225,14 +229,19 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     // TODO: figure out if we have to pull the data for every single modification
     s16 end = idx + str_len;
     if (end > msg->size) end = msg->size;
-    if (bpf_msg_pull_data(msg, 0, end, 0) < 0) return -1;
 
+    bpf_profile_start(prelinearize);
+    if (bpf_msg_pull_data(msg, 0, end, 0) < 0) return -1;
+    bpf_profile_end(prelinearize);
+
+    bpf_profile_start(alloc);
     if (delta > 0) {
         if (bpf_msg_push_data(msg, idx, delta, 0) < 0) return -1;
     }
     else if (delta < 0) {
         if (bpf_msg_pop_data(msg, idx, -delta, 0) < 0) return -1;
     }
+    bpf_profile_end(alloc);
 
     // we're done if we don't have to write anything
     if (str_len == 0) return 0;
@@ -240,7 +249,11 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     bpf_log("Rewriting payload (%dB) in range [%d, %d]", msg->size, idx, len);
 
     // at this point we have to pull the data again to get valid data pointers
+    bpf_profile_start(postlinearize);
     if (bpf_msg_pull_data(msg, idx, idx+str_len, 0) < 0) return -1;
+    bpf_profile_end(postlinearize);
+
+    bpf_profile_start(copy);
 
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
@@ -250,6 +263,8 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
         if (data + i + 1 > data_end) return -1;
         data[i] = str[i];
     }
+
+    bpf_profile_end(copy);
 
     return 0;
 }
@@ -464,11 +479,14 @@ struct {
     __type(value, struct us_conn_state);
 } us_conns SEC(".maps");
 
+
+bpf_profile_def(auth);
 enum pr_action authorize(struct pipeline_ctx *ctx) {
+    bpf_profile_start(auth);
+
     if (!ctx) return PR_DROP;
     if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
-        bpf_err("WARN: No JWT parsed");
-        return PR_PASS; // we let this pass to make it easier to init the service
+        return PR_DROP;
     }
 
     struct cctx_val *cctx_val = cctx_val_lookup();
@@ -499,8 +517,6 @@ enum pr_action authorize(struct pipeline_ctx *ctx) {
     if (sig_len > 50) sig_len = 50;
     ctx->tmp[50] = '\0';
 
-    // bpf_log("Computed signature: %s", ctx->tmp);
-
     u32 i;
     bpf_for(i, 0, sig_len) {
         if (ctx->jwt_sig[i] != ctx->tmp[i]) {
@@ -510,6 +526,8 @@ enum pr_action authorize(struct pipeline_ctx *ctx) {
     }
 
     bpf_log("JWT verified successfully");
+
+    bpf_profile_end(auth);
 
     return PR_PASS;
 }
@@ -652,6 +670,13 @@ __always_inline enum pr_action _forward_ds_conn_ms(const struct sock_key *dkey, 
     return PR_PASS;
 }
 
+__always_inline enum pr_action _forward_ds_conn_mb(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+    ctx->ft.direction = PR_REVERSE_PROXY;
+    ctx->ft.num_bytes_min = true;
+
+    return PR_PASS;
+}
+
 __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ctx == NULL) return PR_DROP;
 
@@ -660,9 +685,7 @@ __noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pi
     #elif SM_APP == 2
     return _forward_ds_conn_ms(dkey, ctx);
     #else
-    ctx->ft.direction = PR_REVERSE_PROXY;
-    ctx->ft.num_bytes_min = true;
-    return PR_PASS;
+    return _forward_ds_conn_mb(dkey, ctx);
     #endif
 }
 
@@ -842,29 +865,37 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     enum pr_action res = PR_DROP;
 
     if (is_downstream) {
-        res = authorize(ctx);
-        if (res == PR_DROP) {
-            bpf_err("PLUGIN: Drop downstream msg");
-            return PR_DROP;
-        }
+        // res = authorize(ctx);
+        // if (res == PR_DROP) {
+        //     bpf_err("PLUGIN: Drop downstream msg");
+        //     return PR_DROP;
+        // }
 
         if (update_ds_state(ikey, ctx) != PR_PASS) {
             bpf_err("ERROR: Updating downstream connection state failed.");
         }
 
-        struct prange hdr_range = {
-            .idx = ctx->done_idx,
-            .len = 0
-        };
-        const char *internal_hdr = "x-beeline-internal: true\r\n";
-        if (_modify(msg, hdr_range, internal_hdr, 26) < 0) {
-            bpf_err("ERROR: Failed to add internal header");
-            return PR_DROP;
-        }
+        // struct prange hdr_range = {
+        //     .idx = ctx->done_idx,
+        //     .len = 0
+        // };
+        // const char *internal_hdr = "x-processed-by: beeline\r\n";
+        // if (_modify(msg, hdr_range, internal_hdr, 25) < 0) {
+        //     bpf_err("ERROR: Failed to add x-processed-by header");
+        //     return PR_DROP;
+        // }
+        // ctx->done_idx += 25;
 
-        ctx->done_idx += 26;
+        // struct prange auth_range = {
+        //     .idx = ctx->jwt_claims_range.idx - 22,
+        //     .len = 160
+        // };
+        // if (_modify(msg, auth_range, internal_hdr, 0) < 0) {
+        //     bpf_err("ERROR: Failed to add x-processed-by header");
+        //     return PR_DROP;
+        // }
+        // ctx->done_idx -= 160;
 
-        // if (ctx->backend_range.len == 0) return PR_DROP;
         enum pr_action res = forward_ds_conn(ikey, ctx);
         if (res == PR_DROP) return PR_DROP;
     }
@@ -1046,6 +1077,11 @@ SEC("syscall")
 int print_profile_stats() {
     bpf_profile_print(other);
     bpf_profile_print(parse);
+    bpf_profile_print(prelinearize);
+    bpf_profile_print(postlinearize);
+    bpf_profile_print(alloc);
+    bpf_profile_print(copy);
+    bpf_profile_print(auth);
 
     return 0;
 }

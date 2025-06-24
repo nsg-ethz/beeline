@@ -1,7 +1,8 @@
 use crate::{bpf::types::*, ma::*};
-use anyhow::{bail, Ok, Result};
+use anyhow::{bail, Result};
 use common::Config;
 use std::{
+    env,
     hash::{Hash, Hasher},
     net::SocketAddr,
 };
@@ -76,8 +77,11 @@ impl NewUpstream for ConnectToBackend {
     }
 
     fn new_upstream_connection(&mut self, ft: &frwd_token) -> Result<SocketAddr> {
-        match ft.direction {
-            2 => {
+        let app = env::var("SM_APP");
+
+        match (app, ft.direction) {
+            (Err(_), 3) => Ok("127.0.0.1:8000".parse()?),
+            (Ok(_), 2) => {
                 let name = match ft.path {
                     1 => "social-graph-service",
                     2 => "home-timeline-service",
@@ -109,8 +113,7 @@ impl NewUpstream for ConnectToBackend {
                     None => bail!("Backend not found: {}", name),
                 }
             }
-            3 => Ok("172.18.0.40:9999".parse()?),
-            // 3 => Ok("127.0.0.1:8000".parse()?),
+            (Ok(_), 3) => Ok("172.18.0.40:9999".parse()?),
             _ => bail!("Invalid direction: {}", ft.direction),
         }
     }
