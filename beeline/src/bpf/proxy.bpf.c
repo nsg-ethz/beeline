@@ -830,8 +830,7 @@ static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges,
     u32 cidx[MAX_MATCHES] = { 0 };
     int res = _parse_from(msg, 0, pranges, pmatches, cidx);
 
-    // TODO: Ideally, we would do this in a loop until we have consumed the whole header
-    if (res < 0) {
+    for (int i = 0; i < 10 && res < 0; i++) {
         u32 old_end = (long)msg->data_end - (long)msg->data;
         u32 new_end = 4096 > msg->size ? msg->size : 4096;
 
