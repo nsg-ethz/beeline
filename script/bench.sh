@@ -32,7 +32,7 @@ mkdir -p ${SUMMARY_DIR}
 for i in $(seq ${FROM} ${TO} ) ; do
 
     REPORT=${SUMMARY_DIR}/${PROXY}-k6-e${i}-full.csv
-    SUMMARY=${SUMMARY_DIR}/${PROXY}-k6-e${i}-summary.log
+    SUMMARY=${SUMMARY_DIR}/${PROXY}-k6-e${i}-summary.json
 
     case ${BENCH} in
         sm)

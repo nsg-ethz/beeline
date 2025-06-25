@@ -3,11 +3,10 @@ import crypto from "k6/crypto";
 import http from "k6/http";
 import encoding from "k6/encoding";
 import exec from "k6/execution";
-import { randomString } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
 export const url = __ENV.URL || "http://127.0.0.1:9999";
 export const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
-const randomBody = randomString(payloadSize);
+const randomBody = "b".repeat(payloadSize);
 
 function sign(data, hashAlg, secret) {
     let hasher = crypto.createHMAC(hashAlg, secret);
@@ -39,14 +38,14 @@ function encode(payload, secret, algorithm) {
     return [header, payload, sig].join(".");
 }
 
-export function generateWebToken(valid) {
-    const claim = {
+export function generateWebToken(valid, claims = {}) {
+    const payload = claims ?? {
         sub: exec.scenario.iterationInInstance.toString(),
         name: "John Doe",
     };
     const secret = valid ? "testtest12345678" : "invalid";
 
-    return encode(claim, secret);
+    return encode(payload, secret);
 }
 
 export function request() {
@@ -72,6 +71,9 @@ export function requestTo(url, headers = {}) {
         console.log(
             `Failed request to ${url}:\nreq = ${payload},\nres = ${res.body},\nheaders = ${JSON.stringify(res.headers)}`,
         );
+    }
+    if (!passed) {
+        exec.test.abort("Fail");
     }
 
     return passed;

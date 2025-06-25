@@ -33,7 +33,7 @@ line.add_argument("-m", "--metric", default="http_req_duration{expected_response
 line.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
 bar = subparsers.add_parser("bar")
-bar.add_argument("-m", "--metric", default="data_received", help="The recorded metric to visualize")
+bar.add_argument("-m", "--metric", default="iterations", help="The recorded metric to visualize")
 bar.add_argument("-a", "--agg", default="rate", help="The aggregation func")
 
 speedup = subparsers.add_parser("speedup")
@@ -96,7 +96,7 @@ def thousand_label(x, pos):
 
 
 def _parse_k6_path(path):
-    match = re.search(r"(\w+)-k6-e(\d+)-full.*", path)
+    match = re.search(r"(\w+)-k6-e(\d+)-*", path)
     proxy = match.group(1)
     epoch = match.group(2)
 
@@ -148,7 +148,7 @@ def _load_k6_summaries(paths):
                 })
 
     df = pd.DataFrame.from_dict(rows)
-    df.set_index(["proxy", "payload_size", "metric_name"], inplace=True)
+    df.set_index(["proxy", "metric_name"], inplace=True)
 
     return df
 
@@ -449,19 +449,16 @@ def bar_graph(name, metric, agg, dst):
     order = df.index.get_level_values("proxy").unique()
     order = sorted(order)
 
-    g = sns.catplot(data=df, kind="bar", x="payload_size", y=agg, hue="proxy", errorbar="sd", hue_order=order)
-
-    sizes = set(df.index.get_level_values("payload_size"))
-    sizes = sorted(sizes)
+    g = sns.catplot(data=df, kind="bar", x="proxy", y=agg, errorbar="sd", hue_order=order)
 
     g.set(xlabel="payload size [B]", ylabel="throughput [MB/s]")
 
     print(df[agg])
 
-    max_y = df[agg].max()
-    g.set(yticks=np.linspace(0, max_y, 5))
-    for ax in g.axes.flat:
-        ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+    # max_y = df[agg].max()
+    # g.set(yticks=np.linspace(0, max_y, 5))
+    # for ax in g.axes.flat:
+    #     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
     # sns.move_legend(g, "upper center")
 
@@ -582,7 +579,8 @@ def cdf_graph(name, time_range, dst):
     if args.legend:
         _rename_legend_labels(g)
 
-    plt.xscale("log")
+    plt.xlim(0, 40)
+    # plt.xscale("log")
     _save_to_path(f"cdf", os.path.join(dst, name))
 
 

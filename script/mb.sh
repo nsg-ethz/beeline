@@ -47,8 +47,8 @@ case $ACTION in
     up)
         mkdir -p ${SUMMARY_DIR}
 
-        CPU_SYSTEM=0-10,20-30
-        CPU_BEELINE=11-19,31-39
+        CPU_SYSTEM=0-15,20-35
+        CPU_BEELINE=16-19,36-39
         TASKSET="taskset -c ${CPU_BEELINE}"
 
         # cleanup just to be safe

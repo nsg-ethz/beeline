@@ -1,5 +1,4 @@
 import { url, requestTo, payloadSize } from "./common.js";
-import { randomString } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
 const rate = __ENV.RATE || 20000;
 const vus = __ENV.VUS || 3000;
@@ -20,7 +19,7 @@ const randomHeaderLength =
     4 -
     "Authorization: Bearer ".length -
     2;
-const randomHeader = randomString(randomHeaderLength);
+const randomHeader = "a".repeat(Math.max(0, randomHeaderLength));
 
 export const options = {
     scenarios: {
@@ -47,6 +46,19 @@ export const options = {
 };
 
 export default function () {
-    const headers = { test: randomHeader };
-    requestTo(url, headers);
+    if (randomHeader.length > 0) {
+        const middle = randomHeader.length * 0.5;
+        const threequarters = randomHeader.length * 0.75;
+        const randomJWT =
+            randomHeader.substring(0, middle) +
+            "." +
+            randomHeader.substring(middle) +
+            "." +
+            randomHeader.substring(threequarters);
+
+        const headers = { Authorization: `Bearer ${randomJWT}` };
+        requestTo(url, headers);
+    } else {
+        requestTo(url);
+    }
 }
