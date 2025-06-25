@@ -207,13 +207,13 @@ struct {
 // ----------------------------------------------
 // plugin helpers
 
-bpf_profile_def(modify);
-bpf_profile_def(modify_prelinearize);
-bpf_profile_def(modify_postlinearize);
-bpf_profile_def(modify_alloc);
-bpf_profile_def(modify_copy);
-static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
-    bpf_profile_start(modify);
+bpf_profile_def(mutate);
+bpf_profile_def(mutate_prelinearize);
+bpf_profile_def(mutate_postlinearize);
+bpf_profile_def(mutate_alloc);
+bpf_profile_def(mutate_copy);
+static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
+    bpf_profile_start(mutate);
 
     u16 len = r.len;
     u16 idx = r.idx;
@@ -233,18 +233,18 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     s16 end = idx + str_len;
     if (end > msg->size) end = msg->size;
 
-    bpf_profile_start(modify_prelinearize);
+    bpf_profile_start(mutate_prelinearize);
     if (bpf_msg_pull_data(msg, 0, end, 0) < 0) return -1;
-    bpf_profile_end(modify_prelinearize);
+    bpf_profile_end(mutate_prelinearize);
 
-    bpf_profile_start(modify_alloc);
+    bpf_profile_start(mutate_alloc);
     if (delta > 0) {
         if (bpf_msg_push_data(msg, idx, delta, 0) < 0) return -1;
     }
     else if (delta < 0) {
         if (bpf_msg_pop_data(msg, idx, -delta, 0) < 0) return -1;
     }
-    bpf_profile_end(modify_alloc);
+    bpf_profile_end(mutate_alloc);
 
     // we're done if we don't have to write anything
     if (str_len == 0) return 0;
@@ -252,23 +252,20 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     bpf_log("Rewriting payload (%dB) in range [%d, %d]", msg->size, idx, len);
 
     // at this point we have to pull the data again to get valid data pointers
-    bpf_profile_start(modify_postlinearize);
+    bpf_profile_start(mutate_postlinearize);
     if (bpf_msg_pull_data(msg, idx, idx+str_len, 0) < 0) return -1;
-    bpf_profile_end(modify_postlinearize);
+    bpf_profile_end(mutate_postlinearize);
 
-    bpf_profile_start(modify_copy);
+    bpf_profile_start(mutate_copy);
 
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
 
-    u32 i;
-    bpf_for(i, 0, str_len) {
-        if (data + i + 1 > data_end) return -1;
-        data[i] = str[i];
-    }
+    if (data + str_len > data_end) return -1;
+    memcpy(data, str, str_len);
 
-    bpf_profile_end(modify_copy);
-    bpf_profile_end(modify);
+    bpf_profile_end(mutate_copy);
+    bpf_profile_end(mutate);
 
     return 0;
 }
@@ -872,7 +869,7 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
         // res = authorize(ctx);
         // if (res == PR_DROP) {
         //     bpf_err("PLUGIN: Drop downstream msg");
-        //     return PR_DROP;
+        //     // return PR_DROP;
         // }
 
         if (update_ds_state(ikey, ctx) != PR_PASS) {
@@ -884,7 +881,7 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
         //     .len = 0
         // };
         // const char *internal_hdr = "x-processed-by: beeline\r\n";
-        // if (_modify(msg, hdr_range, internal_hdr, 25) < 0) {
+        // if (_mutate(msg, hdr_range, internal_hdr, 25) < 0) {
         //     bpf_err("ERROR: Failed to add x-processed-by header");
         //     return PR_DROP;
         // }
@@ -894,7 +891,7 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
         //     .idx = ctx->jwt_claims_range.idx - 22,
         //     .len = 160
         // };
-        // if (_modify(msg, auth_range, internal_hdr, 0) < 0) {
+        // if (_mutate(msg, auth_range, internal_hdr, 0) < 0) {
         //     bpf_err("ERROR: Failed to add x-processed-by header");
         //     return PR_DROP;
         // }
@@ -916,10 +913,11 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     return PR_PASS;
 }
 
-bpf_profile_def(other);
+bpf_profile_def(sk_msg);
+bpf_profile_def(sk_msg_cork);
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
-    bpf_profile_start(other);
+    bpf_profile_start(sk_msg);
 
     // socket identifeir of the ingress connection
     struct sock_key ikey = {
@@ -943,7 +941,11 @@ int msg_verdict(struct sk_msg_md *msg) {
     if (done_idx < 0) {
         if (done_idx == -msg->size) {
             bpf_log("Could not parse header after %dB. Corking...", msg->size);
+
+            bpf_profile_start(sk_msg_cork);
             bpf_msg_cork_bytes(msg, msg->size + 1);
+            bpf_profile_end(sk_msg_cork);
+
             return SK_PASS;
         }
         bpf_err("ERROR: Failed to parse message: %s", msg->data);
@@ -982,7 +984,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         post_forward_us_conn(&ikey, &ekey, ctx);
     }
 
-    bpf_profile_end(other);
+    bpf_profile_end(sk_msg);
 
     if (res == PR_DROP) {
         bpf_err("No FIB entry found for {%pI4:%u %d %d %d}. Dropping.", &ctx->ft.addr.ip4, ctx->ft.addr.port, ctx->ft.direction, ctx->ft.path, ctx->ft.num_bytes_min);
@@ -1083,14 +1085,18 @@ int crypto_setup() {
 
 SEC("syscall")
 int print_profile_stats() {
-    bpf_profile_print(other);
+    bpf_profile_print(sk_msg);
+    bpf_profile_print(sk_msg_cork);
+
     bpf_profile_print(parse);
     bpf_profile_print(parse_linearize);
-    bpf_profile_print(modify);
-    bpf_profile_print(modify_prelinearize);
-    bpf_profile_print(modify_postlinearize);
-    bpf_profile_print(modify_alloc);
-    bpf_profile_print(modify_copy);
+
+    bpf_profile_print(mutate);
+    bpf_profile_print(mutate_prelinearize);
+    bpf_profile_print(mutate_postlinearize);
+    bpf_profile_print(mutate_alloc);
+    bpf_profile_print(mutate_copy);
+
     bpf_profile_print(auth);
 
     return 0;
