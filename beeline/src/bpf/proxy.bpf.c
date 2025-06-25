@@ -840,14 +840,8 @@ static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges)
         }
         bpf_profile_end(parse_linearize);
 
-        bpf_log("before prange[1]: (%d, %d)", pranges[1].idx, pranges[1].len);
-
-        bpf_log("Continue parsing from %d", -res);
-        bpf_log("message: %s", msg->data);
         res = _parse_from(msg, -res, pranges, cidx, &s);
     }
-
-    bpf_log("after prange[1]: (%d, %d)", pranges[1].idx, pranges[1].len);
 
     bpf_profile_end(parse);
 
