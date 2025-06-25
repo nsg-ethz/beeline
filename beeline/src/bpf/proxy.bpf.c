@@ -770,7 +770,7 @@ static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *ac
     *action = (sa & a_mask) >> 16;
 }
 
-static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, struct prange *pranges, u32* cidx) {
+static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, struct prange *pranges, u32* cidx, u16* s) {
     bpf_profile_start(parse_range);
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
@@ -780,14 +780,13 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
         return 0;
     }
 
-    u16 s = (start == 0) ? s_init : s_any;
-    u32 i = start;
+    u32 i;
     bpf_for(i, start, len+1) {
         if (data + i + 1 > data_end) return -i;
         char c = data[i];
 
         u16 a = 0;
-        _next(s, c, &s, &a);
+        _next(*s, c, s, &a);
 
         // it should never happen that any of these cases are true simultaneously
         // but it makes the verifier happy when we don't use else if here
@@ -816,12 +815,12 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
 
         // this means that we failed to match the current pattern
         // but maybe a new one starts now?
-        if (s == s_any) {
-            _next(s_any, c, &s, &a);
+        if (*s == s_any) {
+            _next(s_any, c, s, &a);
         }
     }
 
-    return -i;
+    return -len;
 }
 
 bpf_profile_def(parse);
@@ -829,7 +828,8 @@ bpf_profile_def(parse_linearize);
 static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges) {
     bpf_profile_start(parse);
     u32 cidx[MAX_MATCHES] = { 0 };
-    int res = _parse_from(msg, 0, pranges, cidx);
+    u16 s = s_init;
+    int res = _parse_from(msg, 0, pranges, cidx, &s);
 
     // check if we can pull data
     if (res < 0 && msg->size > -res) {
@@ -840,9 +840,14 @@ static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges)
         }
         bpf_profile_end(parse_linearize);
 
+        bpf_log("before prange[1]: (%d, %d)", pranges[1].idx, pranges[1].len);
+
         bpf_log("Continue parsing from %d", -res);
-        res = _parse_from(msg, -res, pranges, cidx);
+        bpf_log("message: %s", msg->data);
+        res = _parse_from(msg, -res, pranges, cidx, &s);
     }
+
+    bpf_log("after prange[1]: (%d, %d)", pranges[1].idx, pranges[1].len);
 
     bpf_profile_end(parse);
 
