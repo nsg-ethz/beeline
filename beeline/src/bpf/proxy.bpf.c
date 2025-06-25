@@ -207,11 +207,14 @@ struct {
 // ----------------------------------------------
 // plugin helpers
 
-bpf_profile_def(prelinearize);
-bpf_profile_def(postlinearize);
-bpf_profile_def(alloc);
-bpf_profile_def(copy);
+bpf_profile_def(modify);
+bpf_profile_def(modify_prelinearize);
+bpf_profile_def(modify_postlinearize);
+bpf_profile_def(modify_alloc);
+bpf_profile_def(modify_copy);
 static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
+    bpf_profile_start(modify);
+
     u16 len = r.len;
     u16 idx = r.idx;
 
@@ -230,18 +233,18 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     s16 end = idx + str_len;
     if (end > msg->size) end = msg->size;
 
-    bpf_profile_start(prelinearize);
+    bpf_profile_start(modify_prelinearize);
     if (bpf_msg_pull_data(msg, 0, end, 0) < 0) return -1;
-    bpf_profile_end(prelinearize);
+    bpf_profile_end(modify_prelinearize);
 
-    bpf_profile_start(alloc);
+    bpf_profile_start(modify_alloc);
     if (delta > 0) {
         if (bpf_msg_push_data(msg, idx, delta, 0) < 0) return -1;
     }
     else if (delta < 0) {
         if (bpf_msg_pop_data(msg, idx, -delta, 0) < 0) return -1;
     }
-    bpf_profile_end(alloc);
+    bpf_profile_end(modify_alloc);
 
     // we're done if we don't have to write anything
     if (str_len == 0) return 0;
@@ -249,11 +252,11 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
     bpf_log("Rewriting payload (%dB) in range [%d, %d]", msg->size, idx, len);
 
     // at this point we have to pull the data again to get valid data pointers
-    bpf_profile_start(postlinearize);
+    bpf_profile_start(modify_postlinearize);
     if (bpf_msg_pull_data(msg, idx, idx+str_len, 0) < 0) return -1;
-    bpf_profile_end(postlinearize);
+    bpf_profile_end(modify_postlinearize);
 
-    bpf_profile_start(copy);
+    bpf_profile_start(modify_copy);
 
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
@@ -264,7 +267,8 @@ static __always_inline int _modify(struct sk_msg_md *msg, struct prange r, char 
         data[i] = str[i];
     }
 
-    bpf_profile_end(copy);
+    bpf_profile_end(modify_copy);
+    bpf_profile_end(modify);
 
     return 0;
 }
@@ -766,19 +770,20 @@ static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *ac
     *action = (sa & a_mask) >> 16;
 }
 
-static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, struct prange *pranges, bool *pmatches, u32* cidx) {
+static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, struct prange *pranges, u32* cidx) {
+    bpf_profile_start(parse_range);
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;
-    u32 len = ((u32)(data_end - data) - start) & MAX_BYTES;
+    u32 len = (u32)(data_end - data) & MAX_BYTES;
 
-    if (len == 0) {
+    if (len-start == 0) {
         return 0;
     }
 
-    u16 s = s_init;
-    u32 i;
+    u16 s = (start == 0) ? s_init : s_any;
+    u32 i = start;
     bpf_for(i, start, len+1) {
-        if (data + i + 1 > data_end) return -1;
+        if (data + i + 1 > data_end) return -i;
         char c = data[i];
 
         u16 a = 0;
@@ -804,11 +809,6 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
             // TODO: this is a hack, for now
             cidx[cid] = i;
         }
-        if ((a & a_match) != 0) {
-            u16 mid = a & a_id_mask & MAX_MATCH_MASK;
-            bpf_err("Match %d at %d", mid, i);
-            pmatches[mid] = true;
-        }
         if ((a & a_done) != 0) {
             bpf_log("Done parsing at %d", i);
             return i-1;
@@ -821,21 +821,27 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
         }
     }
 
-    return -1;
+    return -i;
 }
 
 bpf_profile_def(parse);
-static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges, bool *pmatches) {
+bpf_profile_def(parse_linearize);
+static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges) {
     bpf_profile_start(parse);
     u32 cidx[MAX_MATCHES] = { 0 };
-    int res = _parse_from(msg, 0, pranges, pmatches, cidx);
+    int res = _parse_from(msg, 0, pranges, cidx);
 
-    for (int i = 0; i < 10 && res < 0; i++) {
-        u32 old_end = (long)msg->data_end - (long)msg->data;
-        u32 new_end = 4096 > msg->size ? msg->size : 4096;
+    // check if we can pull data
+    if (res < 0 && msg->size > -res) {
+        bpf_profile_start(parse_linearize);
+        if (bpf_msg_pull_data(msg, 0, msg->size, 0) < 0) {
+            bpf_profile_end(parse_linearize);
+            return res;
+        }
+        bpf_profile_end(parse_linearize);
 
-        bpf_msg_pull_data(msg, 0, new_end, 0);
-        res = _parse_from(msg, 0, pranges, pmatches, cidx);
+        bpf_log("Continue parsing from %d", -res);
+        res = _parse_from(msg, -res, pranges, cidx);
     }
 
     bpf_profile_end(parse);
@@ -933,10 +939,14 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
-    bool pmatches[MAX_MATCHES] = { 0 };
 
-    int done_idx = _parse(msg, pranges, pmatches);
+    int done_idx = _parse(msg, pranges);
     if (done_idx < 0) {
+        if (done_idx == -msg->size) {
+            bpf_log("Could not parse header after %dB. Corking...", msg->size);
+            bpf_msg_cork_bytes(msg, msg->size + 1);
+            return SK_PASS;
+        }
         bpf_err("ERROR: Failed to parse message: %s", msg->data);
         return SK_PASS;
     }
@@ -1076,10 +1086,12 @@ SEC("syscall")
 int print_profile_stats() {
     bpf_profile_print(other);
     bpf_profile_print(parse);
-    bpf_profile_print(prelinearize);
-    bpf_profile_print(postlinearize);
-    bpf_profile_print(alloc);
-    bpf_profile_print(copy);
+    bpf_profile_print(parse_linearize);
+    bpf_profile_print(modify);
+    bpf_profile_print(modify_prelinearize);
+    bpf_profile_print(modify_postlinearize);
+    bpf_profile_print(modify_alloc);
+    bpf_profile_print(modify_copy);
     bpf_profile_print(auth);
 
     return 0;
