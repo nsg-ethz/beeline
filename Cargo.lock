@@ -521,6 +521,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "frontend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "log",
+ "reqwest",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1711,22 +1727,6 @@ checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "ssm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "http-body-util",
- "hyper",
- "hyper-util",
- "log",
- "reqwest",
- "tokio",
- "tracing-subscriber",
 ]
 
 [[package]]

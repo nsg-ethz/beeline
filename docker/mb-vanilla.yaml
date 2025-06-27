@@ -10,12 +10,12 @@ services:
     frontend:
         build:
             context: ..
-            dockerfile: docker/Dockerfile.ssm
+            dockerfile: docker/Dockerfile.frontend
         ports:
             - 8080:8080
         entrypoint:
             [
-                "ssm",
+                "frontend",
                 "-a",
                 "0.0.0.0:8080",
                 "-s",
