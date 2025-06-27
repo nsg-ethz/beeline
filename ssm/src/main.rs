@@ -89,7 +89,11 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(address.clone())
         .await
         .unwrap();
-    log::info!("Listening on {}", address);
+    log::info!(
+        "Listening on {}, chain with {} services",
+        address,
+        service_chain
+    );
 
     axum::serve(listener, app).await.unwrap();
 }
