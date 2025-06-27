@@ -50,6 +50,7 @@ async fn main() {
     let app = Router::new().route(
         "/",
         post(move |req_hdrs: HeaderMap, body: Bytes| {
+            log::trace!("Received request: {:?}", req_hdrs);
             // this helps simulating slower backends
             if delay_us > 0 {
                 std::thread::sleep(Duration::from_micros(delay_us));
