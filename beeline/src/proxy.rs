@@ -14,7 +14,7 @@ use libbpf_rs::{
     Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
 use libc::exit;
-use log::{debug, error, info, log_enabled, warn};
+use log::{debug, error, info, log_enabled, trace, warn};
 use ma::{NewUpstream, Pipeline};
 use pipeline::DebugPipeline;
 use std::{
@@ -185,6 +185,7 @@ impl<'obj> Proxy<'obj> {
         parser.match_http_uri()?;
         parser.match_http_hdr("content-length")?;
         parser.match_http_hdr_auth()?;
+        parser.match_http_hdr("test")?;
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
@@ -350,6 +351,11 @@ impl<'obj> Proxy<'obj> {
                     Ok(0) => break Ok(()),
                     Ok(len) => len,
                 };
+
+                trace!(
+                    "Received request: {}",
+                    String::from_utf8_lossy(&buf).escape_debug()
+                );
 
                 let mut headers = [httparse::EMPTY_HEADER; 64];
                 let mut req = httparse::Request::new(&mut headers);

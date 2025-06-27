@@ -17,20 +17,18 @@ fn main() {
     let bpf_profile = std::env::var("BPF_PROFILE").unwrap_or("0".to_string());
 
     let log_level = std::env::var("RUST_LOG").unwrap_or("error".to_string());
-    let log_level = if log_level.eq_ignore_ascii_case("debug") {
-        "2"
-    } else {
-        "1"
+    let log_level: u32 = match log_level.to_lowercase().as_str() {
+        "debug" => 2,
+        "trace" => 2,
+        _ => 1,
     };
     println!("cargo:rerun-if-env-changed=RUST_LOG");
 
     let sm = std::env::var("SM_APP").unwrap_or("mb".to_string());
-    let sm = if sm.eq_ignore_ascii_case("sn") {
-        "1"
-    } else if log_level.eq_ignore_ascii_case("ms") {
-        "2"
-    } else {
-        "0"
+    let sm: u32 = match sm.to_lowercase().as_str() {
+        "sn" => 1,
+        "ms" => 2,
+        _ => 0,
     };
     println!("cargo:rerun-if-env-changed=SM_APP");
 

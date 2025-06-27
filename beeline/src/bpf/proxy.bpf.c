@@ -262,7 +262,12 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
     char *data_end = (char *)(long)msg->data_end;
 
     if (data + str_len > data_end) return -1;
-    memcpy(data, str, str_len);
+    __builtin_memcpy(data, str, str_len);
+    // u32 i;
+    // bpf_for(i, 0, str_len) {
+    //     if (data + i + 1 > data_end) return -1;
+    //     data[i] = str[i];
+    // }
 
     bpf_profile_end(mutate_copy);
     bpf_profile_end(mutate);
@@ -325,6 +330,7 @@ struct pipeline_ctx {
     struct prange content_length_range;
     struct prange jwt_claims_range;
     struct prange jwt_sig_range;
+    struct prange test_range;
 
     // provided by the user
     // TODO: back this by a single buffer, with pointers to the correct data path
@@ -400,6 +406,9 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     r3.len &= 0x3f;
     bpf_probe_read_kernel(ctx->jwt_sig, r3.len, data + r3.idx);
     ctx->jwt_sig_range = r3;
+
+    struct prange r4 = pranges[4];
+    ctx->test_range = r4;
 
     ctx->done_idx = done_idx;
     ctx->ft = (struct frwd_token){ 0 };
@@ -521,7 +530,7 @@ enum pr_action authorize(struct pipeline_ctx *ctx) {
     u32 i;
     bpf_for(i, 0, sig_len) {
         if (ctx->jwt_sig[i] != ctx->tmp[i]) {
-            bpf_err("ERROR: Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
+            bpf_log("Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
             return PR_DROP;
         }
     }
@@ -860,42 +869,44 @@ static __always_inline int _log_msg_range(struct sk_msg_md *msg, u16 idx, u16 le
     return 0;
 }
 
+// static char *test_hdr = "test: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n";
+
 // compile-time generated
 static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pipeline_ctx *ctx, const struct sock_key *ikey) {
     bool is_downstream = (ikey->remote.ip4 == ip4 && ikey->remote.port == port);
     enum pr_action res = PR_DROP;
 
     if (is_downstream) {
-        // res = authorize(ctx);
-        // if (res == PR_DROP) {
-        //     bpf_err("PLUGIN: Drop downstream msg");
-        //     // return PR_DROP;
-        // }
+        res = authorize(ctx);
+        if (res == PR_DROP) {
+            // bpf_err("PLUGIN: Drop downstream msg");
+            // return PR_DROP;
+            bpf_log("PLUGIN: Drop downstream msg");
+        }
 
         if (update_ds_state(ikey, ctx) != PR_PASS) {
             bpf_err("ERROR: Updating downstream connection state failed.");
         }
 
-        // struct prange hdr_range = {
+        // struct prange test_hdr_range = {
         //     .idx = ctx->done_idx,
         //     .len = 0
         // };
-        // const char *internal_hdr = "x-processed-by: beeline\r\n";
-        // if (_mutate(msg, hdr_range, internal_hdr, 25) < 0) {
-        //     bpf_err("ERROR: Failed to add x-processed-by header");
-        //     return PR_DROP;
-        // }
-        // ctx->done_idx += 25;
 
-        // struct prange auth_range = {
-        //     .idx = ctx->jwt_claims_range.idx - 22,
-        //     .len = 160
-        // };
-        // if (_mutate(msg, auth_range, internal_hdr, 0) < 0) {
+        // if (_mutate(msg, test_hdr_range, test_hdr, 2057-1) < 0) {
         //     bpf_err("ERROR: Failed to add x-processed-by header");
         //     return PR_DROP;
         // }
-        // ctx->done_idx -= 160;
+        // ctx->done_idx += 2057-1;
+
+        // struct prange test_range = ctx->test_range;
+        // test_range.idx -= 6;
+        // test_range.len += 7;
+        // if (_mutate(msg, test_range, NULL, 0) < 0) {
+        //     bpf_err("ERROR: Failed to remove test header");
+        //     return PR_DROP;
+        // }
+        // ctx->done_idx -= ctx->test_range.len;
 
         enum pr_action res = forward_ds_conn(ikey, ctx);
         if (res == PR_DROP) return PR_DROP;
