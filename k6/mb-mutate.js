@@ -1,10 +1,13 @@
-import { generateWebToken, url, requestTo } from "./common.js";
+import { url, requestTo } from "./common.js";
+
 const rate = __ENV.RATE || 20000;
 const vus = __ENV.VUS || 3000;
+const headerLength = __ENV.LEN || 1024;
+const randomHeader = "a".repeat(Math.max(0, headerLength));
 
 export const options = {
     scenarios: {
-        jwt: {
+        mutate: {
             executor: "constant-arrival-rate",
             duration: "1m",
             rate: rate,
@@ -27,11 +30,12 @@ export const options = {
 };
 
 export default function () {
-    const claims = {
-        issuer: "beeline",
-    };
-    const headers = {
-        Authorization: "Bearer " + generateWebToken(true, claims),
-    };
-    requestTo(url, headers);
+    if (randomHeader.length > 0) {
+        const headers = {
+            test: randomHeader,
+        };
+        requestTo(url, headers);
+    } else {
+        requestTo(url);
+    }
 }
