@@ -158,7 +158,7 @@ function THttpTransport:writeHttpHeader(content_len)
             .. "Content-Type: application/x-thrift" .. self.CRLF
             .. "Content-Length: " .. content_len .. self.CRLF
             ..
-            "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzb2NpYWwtbmV0d29yayIsIm5hbWUiOiJiZWVsaW5lIn0.pyo4azEVRlLIZg2dqsbynQvBWF9mAlJuJWUnCjizRvU" ..
+            "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3N1ZXIiOiJiZWVsaW5lIn0.K37-whsn_HoSEXeaITzeK2YmMGg7ylr3STNn6M7_Wys" ..
             self.CRLF
             .. "Connection: Keep-Alive" .. self.CRLF .. self.CRLF
         self.trans:write(header)
@@ -168,7 +168,7 @@ function THttpTransport:writeHttpHeader(content_len)
             .. "Content-Type: application/x-thrift" .. self.CRLF
             .. "Content-Length: " .. content_len .. self.CRLF
             ..
-            "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzb2NpYWwtbmV0d29yayIsIm5hbWUiOiJiZWVsaW5lIn0.pyo4azEVRlLIZg2dqsbynQvBWF9mAlJuJWUnCjizRvU" ..
+            "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3N1ZXIiOiJiZWVsaW5lIn0.K37-whsn_HoSEXeaITzeK2YmMGg7ylr3STNn6M7_Wys" ..
             self.CRLF
             .. "Accept: application/x-thrift " .. self.CRLF
             .. "User-Agent: Thrift/" .. self.VERSION .. " (Lua/THttpClient)"

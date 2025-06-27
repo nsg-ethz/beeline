@@ -17,9 +17,7 @@ static_resources:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
                                     providers:
                                         jwt_provider1:
-                                            issuer: https://example.com
-                                            audiences:
-                                                - audience1
+                                            issuer: beeline
                                             local_jwks:
                                                 inline_string: >-
                                                     {"keys": [
@@ -28,7 +26,7 @@ static_resources:
                                                       "alg":"HS256"}]}
                                     rules:
                                         - match:
-                                              prefix: "*"
+                                              prefix: "/"
                                           requires:
                                               provider_name: jwt_provider1
                               - name: envoy.filters.http.router
