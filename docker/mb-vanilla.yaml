@@ -1,0 +1,31 @@
+name: synthetic-service-mesh
+
+networks:
+    default:
+        ipam:
+            config:
+                - subnet: 172.18.0.0/24
+
+services:
+    frontend:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.ssm
+        ports:
+            - 8080:8080
+        entrypoint:
+            ["ssm", "-a", "0.0.0.0:8080", "-s", "172.18.0.3:9999", "-c", "1"]
+        cgroup_parent: beeline.slice
+        networks:
+            default:
+                ipv4_address: 172.18.0.2
+
+    service1:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.echo
+        cgroup_parent: beeline.slice
+        entrypoint: "echo -a 0.0.0.0:9999"
+        networks:
+            default:
+                ipv4_address: 172.18.0.3

@@ -11,7 +11,7 @@ use std::{collections::HashMap, str::FromStr, time::Duration};
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value = "127.0.0.1:8000")]
+    #[arg(short, long, default_value = "0.0.0.0:8000")]
     address: String,
 
     #[arg(short = 'H', long = "header")]

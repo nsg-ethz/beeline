@@ -1,0 +1,7 @@
+FROM rust:1.85.1
+
+WORKDIR /usr/src/ssm
+COPY ssm/ .
+
+RUN cargo install --path .
+ENV RUST_LOG=info

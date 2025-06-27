@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
 
-members = ["baseline", "beeline", "common", "echo", "naive"]
+members = ["baseline", "beeline", "common", "echo", "naive", "ssm"]
