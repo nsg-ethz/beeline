@@ -72,6 +72,34 @@ pub struct Filter {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct TypedConfig {
     pub route_config: RouteConfig,
+    pub http_filters: Vec<HttpFilter>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[serde(tag = "name")]
+pub enum HttpFilter {
+    #[serde(rename = "envoy.filters.http.JwtAuthentication")]
+    Jwt(JwtFilter),
+
+    #[serde(other)]
+    Unsupported,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub struct JwtFilter {
+    pub providers: Vec<JwtProvider>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub struct JwtProvider {
+    pub issuer: Option<String>,
+    pub audiences: Option<Vec<String>>,
+    pub local_jwks: LocalJwks,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub struct LocalJwks {
+    pub inline_string: String,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
@@ -118,7 +146,10 @@ mod tests {
     fn it_deserializes_envoy_config() {
         let manifest_dir =
             std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set");
-        let config_path = format!("{}/../config/envoy.yaml", manifest_dir.to_str().unwrap());
+        let config_path = format!(
+            "{}/../config/envoy/http1.yaml",
+            manifest_dir.to_str().unwrap()
+        );
 
         let config = std::fs::File::open(config_path).expect("Failed to find config file");
         let _: Config =

@@ -7,7 +7,7 @@ use libbpf_rs::{MapCore, MapFlags};
 use std::{
     hash::{Hash, Hasher},
     mem::size_of,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
 };
 use types::*;
 
@@ -28,6 +28,12 @@ impl Hash for addr_key {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.ip4.hash(state);
         self.port.hash(state);
+    }
+}
+
+impl Into<SocketAddr> for addr_key {
+    fn into(self) -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(self.ip4.to_ne_bytes().into()), self.port as u16)
     }
 }
 

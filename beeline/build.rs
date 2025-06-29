@@ -1,7 +1,6 @@
-use common::{config::envoy, Config};
+use common::{config::envoy, net::TryIntoRawOctets, Config};
 use libbpf_cargo::SkeletonBuilder;
 use std::{
-    collections::HashMap,
     env,
     ffi::OsStr,
     fs::{self, File},
@@ -81,7 +80,7 @@ impl Compiler {
         Filter::from(filter.as_str())
     }
 
-    fn generate_ctx(&self, vars: Vec<(&str, &str, Option<usize>)>) -> Filter {
+    fn generate_ctx(&self, vars: Vec<(String, String, Option<usize>)>) -> Filter {
         let mut filter = self.read_filter("ctx");
         let vars = vars
             .iter()
@@ -91,7 +90,7 @@ impl Compiler {
         let var_defs = vars
             .iter()
             .map(|(name, ty, size)| {
-                if **ty == "str" {
+                if **ty == "char" {
                     format!("char {}[{}];", name, size.unwrap())
                 } else {
                     format!("{} {};", ty, name)
@@ -113,7 +112,7 @@ impl Compiler {
             .enumerate()
             .map(|(i, (name, ty, _))| {
                 // TODO: let the initialization fail if len < size
-                if **ty == "str" {
+                if **ty == "char" {
                     format!(
                         "r = pranges[{}];
                     r.len &= 0xfff;
@@ -149,27 +148,54 @@ impl Compiler {
         filter
     }
 
-    fn generate_frwd_ds_filter(&self) -> Filter {
-        let mut frwd = self.read_filter("frwd_ds");
+    fn generate_frwd_ds_filter(&self, config: &Config) -> Filter {
+        let mut filter = self.read_filter("route");
 
-        frwd
-    }
+        let mut routes = config
+            .routes
+            .iter()
+            .map(|route| {
+                let path_condition = if let Some(path) = &route.pattern.path {
+                    if path == "*" {
+                        "true".to_string()
+                    } else {
+                        format!("bpf_strncmp(ctx->path, {}, \"{}\") == 0", path.len(), path)
+                    }
+                } else {
+                    "true".to_string()
+                };
 
-    fn generate_post_frwd_ds_filter(&self) -> Filter {
-        let mut filter = self.read_filter("post_frwd_ds");
+                let header_condition = if let Some(headers) = &route.pattern.headers {
+                    headers
+                        .iter()
+                        .map(|(key, val)| {
+                            format!("bpf_strncmp(ctx->{}, {}, \"{}\") == 0", key, val.len(), val)
+                        })
+                        .collect::<Vec<String>>()
+                        .join(" && ")
+                } else {
+                    "true".to_string()
+                };
 
-        filter
-    }
+                let addr = config.select_backend_instance(&route.dest).unwrap();
+                let ip4: u32 = addr.ip().try_into_ne_octets().unwrap();
 
-    fn generate_frwd_us_filter(&self) -> Filter {
-        let mut frwd = self.read_filter("frwd_us");
+                format!(
+                    "if ({} && {}) {{
+                ctx->dest.ip4 = {};
+                ctx->dest.port = {};
+                return PR_PASS;
+            }}",
+                    path_condition,
+                    header_condition,
+                    ip4,
+                    addr.port()
+                )
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
 
-        frwd
-    }
-
-    fn generate_post_frwd_us_filter(&self) -> Filter {
-        let mut filter = self.read_filter("post_frwd_us");
-        filter.replace_code("service_proxy_port", "3333");
+        filter.replace_code("routes", routes);
 
         filter
     }
@@ -215,35 +241,35 @@ impl Compiler {
         let mut upstream = Vec::new();
         let mut ctx = Vec::new();
 
-        for (var, ty) in config.patterns.http.iter() {
-            let size = if ty == "str" { Some(1024) } else { None };
-            ctx.push((var.as_str(), ty.as_str(), size))
-        }
-        ctx.push(("content_length", "u32", None));
+        ctx.push(("path".to_string(), "char".to_string(), Some(4096)));
+        ctx.push(("content_length".to_string(), "u32".to_string(), None));
 
-        // for auth in config.auths {
-        //     let filter = self.generate_jwt_filter(&auth.secret);
-        //     downstream.push(filter);
-        //     ctx.push(("jwt_claims", "char", Some(4096)));
-        //     ctx.push(("jwt_sig", "char", Some(64)));
-        // }
+        for route in &config.routes {
+            if let Some(headers) = &route.pattern.headers {
+                for (key, _) in headers {
+                    ctx.push((key.to_string(), "char".to_string(), Some(4096)));
+                }
+            }
+            for filter in &route.filters {
+                if filter["type"] == "jwt" {
+                    // let filter = self.generate_jwt_filter(&auth.secret);
+                    // downstream.push(filter);
+                    ctx.push(("jwt_claims".to_string(), "char".to_string(), Some(4096)));
+                    ctx.push(("jwt_sig".to_string(), "char".to_string(), Some(64)));
+                }
+            }
+        }
 
         // at the end of the chain we have to add the forwarding filters
-        // downstream.push(self.generate_frwd_ds_filter());
-        // upstream.push(self.generate_frwd_us_filter());
 
         let ctx = self.generate_ctx(ctx);
+        let frwd = self.generate_frwd_ds_filter(&config);
         let chain = self.generate_chain(&downstream, &upstream);
 
         let mut filters = Vec::new();
-        // let mut filters = downstream
-        //     .into_iter()
-        //     .chain(upstream.into_iter())
-        //     .collect::<Vec<Filter>>();
         filters.push(ctx);
+        filters.push(frwd);
         filters.push(chain);
-        // filters.push(self.generate_post_frwd_ds_filter());
-        // filters.push(self.generate_post_frwd_us_filter());
 
         filters
     }
@@ -340,6 +366,7 @@ fn main() {
     ]);
 
     if bpf_skel {
+        let out = PathBuf::from(&manifest_dir).join("src/bpf/proxy.skel.rs");
         builder.build_and_generate(&out).unwrap();
     } else {
         builder.build().unwrap();

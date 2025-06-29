@@ -86,8 +86,8 @@ fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(
     Ok(())
 }
 
-fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
-    let key = unsafe { ft.as_bytes() };
+fn add_pqueue_to_fib<M: MapCore>(map: &M, addr: addr_key) -> Result<()> {
+    let key = unsafe { addr.as_bytes() };
     if map.lookup(&key, MapFlags::empty())?.is_some() {
         return Ok(());
     }
@@ -122,8 +122,8 @@ fn add_pqueue_to_fib<M: MapCore>(map: &M, ft: frwd_token) -> Result<()> {
     }
 }
 
-fn fib_insert_direct<M: MapCore>(map: &M, ft: frwd_token, val: &sock_key) -> Result<()> {
-    let key = unsafe { ft.as_bytes() };
+fn fib_insert_downstream<M: MapCore>(map: &M, key: addr_key, val: &sock_key) -> Result<()> {
+    let key = unsafe { key.as_bytes() };
     let val = unsafe { val.as_bytes() };
 
     map.update(&key, &val, MapFlags::ANY)?;
@@ -184,8 +184,7 @@ impl<'obj> Proxy<'obj> {
         );
         parser.match_http_uri()?;
         parser.match_http_hdr("content-length")?;
-        parser.match_http_hdr_auth()?;
-        parser.match_http_hdr("test")?;
+        parser.match_http_hdr("backend")?;
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header
@@ -250,10 +249,10 @@ impl<'obj> Proxy<'obj> {
     }
 
     pub async fn listen(self) -> Result<()> {
-        let fib = self.get_fib()?;
-        let fts = self.new_upstream.lock().unwrap().all_upstream_fts();
-        for ft in fts {
-            add_pqueue_to_fib(&fib, ft)?;
+        let fib = self.get_upstream_fib()?;
+        let addrs = self.new_upstream.lock().unwrap().all_upstream_fts();
+        for addr in addrs {
+            add_pqueue_to_fib(&fib, addr)?;
         }
         add_pqueue_to_fib(&fib, self.new_upstream.lock().unwrap().reverse_proxy_ft())?;
 
@@ -327,7 +326,7 @@ impl<'obj> Proxy<'obj> {
         let addr = self.address.clone();
         let sock_wait_list = self.get_sock_wait_list()?;
         let utrn_wait_list = self.get_utrn_wait_list()?;
-        let fib_direct = self.get_direct_fib()?;
+        let fib_downstream = self.get_downstream_fib()?;
         let binder = self.binder.clone();
         let upstream_pool = self.upstream_pool.clone();
         let new_upstream = self.new_upstream.clone();
@@ -381,35 +380,32 @@ impl<'obj> Proxy<'obj> {
                 }
 
                 // check if there is a forwarding token in the waiting list
-                let ft: Option<frwd_token> = utrn_wait_list
+                let us_remote_addr: Option<addr_key> = utrn_wait_list
                     .lookup_and_delete_as(&dkey)
                     .expect("Failed to lookup utrn_wait_list");
 
-                let Some(ft) = ft else {
+                let Some(us_remote_addr) = us_remote_addr else {
                     warn!(
-                        "No forwarding token found in wait list for downstream connection: [{:?}->{:?}]",
-                        &downstream.peer_addr().unwrap(), &addr
+                        "No address found in wait list for downstream connection: [{:?}->{:?}]",
+                        &downstream.peer_addr().unwrap(),
+                        &us_remote_addr
                     );
                     continue;
                 };
 
-                let us_remote_addr = new_upstream
-                    .lock()
-                    .unwrap()
-                    .new_upstream_connection(&ft)
-                    .unwrap();
+                let us_remote_addr: SocketAddr = us_remote_addr.into();
+                debug!("Connecting to {}", us_remote_addr);
                 let us_sock = binder.bind(us_remote_addr.ip()).unwrap();
                 let us_local_addr = us_sock.local_addr().unwrap();
 
                 debug!("Bound to socket: {}", us_local_addr);
 
-                // TODO: the eBPF program should give us the FT to use
-                let ft_inv = frwd_token {
-                    addr: addr_key::try_from(&us_local_addr).unwrap(),
-                    direction: 1,
-                    ..Default::default()
-                };
-                fib_insert_direct(&fib_direct, ft_inv, &dkey).expect("Failed to insert into FIB");
+                fib_insert_downstream(
+                    &fib_downstream,
+                    addr_key::try_from(&us_local_addr).unwrap(),
+                    &dkey,
+                )
+                .expect("Failed to insert into FIB");
 
                 if let Err(e) = add_socket_to_wait_list(
                     &sock_wait_list,
@@ -462,13 +458,13 @@ impl<'obj> Proxy<'obj> {
         Ok(MapHandle::from_map_id(id)?)
     }
 
-    fn get_fib(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.fib.info()?.info.id;
+    fn get_upstream_fib(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.fib_upstream.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 
-    fn get_direct_fib(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.fib_direct.info()?.info.id;
+    fn get_downstream_fib(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.fib_downstream.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 }

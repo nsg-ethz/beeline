@@ -1,12 +1,19 @@
 hosts:
-- name: server1
-  instances:
-    - 127.0.0.1:8001
-- name: server2
-  instances:
-    - 127.0.0.1:8002
+    - name: server1
+      instances:
+          - 127.0.0.1:8001
+    - name: server2
+      instances:
+          - 127.0.0.1:8002
 
-parse:
-  http:
-    backend: str,
-    content-length: u32
+routes:
+    - match:
+          path: "*"
+          headers:
+              - backend: server1
+      dest: server1
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: aud1
+            issuer: iss1

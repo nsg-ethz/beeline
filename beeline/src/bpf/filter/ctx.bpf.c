@@ -5,7 +5,7 @@ struct pipeline_ctx {
     {vars}
 
     char tmp[512];
-    struct frwd_token ft;
+    struct addr_key dest;
 };
 
 // ---
@@ -27,5 +27,5 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
     // ctx->jwt_sig_range = r3;
 
     ctx->done_idx = done_idx;
-    ctx->ft = (struct frwd_token){ 0 };
+    ctx->dest = (struct addr_key){ 0 };
 }

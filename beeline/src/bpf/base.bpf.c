@@ -167,14 +167,14 @@ enum pr_sock_action {
     PR_ADD_BOTH,
 };
 
-// TODO: this needs special care to get aligned
-// user generated
-struct frwd_token {
+struct ft_route {
     struct addr_key addr;
-    u8 direction;
-    u8 path;
-    u8 num_bytes_min;
-    u8 padding;
+
+    char path[256];
+    u8 path_len;
+    u8 header_idx;
+    char header_val[256];
+    u8 header_len;
 };
 
 struct fib_pqueue {
@@ -186,16 +186,16 @@ struct fib_pqueue {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH_OF_MAPS);
     __uint(max_entries, 8192);
-    __type(key, struct frwd_token);
+    __type(key, struct addr_key);
 	__array(values, struct fib_pqueue);
-} fib SEC(".maps");
+} fib_upstream SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 8192);
-    __type(key, struct frwd_token);
+    __type(key, struct addr_key);
     __type(value, struct sock_key);
-} fib_direct SEC(".maps");
+} fib_downstream SEC(".maps");
 
 {{DEFS}}
 
@@ -270,13 +270,13 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
     return 0;
 }
 
-static __always_inline int _fib_insert(const struct frwd_token *ft, const struct sock_key *key) {
-    bpf_log("Insert to FIB {%pI4:%u %d %d %d}", ft->addr.ip4, ft->addr.port, ft->direction, ft->path, ft->num_bytes_min);
-    if (!ft->num_bytes_min) {
-        return bpf_map_update_elem(&fib_direct, ft, key, BPF_ANY);
+static __always_inline int _fib_insert(const struct addr_key *addr, bool downstream, const struct sock_key *key) {
+    bpf_log("Insert to FIB {%pI4:%u %d} downstream: %d", addr->ip4, addr->port, downstream);
+    if (downstream) {
+        return bpf_map_update_elem(&fib_downstream, addr, key, BPF_ANY);
     }
     else {
-        struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
+        struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, addr);
         if (pqueue == NULL) {
             bpf_err("WARN: No pqueue found for forwarding token");
             return -1;
@@ -286,10 +286,10 @@ static __always_inline int _fib_insert(const struct frwd_token *ft, const struct
     }
 }
 
-static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, struct frwd_token *ft, struct sock_key *ekey) {
-    if (!ft->num_bytes_min) {
+static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool downstream, struct sock_key *ekey) {
+    if (downstream) {
         struct sock_key *res_ptr;
-        res_ptr = bpf_map_lookup_elem(&fib_direct, ft);
+        res_ptr = bpf_map_lookup_elem(&fib_downstream, addr);
         if (res_ptr != NULL) {
             *ekey = *res_ptr;
             return PR_PASS;
@@ -298,9 +298,9 @@ static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, st
         return PR_DROP;
     }
 
-    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib, ft);
+    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, addr);
     if (pqueue == NULL) {
-        bpf_err("ERROR: No pqueue found for forwarding token {%pI4:%u, %d, %d, %d}", &ft->addr.ip4, ft->addr.port, ft->direction, ft->path, ft->num_bytes_min);
+        bpf_err("ERROR: No pqueue found for addr {%pI4:%u}", &addr->ip4, addr->port);
         return PR_UTRN;
     }
 
@@ -317,79 +317,6 @@ static __always_inline enum pr_action _fib_query(const struct sock_key *ikey, st
 // ----------------------------------------------
 // compiler generated
 
-enum ft_direction {
-    PR_DOWNSTREAM = 1,
-    PR_UPSTREAM,
-    PR_REVERSE_PROXY,
-};
-
-enum ft_backend {
-    SN_SOCIAL_GRAPH = 1,
-    SN_HOME_TIMELINE,
-    SN_COMPOSE_POST,
-    SN_POST_STORAGE,
-    SN_USER_TIMELINE,
-    SN_URL_SHORTEN,
-    SN_USER,
-    SN_MEDIA,
-    SN_TEXT,
-    SN_UNIQUE_ID,
-    SN_USER_MENTION,
-    MS_UNIQUE_ID,
-    MS_MOVIE_ID,
-    MS_TEXT,
-    MS_RATING,
-    MS_USER,
-    MS_COMPOSE_REVIEW,
-    MS_REVIEW_STORAGE,
-    MS_USER_REVIEW,
-    MS_MOVIE_REVIEW,
-    MS_CAST_INFO,
-    MS_PLOT,
-    MS_MOVIE_INFO,
-};
-
-static __always_inline enum ft_backend _res_origin_sn(const struct sock_key *key) {
-    if (key == NULL) return 0;
-
-    u8 lo = key->local.ip4 >> 24;
-    switch (lo) {
-    case 2: return SN_SOCIAL_GRAPH;
-    case 6: return SN_HOME_TIMELINE;
-    case 9: return SN_COMPOSE_POST;
-    case 11: return SN_POST_STORAGE;
-    case 15: return SN_USER_TIMELINE;
-    case 19: return SN_URL_SHORTEN;
-    case 23: return SN_USER;
-    case 27: return SN_MEDIA;
-    case 31: return SN_TEXT;
-    case 33: return SN_UNIQUE_ID;
-    case 35: return SN_USER_MENTION;
-    default: return 0;
-    }
-}
-
-static __always_inline enum ft_backend _res_origin_ms(const struct sock_key *key) {
-    if (key == NULL) return 0;
-
-    u8 lo = key->local.ip4 >> 24;
-    switch (lo) {
-    case 3: return MS_UNIQUE_ID;
-    case 4: return MS_MOVIE_ID;
-    case 7: return MS_TEXT;
-    case 8: return MS_RATING;
-    case 10: return MS_USER;
-    case 13: return MS_COMPOSE_REVIEW;
-    case 15: return MS_REVIEW_STORAGE;
-    case 18: return MS_USER_REVIEW;
-    case 21: return MS_MOVIE_REVIEW;
-    case 25: return MS_CAST_INFO;
-    case 28: return MS_PLOT;
-    case 31: return MS_MOVIE_INFO;
-    default: return 0;
-    }
-}
-
 // ----------------------------------------------
 // user provided
 
@@ -397,132 +324,12 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 16384);
     __type(key, struct sock_key);
-    __type(value, struct frwd_token);
+    __type(value, struct addr_key);
 } utrn_wait_list SEC(".maps");
-
-__always_inline enum pr_action _forward_ds_conn_sn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
-    const char *compose_post = "/compose-post-service";
-    bool path_is_compose_post = bpf_strncmp(ctx->path, sizeof(compose_post)-1, compose_post);
-    const char *home_timeline = "/home-timeline-service";
-    bool path_is_home_timeline = bpf_strncmp(ctx->path, sizeof(home_timeline)-1, home_timeline);
-    const char *media = "/media-service";
-    bool path_is_media = bpf_strncmp(ctx->path, sizeof(media)-1, media);
-    const char *post_storage = "/post-storage-service";
-    bool path_is_post_storage = bpf_strncmp(ctx->path, sizeof(post_storage)-1, post_storage);
-    const char *social_graph = "/social-graph-service";
-    bool path_is_social_graph = bpf_strncmp(ctx->path, sizeof(social_graph)-1, social_graph);
-    const char *text = "/text-service";
-    bool path_is_text = bpf_strncmp(ctx->path, sizeof(text)-1, text);
-    const char *unique_id = "/unique-id-service";
-    bool path_is_unique_id = bpf_strncmp(ctx->path, sizeof(unique_id)-1, unique_id);
-    const char *url_shorten = "/url-shorten-service";
-    bool path_is_url_shorten = bpf_strncmp(ctx->path, sizeof(url_shorten)-1, url_shorten);
-    const char *user = "/user-service";
-    bool path_is_user = bpf_strncmp(ctx->path, sizeof(user)-1, user);
-    const char *user_timeline = "/user-timeline-service";
-    bool path_is_user_timeline = bpf_strncmp(ctx->path, sizeof(user_timeline)-1, user_timeline);
-    const char *user_mention = "/user-mention-service";
-    bool path_is_user_mention = bpf_strncmp(ctx->path, sizeof(user_mention)-1, user_mention);
-
-    if (path_is_compose_post == 0) ctx->ft.path = SN_COMPOSE_POST;
-        else if (path_is_home_timeline == 0) ctx->ft.path = SN_HOME_TIMELINE;
-            else if (path_is_media == 0) ctx->ft.path = SN_MEDIA;
-                else if (path_is_post_storage == 0) ctx->ft.path = SN_POST_STORAGE;
-                    else if (path_is_social_graph == 0) ctx->ft.path = SN_SOCIAL_GRAPH;
-                        else if (path_is_text == 0) ctx->ft.path = SN_TEXT;
-                            else if (path_is_unique_id == 0) ctx->ft.path = SN_UNIQUE_ID;
-                                else if (path_is_url_shorten == 0) ctx->ft.path = SN_URL_SHORTEN;
-                                    else if (path_is_user == 0) ctx->ft.path = SN_USER;
-                                        else if (path_is_user_timeline == 0) ctx->ft.path = SN_USER_TIMELINE;
-                                            else if (path_is_user_mention == 0) ctx->ft.path = SN_USER_MENTION;
-                    else {
-                        ctx->ft.direction = PR_REVERSE_PROXY;
-                        ctx->ft.num_bytes_min = true;
-
-                        return PR_PASS;
-                    }
-
-    ctx->ft.direction = PR_UPSTREAM;
-    ctx->ft.num_bytes_min = true;
-
-    return PR_PASS;
-}
-
-__always_inline enum pr_action _forward_ds_conn_ms(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
-    const char *unique_id = "/unique-id-service";
-    bool path_is_unique_id = bpf_strncmp(ctx->path, sizeof(unique_id)-1, unique_id);
-    const char *movie_id = "/movie-id-service";
-    bool path_is_movie_id = bpf_strncmp(ctx->path, sizeof(movie_id)-1, movie_id);
-    const char *text = "/text-service";
-    bool path_is_text = bpf_strncmp(ctx->path, sizeof(text)-1, text);
-    const char *rating = "/rating-service";
-    bool path_is_rating = bpf_strncmp(ctx->path, sizeof(rating)-1, rating);
-    const char *user = "/user-service";
-    bool path_is_user = bpf_strncmp(ctx->path, sizeof(user)-1, user);
-    const char *compose_review = "/compose-review-service";
-    bool path_is_compose_review = bpf_strncmp(ctx->path, sizeof(compose_review)-1, compose_review);
-    const char *review_storage = "/review-storage-service";
-    bool path_is_review_storage = bpf_strncmp(ctx->path, sizeof(review_storage)-1, review_storage);
-    const char *user_review = "/user-review-service";
-    bool path_is_user_review = bpf_strncmp(ctx->path, sizeof(user_review)-1, user_review);
-    const char *movie_review = "/movie-review-service";
-    bool path_is_movie_review = bpf_strncmp(ctx->path, sizeof(movie_review)-1, movie_review);
-    const char *cast_info = "/cast-info-service";
-    bool path_is_cast_info = bpf_strncmp(ctx->path, sizeof(cast_info)-1, cast_info);
-    const char *plot = "/plot-service";
-    bool path_is_plot = bpf_strncmp(ctx->path, sizeof(plot)-1, plot);
-    const char *movie_info = "/movie-info-service";
-    bool path_is_movie_info = bpf_strncmp(ctx->path, sizeof(movie_info)-1, movie_info);
-
-    if (path_is_unique_id == 0) ctx->ft.path = MS_UNIQUE_ID;
-        else if (path_is_movie_id == 0) ctx->ft.path = MS_MOVIE_ID;
-            else if (path_is_text == 0) ctx->ft.path = MS_TEXT;
-                else if (path_is_rating == 0) ctx->ft.path = MS_RATING;
-                    else if (path_is_user == 0) ctx->ft.path = MS_USER;
-                        else if (path_is_compose_review == 0) ctx->ft.path = MS_COMPOSE_REVIEW;
-                            else if (path_is_review_storage == 0) ctx->ft.path = MS_REVIEW_STORAGE;
-                                else if (path_is_user_review == 0) ctx->ft.path = MS_USER_REVIEW;
-                                    else if (path_is_movie_review == 0) ctx->ft.path = MS_MOVIE_REVIEW;
-                                        else if (path_is_cast_info == 0) ctx->ft.path = MS_CAST_INFO;
-                                            else if (path_is_plot == 0) ctx->ft.path = MS_PLOT;
-                                                else if (path_is_movie_info == 0) ctx->ft.path = MS_MOVIE_INFO;
-                    else {
-                        ctx->ft.direction = PR_REVERSE_PROXY;
-                        ctx->ft.num_bytes_min = true;
-
-                        return PR_PASS;
-                    }
-
-    ctx->ft.direction = PR_UPSTREAM;
-    ctx->ft.num_bytes_min = true;
-
-    return PR_PASS;
-}
-
-__always_inline enum pr_action _forward_ds_conn_mb(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
-    ctx->ft.direction = PR_REVERSE_PROXY;
-    ctx->ft.num_bytes_min = true;
-
-    return PR_PASS;
-}
-
-__noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
-    if (dkey == NULL || ctx == NULL) return PR_DROP;
-
-    #if SM_APP == 1
-    return _forward_ds_conn_sn(dkey, ctx);
-    #elif SM_APP == 2
-    return _forward_ds_conn_ms(dkey, ctx);
-    #else
-    return _forward_ds_conn_mb(dkey, ctx);
-    #endif
-}
 
 __noinline enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
     if (ukey == NULL || ctx == NULL) return PR_DROP;
-
-    ctx->ft.direction = PR_DOWNSTREAM;
-    ctx->ft.addr = ukey->remote;
+    ctx->dest = ukey->remote;
 
     return PR_PASS;
 }
@@ -533,15 +340,11 @@ __noinline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, cons
 
     // at this point we have to ask the plugin how it wants to route
     // this request back to the client
-    struct frwd_token ft_inv = { 0 };
-    ft_inv.direction = PR_DOWNSTREAM;
-    ft_inv.addr = ukey->remote;
-
-    if (_fib_insert(&ft_inv, dkey) < 0) {
-        bpf_err("ERROR: Failed to set downstream forwarding token");
+    if (_fib_insert(&ukey->remote, true, dkey) < 0) {
+        bpf_err("ERROR: Failed to set downstream route");
     }
     else {
-        bpf_log("Set downstream forwarding token {%pI4:%u, %d, %d, %d}", &ft_inv.addr.ip4, ft_inv.addr.port, ft_inv.direction, ft_inv.path, ft_inv.num_bytes_min);
+        bpf_log("Set downstream route %pI4:%u", &ukey->remote.ip4, ukey->remote.port);
     }
 
     return PR_PASS;
@@ -549,25 +352,9 @@ __noinline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, cons
 
 __noinline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
-    u8 dir = (ukey->local.ip4 >> 24 == 40) ? PR_REVERSE_PROXY : PR_UPSTREAM;
-    enum ft_backend path = 0;
-
-    #if SM_APP == 1
-    path = _res_origin_sn(ukey);
-    #elif SM_APP == 2
-    path = _res_origin_ms(ukey);
-    #else
-    dir = PR_REVERSE_PROXY;
-    #endif
 
     // make upstream connection available for new requests
-    struct frwd_token ft = {
-        .addr = { 0 },
-        .direction = dir,
-        .path = path,
-        .num_bytes_min = true
-    };
-    if (_fib_insert(&ft, ukey) < 0) {
+    if (_fib_insert(&ukey->local, false, ukey) < 0) {
         bpf_err("ERROR: Failed to reinsert upstream socket to FIB");
     }
 
@@ -690,52 +477,6 @@ static __always_inline int _log_msg_range(struct sk_msg_md *msg, u16 idx, u16 le
     return 0;
 }
 
-// static char *test_hdr = "test: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n";
-
-// compile-time generated
-// static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pipeline_ctx *ctx, const struct sock_key *ikey) {
-//     bool is_downstream = (ikey->remote.ip4 == ip4 && ikey->remote.port == port);
-//     enum pr_action res = PR_DROP;
-
-//     if (is_downstream) {
-//         res = authorize(ctx);
-//         if (res == PR_DROP) {
-//             // bpf_err("PLUGIN: Drop downstream msg");
-//             // return PR_DROP;
-//             bpf_log("PLUGIN: Drop downstream msg");
-//         }
-
-//         // struct prange test_hdr_range = {
-//         //     .idx = ctx->done_idx,
-//         //     .len = 0
-//         // };
-
-//         // if (_mutate(msg, test_hdr_range, test_hdr, 2057-1) < 0) {
-//         //     bpf_err("ERROR: Failed to add x-processed-by header");
-//         //     return PR_DROP;
-//         // }
-//         // ctx->done_idx += 2057-1;
-
-//         // struct prange test_range = ctx->test_range;
-//         // test_range.idx -= 6;
-//         // test_range.len += 7;
-//         // if (_mutate(msg, test_range, NULL, 0) < 0) {
-//         //     bpf_err("ERROR: Failed to remove test header");
-//         //     return PR_DROP;
-//         // }
-//         // ctx->done_idx -= ctx->test_range.len;
-
-//         enum pr_action res = forward_ds_conn(ikey, ctx);
-//         if (res == PR_DROP) return PR_DROP;
-//     }
-//     else {
-//         enum pr_action res = forward_us_conn(ikey, ctx);
-//         if (res == PR_DROP) return PR_DROP;
-//     }
-
-//     return PR_PASS;
-// }
-
 bpf_profile_def(sk_msg);
 bpf_profile_def(sk_msg_cork);
 SEC("sk_msg")
@@ -798,7 +539,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
 
     struct sock_key ekey = { 0 };
-    res = _fib_query(&ikey, &ctx->ft, &ekey);
+    res = _fib_query(&ctx->dest, !is_downstream, &ekey);
 
     if (is_downstream) {
         post_forward_ds_conn(&ikey, &ekey, ctx);
@@ -810,7 +551,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     bpf_profile_end(sk_msg);
 
     if (res == PR_DROP) {
-        bpf_err("No FIB entry found for {%pI4:%u %d %d %d}. Dropping.", &ctx->ft.addr.ip4, ctx->ft.addr.port, ctx->ft.direction, ctx->ft.path, ctx->ft.num_bytes_min);
+        bpf_err("No FIB entry found for %pI4:%u. Dropping.", &ctx->dest.ip4, ctx->dest.port);
         return SK_DROP;
     }
     else if (res == PR_PASS) {
@@ -824,7 +565,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
     }
     else if (res == PR_UTRN) {
-        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->ft, BPF_ANY) < 0) {
+        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }
         else {
