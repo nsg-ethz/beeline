@@ -393,75 +393,12 @@ static __always_inline enum ft_backend _res_origin_ms(const struct sock_key *key
 // ----------------------------------------------
 // user provided
 
-struct ds_conn_state {
-    u32 num_bytes;
-    u32 num_reqs;
-};
-
-struct us_conn_state {
-    u32 num_bytes;
-    u32 num_reqs;
-};
-
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 16384);
     __type(key, struct sock_key);
     __type(value, struct frwd_token);
 } utrn_wait_list SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
-    __type(key, struct sock_key);
-    __type(value, struct ds_conn_state);
-} ds_conns SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
-    __type(key, struct addr_key);
-    __type(value, struct us_conn_state);
-} us_conns SEC(".maps");
-
-__noinline enum pr_action update_ds_state(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
-    if (dkey == NULL || ctx == NULL) return PR_DROP;
-
-    struct ds_conn_state *s = bpf_map_lookup_elem(&ds_conns, dkey);
-    if (s == NULL) {
-        struct ds_conn_state ns = (struct ds_conn_state) {
-            .num_bytes = ctx->content_length,
-            .num_reqs = 1,
-        };
-        bpf_map_update_elem(&ds_conns, dkey, &ns, BPF_ANY);
-    }
-    else {
-        s->num_bytes += ctx->content_length;
-        s->num_reqs++;
-    }
-
-    return PR_PASS;
-}
-
-__noinline enum pr_action update_us_state(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
-    if (ukey == NULL || ctx == NULL) return PR_DROP;
-
-    const struct addr_key *rukey = &ukey->remote;
-    struct us_conn_state *s = bpf_map_lookup_elem(&us_conns, rukey);
-    if (s == NULL) {
-        struct us_conn_state ns = (struct us_conn_state) {
-            .num_bytes = ctx->content_length,
-            .num_reqs = 1,
-        };
-        bpf_map_update_elem(&us_conns, rukey, &ns, BPF_ANY);
-    }
-    else {
-        s->num_bytes += ctx->content_length;
-        s->num_reqs++;
-    }
-
-    return PR_PASS;
-}
 
 __always_inline enum pr_action _forward_ds_conn_sn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     const char *compose_post = "/compose-post-service";
@@ -768,10 +705,6 @@ static __always_inline int _log_msg_range(struct sk_msg_md *msg, u16 idx, u16 le
 //             bpf_log("PLUGIN: Drop downstream msg");
 //         }
 
-//         if (update_ds_state(ikey, ctx) != PR_PASS) {
-//             bpf_err("ERROR: Updating downstream connection state failed.");
-//         }
-
 //         // struct prange test_hdr_range = {
 //         //     .idx = ctx->done_idx,
 //         //     .len = 0
@@ -796,11 +729,6 @@ static __always_inline int _log_msg_range(struct sk_msg_md *msg, u16 idx, u16 le
 //         if (res == PR_DROP) return PR_DROP;
 //     }
 //     else {
-//         struct us_conn_state state = { 0 };
-//         if (update_us_state(ikey, ctx) != PR_PASS) {
-//             bpf_err("ERROR: Updating upstream connection state failed.");
-//         }
-
 //         enum pr_action res = forward_us_conn(ikey, ctx);
 //         if (res == PR_DROP) return PR_DROP;
 //     }
