@@ -66,11 +66,11 @@ pub struct FilterChain {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Filter {
     pub name: String,
-    pub typed_config: TypedConfig,
+    pub typed_config: TypedFilterConfig,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-pub struct TypedConfig {
+pub struct TypedFilterConfig {
     pub route_config: RouteConfig,
     pub http_filters: Vec<HttpFilter>,
 }
@@ -87,6 +87,11 @@ pub enum HttpFilter {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct JwtFilter {
+    pub typed_config: TypedJwtConfig,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub struct TypedJwtConfig {
     pub providers: Vec<JwtProvider>,
 }
 

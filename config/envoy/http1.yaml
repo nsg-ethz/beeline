@@ -43,6 +43,23 @@ static_resources:
                                           route:
                                               cluster: backend1
                           http_filters:
+                              - name: envoy.filters.http.JwtAuthentication
+                                typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                                    providers:
+                                        jwt_provider1:
+                                            issuer: beeline
+                                            local_jwks:
+                                                inline_string: >-
+                                                    {"keys": [
+                                                      {"kty":"oct",
+                                                      "k": "dGVzdHRlc3QxMjM0NTY3OA==",
+                                                      "alg":"HS256"}]}
+                                    rules:
+                                        - match:
+                                              prefix: "/"
+                                          requires:
+                                              provider_name: jwt_provider1
                               - name: envoy.filters.http.router
                                 typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

@@ -1,4 +1,4 @@
-use common::{config::envoy, net::TryIntoRawOctets, Config};
+use common::{net::TryIntoRawOctets, Config};
 use libbpf_cargo::SkeletonBuilder;
 use std::{
     env,
@@ -196,6 +196,8 @@ impl Compiler {
 
                 let set_dest = format!(
                     "
+                    if (_authorize(ctx) != PR_PASS) return PR_DROP;
+
                     ctx->dest.ip4 = {};
                     ctx->dest.port = {};
                 ",
@@ -246,10 +248,8 @@ impl Compiler {
             }
             for filter in &route.filters {
                 if filter["type"] == "jwt" {
-                    // let filter = self.generate_jwt_filter(&auth.secret);
-                    // downstream.push(filter);
                     ctx.push(("jwt_claims".to_string(), "char".to_string(), Some(4096)));
-                    ctx.push(("jwt_sig".to_string(), "char".to_string(), Some(64)));
+                    ctx.push(("jwt_sig".to_string(), "char".to_string(), Some(4096)));
                 }
             }
         }
@@ -343,9 +343,7 @@ fn main() {
     let config = env::var_os("CONFIG").expect("CONFIG must be set in build script");
     let config = PathBuf::from(&root_dir).join(config);
     let config = std::fs::File::open(config).expect("Failed to open config file");
-    let config: envoy::Config =
-        serde_yaml::from_reader(&config).expect("Failed to parse Envoy config");
-    let config = Config::from(config);
+    let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
 
     let compiler = Compiler::new(&base, &out);
     compiler.generate(config);

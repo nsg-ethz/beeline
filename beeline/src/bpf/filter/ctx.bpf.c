@@ -18,14 +18,6 @@ static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_i
 
     {init}
 
-    // struct prange r3 = pranges[3];
-    // // TODO: this is a haaackkk
-    // r3.idx += 1;
-    // r3.len -= 1;
-    // r3.len &= 0x3f;
-    // bpf_probe_read_kernel(ctx->jwt_sig, r3.len, data + r3.idx);
-    // ctx->jwt_sig_range = r3;
-
     ctx->done_idx = done_idx;
     ctx->dest = (struct addr_key){ 0 };
 }

@@ -185,6 +185,7 @@ impl<'obj> Proxy<'obj> {
         parser.match_http_uri()?;
         parser.match_http_hdr("content-length")?;
         parser.match_http_hdr("backend")?;
+        parser.match_http_hdr_auth()?;
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header

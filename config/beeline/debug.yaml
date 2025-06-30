@@ -10,7 +10,7 @@ routes:
     - match:
           path: "*"
           headers:
-              - backend: server1
+              backend: server1
       dest: server1
       filters:
           - type: jwt

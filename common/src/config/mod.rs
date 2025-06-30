@@ -82,11 +82,13 @@ impl From<envoy::Config> for Config {
                             HttpFilter::Jwt(filter) => {
                                 let mut jwt = HashMap::new();
                                 jwt.insert("type".to_string(), "jwt".to_string());
-                                if let Some(issuer) = &filter.providers.first().unwrap().issuer {
+                                if let Some(issuer) =
+                                    &filter.typed_config.providers.first().unwrap().issuer
+                                {
                                     jwt.insert("issuer".to_string(), issuer.to_string());
                                 }
                                 if let Some(audiences) =
-                                    &filter.providers.first().unwrap().audiences
+                                    &filter.typed_config.providers.first().unwrap().audiences
                                 {
                                     jwt.insert(
                                         "audience".to_string(),

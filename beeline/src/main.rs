@@ -1,7 +1,7 @@
 use anyhow::Result;
 use beeline::Proxy;
 use clap::Parser;
-use common::{config::envoy, Config};
+use common::Config;
 use std::mem::MaybeUninit;
 
 #[derive(Parser)]
@@ -23,9 +23,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let config = std::fs::File::open(args.config)?;
 
-    let config: envoy::Config =
-        serde_yaml::from_reader(&config).expect("Failed to parse Envoy config");
-    let config = Config::from(config);
+    let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse Envoy config");
 
     let mut open_obj = MaybeUninit::uninit();
     let proxy = Proxy::attach(&args.address, config, &mut open_obj)?;

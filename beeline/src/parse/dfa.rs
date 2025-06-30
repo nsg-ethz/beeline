@@ -1,5 +1,5 @@
-use anyhow::{bail, Result};
 use crate::parse::Action;
+use anyhow::{bail, Result};
 use log::trace;
 use std::collections::{HashMap, HashSet};
 
@@ -10,7 +10,7 @@ pub struct DfaBuilder<'a> {
     /// The current capture id
     cid: Option<u8>,
 
-    /// The current state id 
+    /// The current state id
     sid: u16,
 
     /// `true` if the current pattern captures a range
@@ -18,7 +18,6 @@ pub struct DfaBuilder<'a> {
 }
 
 impl DfaBuilder<'_> {
-
     pub fn push(&mut self, input: &str) -> Result<&mut Self> {
         trace!(target: "dfa", "push: {}", input);
         assert!(self.dfa.states.contains(&self.sid));
@@ -26,26 +25,33 @@ impl DfaBuilder<'_> {
         for c in input.chars() {
             let start_capture = self.capturing && self.cid.is_none();
 
-            if let Some((to, act)) = self.dfa.transitions.get(&(self.sid, c)).map(|(to, action)| (*to, *action)) { 
+            if let Some((to, act)) = self
+                .dfa
+                .transitions
+                .get(&(self.sid, c))
+                .map(|(to, action)| (*to, *action))
+            {
                 trace!(target: "dfa", "push_optional: reusing transition");
                 match (act, start_capture) {
                     // if the current pattern starts capturing at the same location
-                    // we just take over the capture id 
+                    // we just take over the capture id
                     (Action::StartCapture(cid), true) => {
                         self.cid = Some(cid);
                         self.sid = to;
-                    },
+                    }
                     (Action::None, false) => self.sid = to,
-                    (act, _) => bail!("Conflicting action {:?} for input {}", act, c.escape_debug())
+                    (act, _) => bail!(
+                        "Conflicting action {:?} for input {}",
+                        act,
+                        c.escape_debug()
+                    ),
                 }
-            }
-            else {
+            } else {
                 trace!(target: "dfa", "push_optional: inserting new transition");
                 let action = if start_capture {
                     self.cid = Some(self.dfa.insert_new_capture_start());
                     Action::StartCapture(self.cid.unwrap())
-                }
-                else {
+                } else {
                     Action::None
                 };
 
@@ -61,7 +67,7 @@ impl DfaBuilder<'_> {
     pub fn push_optional(&mut self, input: char) -> Result<&mut Self> {
         trace!(target: "dfa", "push_optional: {}", input);
         assert!(self.dfa.states.contains(&self.sid));
-        
+
         // if we start capturing, we have to create a new state
         let start_capture = self.capturing && self.cid.is_none();
         if start_capture {
@@ -69,7 +75,10 @@ impl DfaBuilder<'_> {
         }
 
         // we can keep in the current state as long as we want
-        if let Some((to, action)) = self.dfa.insert_transition(self.sid, self.sid, input, Action::None) {
+        if let Some((to, action)) =
+            self.dfa
+                .insert_transition(self.sid, self.sid, input, Action::None)
+        {
             if to != self.sid || action.is_some() {
                 bail!("Conflicting transition for optional input.");
             }
@@ -105,6 +114,8 @@ impl DfaBuilder<'_> {
         let rid = self.dfa.insert_new_range();
         let to = self.dfa.insert_state();
         self.end_pattern(input, Action::EndCapture(self.cid.unwrap(), rid), Some(to))?;
+        self.cid = None;
+        self.capturing = false;
 
         Ok(self)
     }
@@ -127,29 +138,31 @@ impl DfaBuilder<'_> {
 
         self.end_pattern(input, Action::Done, None)
     }
-    
+
     fn end_pattern(&mut self, input: &str, action: Action, to: Option<u16>) -> Result<&mut Self> {
-        let all_but_last: String = input.chars()
-            .take(input.len() - 1)
-            .collect();
+        let all_but_last: String = input.chars().take(input.len() - 1).collect();
 
         if all_but_last.len() > 0 {
             self.push(&all_but_last)?;
         }
 
         let last_char = input.chars().last().unwrap();
-        let to = to.or_else(|| {
-            if let Some((state, old_action)) = self.dfa.transitions.get(&(self.sid, last_char)) {
-                if *state == self.sid && (old_action.is_none() || *old_action == action) {
-                    return Some(*state);
+        let to = to
+            .or_else(|| {
+                if let Some((state, old_action)) = self.dfa.transitions.get(&(self.sid, last_char))
+                {
+                    if *state == self.sid && (old_action.is_none() || *old_action == action) {
+                        return Some(*state);
+                    }
                 }
-            }
-            
-            None
-        })
-        .unwrap_or_else(|| self.dfa.insert_state());
-    
-        if let Some((state, old_action)) = self.dfa.insert_transition(self.sid, to, last_char, action) {
+
+                None
+            })
+            .unwrap_or_else(|| self.dfa.insert_state());
+
+        if let Some((state, old_action)) =
+            self.dfa.insert_transition(self.sid, to, last_char, action)
+        {
             if state != self.sid || (old_action.is_some() && old_action != action) {
                 bail!("Conflicting transition to state (old: {:?}, new: {:?}) and action (old: {:?}, new: {:?}) on input: {}", state, self.sid, old_action, action, last_char.escape_debug());
             }
@@ -165,15 +178,13 @@ impl DfaBuilder<'_> {
         for c in input.chars() {
             if let Some((to, _)) = self.dfa.transitions.get(&(sid, c)) {
                 sid = *to;
-            }
-            else {
+            } else {
                 return None;
             }
         }
 
         Some(sid)
     }
-
 }
 
 pub(crate) struct Dfa {
@@ -194,7 +205,6 @@ pub(crate) struct Dfa {
 }
 
 impl Dfa {
-
     pub fn new(reserved_states: impl Iterator<Item = u16>) -> Dfa {
         Dfa {
             sid: 0,
@@ -233,7 +243,13 @@ impl Dfa {
         mid
     }
 
-    pub fn insert_transition(&mut self, from: u16, to: u16, input: char, action: Action) -> Option<(u16, Action)> {
+    pub fn insert_transition(
+        &mut self,
+        from: u16,
+        to: u16,
+        input: char,
+        action: Action,
+    ) -> Option<(u16, Action)> {
         let lc_input = input.to_ascii_lowercase();
         let uc_input = input.to_ascii_uppercase();
 
@@ -263,14 +279,15 @@ impl Dfa {
         }
     }
 
-    pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16>  {
+    pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16> {
         self.states.iter()
     }
 
-    pub fn iter_transitions<'a>(&'a self) -> impl Iterator<Item = (&'a u16, &'a u16, &'a char, &'a Action)>  {
+    pub fn iter_transitions<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (&'a u16, &'a u16, &'a char, &'a Action)> {
         self.transitions
             .iter()
             .map(|((from, input), (to, action))| (from, to, input, action))
     }
-
 }

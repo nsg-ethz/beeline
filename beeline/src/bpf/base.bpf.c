@@ -6,6 +6,13 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
+struct bpf_crypto_ctx *bpf_crypto_ctx_create(const struct bpf_crypto_params *params, u32 params__sz, int *err) __ksym;
+struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym;
+void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
+int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
+int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
+int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
+
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
     asm volatile("if %0 >= %[min] goto +2\n"                                                       \
@@ -197,10 +204,14 @@ struct {
     __type(value, struct sock_key);
 } fib_downstream SEC(".maps");
 
-{{DEFS}}
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct sock_key);
+    __type(value, struct addr_key);
+} utrn_wait_list SEC(".maps");
 
-// ----------------------------------------------
-// plugin helpers
+{{DEFS}}
 
 bpf_profile_def(mutate);
 bpf_profile_def(mutate_prelinearize);
@@ -270,6 +281,59 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
     return 0;
 }
 
+
+bpf_profile_def(auth);
+enum pr_action _authorize(struct pipeline_ctx *ctx) {
+    bpf_profile_start(auth);
+
+    if (!ctx) return PR_DROP;
+    if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
+        return PR_DROP;
+    }
+
+    struct cctx_val *cctx_val = cctx_val_lookup();
+    if (cctx_val == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return PR_DROP;
+    }
+
+    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
+    if (cctx == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return PR_DROP;
+    }
+
+    bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
+
+    if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
+        bpf_err("ERROR: Failed to digest msg");
+        return PR_DROP;
+    }
+
+    int sig_len = bpf_base64url_encode(ctx->jwt_claims, 32, ctx->tmp, 512);
+    if (sig_len < 0) {
+        bpf_err("ERROR: Failed to encode signature");
+        return PR_DROP;
+    }
+
+    if (sig_len > 50) sig_len = 50;
+    ctx->tmp[50] = '\0';
+
+    u32 i;
+    bpf_for(i, 0, sig_len) {
+        if (ctx->jwt_sig[i] != ctx->tmp[i]) {
+            bpf_log("Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
+            return PR_DROP;
+        }
+    }
+
+    bpf_log("JWT verified successfully");
+
+    bpf_profile_end(auth);
+
+    return PR_PASS;
+}
+
 static __always_inline int _fib_insert(const struct addr_key *addr, bool downstream, const struct sock_key *key) {
     bpf_log("Insert to FIB {%pI4:%u %d} downstream: %d", addr->ip4, addr->port, downstream);
     if (downstream) {
@@ -313,13 +377,6 @@ static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool dow
 
     return PR_PASS;
 }
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 16384);
-    __type(key, struct sock_key);
-    __type(value, struct addr_key);
-} utrn_wait_list SEC(".maps");
 
 __noinline enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
     if (ukey == NULL || ctx == NULL) return PR_DROP;
@@ -413,7 +470,6 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
                 .len = i - cidx[cid]
             };
 
-            // TODO: this is a hack, for now
             cidx[cid] = i;
         }
         if ((a & a_done) != 0) {
