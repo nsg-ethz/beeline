@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 struct Filter {
     name: Option<String>,
     defs: String,
@@ -18,7 +18,7 @@ struct Filter {
 #[derive(Clone, Debug)]
 struct Route {
     cond: String,
-    filter: Filter,
+    filters: Vec<Filter>,
 }
 
 impl Filter {
@@ -146,12 +146,69 @@ impl Compiler {
         filter
     }
 
-    fn generate_jwt_filter(&self, key: &str) -> Filter {
-        let mut filter = self.read_filter("jwt");
-        filter.replace_code("key", key);
-        filter.replace_code("key_len", key.len());
+    fn generate_jwt_filter(
+        &self,
+        idx: usize,
+        aud: Option<&String>,
+        iss: Option<&String>,
+    ) -> (Filter, String) {
+        if aud.is_none() && iss.is_none() {
+            return (Filter::default(), String::new());
+        }
 
-        filter
+        let adm_templ = "
+            adm = \"{adm}\";
+            adm_len = {adm_len};
+            admitted = false;
+
+            i, j = 0;
+            bpf_for(i, 0, claims_len) {{
+                if (ctx->tmp[i] == adm[j]) {{
+                    j++;
+                    if (j == adm_len) {{
+                        admitted = true;
+                        break;
+                    }}
+                }}
+                else if (ctx->tmp[i] != ' ') {{
+                    j = 0;
+                }}
+            }}
+
+            if (!admitted) {{
+                bpf_log(\"JWT admission failed\");
+                return PR_DROP;
+            }}";
+
+        let mut admission = String::new();
+        if let Some(aud) = aud {
+            let aud = format!("\\\"audience\\\":\\\"{}\\\"", aud);
+            let aud_admission = adm_templ
+                .replace("{adm}", &aud)
+                .replace("{adm_len}", &(aud.len() - 4).to_string());
+            admission.push_str(&aud_admission);
+            admission.push('\n');
+        }
+
+        if let Some(iss) = iss {
+            let iss = format!("\\\"issuer\\\":\\\"{}\\\"", iss);
+            let iss_admission = adm_templ
+                .replace("{adm}", &iss)
+                .replace("{adm_len}", &(iss.len() - 4).to_string());
+            admission.push_str(&iss_admission);
+        }
+
+        let mut filter = self.read_filter("jwt");
+        filter.replace_code("idx", idx);
+        filter.replace_code("admission", admission);
+
+        let call = format!(
+            "if (_validate_jwt_signature(ctx) != PR_PASS) return PR_DROP;
+        if (_validate_jwt_admission_{}(ctx) != PR_PASS) return PR_DROP;",
+            idx
+        );
+
+        (filter, call)
     }
 
     fn generate_ds_routes(&self, config: &Config) -> Vec<Route> {
@@ -194,22 +251,40 @@ impl Compiler {
                     path_condition, header_condition, idx, idx
                 );
 
-                let set_dest = format!(
-                    "
-                    if (_authorize(ctx) != PR_PASS) return PR_DROP;
+                let (mut filters, calls) = route
+                    .filters
+                    .iter()
+                    .map(|f| {
+                        if f["type"] == "jwt" {
+                            let aud = f.get("audience");
+                            let iss = f.get("issuer");
+                            Some(self.generate_jwt_filter(idx, aud, iss))
+                        } else {
+                            None
+                        }
+                    })
+                    .filter(|f| f.is_some())
+                    .map(|f| f.unwrap())
+                    .collect::<(Vec<Filter>, Vec<String>)>();
 
+                let chain = format!(
+                    "
+                    {}
                     ctx->dest.ip4 = {};
                     ctx->dest.port = {};
                 ",
+                    calls.join("\n"),
                     ip4,
                     addr.port()
                 );
 
-                let mut filter = self.read_filter("route");
-                filter.replace_code("idx", idx);
-                filter.replace_code("route", set_dest);
+                let mut route = self.read_filter("route");
+                route.replace_code("idx", idx);
+                route.replace_code("route", chain);
 
-                Route { cond, filter }
+                filters.push(route);
+
+                Route { cond, filters }
             })
             .collect::<Vec<Route>>()
     }
@@ -263,7 +338,9 @@ impl Compiler {
         filters.push(ctx);
 
         for route in &ds_routes {
-            filters.push(route.filter.clone());
+            for filter in &route.filters {
+                filters.push(filter.clone());
+            }
         }
 
         filters.push(chain);

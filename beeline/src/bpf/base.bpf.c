@@ -12,6 +12,7 @@ void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
 int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
 int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
 int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
+int bpf_base64url_decode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
 
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
@@ -283,7 +284,7 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
 
 
 bpf_profile_def(auth);
-enum pr_action _authorize(struct pipeline_ctx *ctx) {
+enum pr_action _validate_jwt_signature(struct pipeline_ctx *ctx) {
     bpf_profile_start(auth);
 
     if (!ctx) return PR_DROP;
@@ -303,7 +304,7 @@ enum pr_action _authorize(struct pipeline_ctx *ctx) {
         return PR_DROP;
     }
 
-    bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_sig);
+    bpf_log("Verifying JWT claims: %s with signature: %s", ctx->jwt_claims, ctx->jwt_claims_range.len, ctx->jwt_sig, ctx->jwt_sig_range.len);
 
     if (bpf_crypto_digest(cctx, ctx->jwt_claims, ctx->jwt_claims_range.len & 0xfff, ctx->jwt_claims, 4096) < 0) {
         bpf_err("ERROR: Failed to digest msg");
@@ -312,7 +313,7 @@ enum pr_action _authorize(struct pipeline_ctx *ctx) {
 
     int sig_len = bpf_base64url_encode(ctx->jwt_claims, 32, ctx->tmp, 512);
     if (sig_len < 0) {
-        bpf_err("ERROR: Failed to encode signature");
+        bpf_err("ERROR: Failed to encode signature: %d", sig_len);
         return PR_DROP;
     }
 
@@ -322,12 +323,12 @@ enum pr_action _authorize(struct pipeline_ctx *ctx) {
     u32 i;
     bpf_for(i, 0, sig_len) {
         if (ctx->jwt_sig[i] != ctx->tmp[i]) {
-            bpf_log("Invalid JWT (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
+            bpf_log("Invalid JWT signature (%c != %c at %d)", ctx->jwt_sig[i], ctx->tmp[i], i);
             return PR_DROP;
         }
     }
 
-    bpf_log("JWT verified successfully");
+    bpf_log("JWT signature verified");
 
     bpf_profile_end(auth);
 
