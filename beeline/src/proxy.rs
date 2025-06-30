@@ -177,15 +177,35 @@ impl<'obj> Proxy<'obj> {
             open_skel.progs.msg_verdict.set_log_level(1);
         }
 
-        // TODO: configure the parser according to the config
+        let mut auth = false;
+        let mut headers = vec!["content-length"];
+
+        for route in config.routes.iter() {
+            if let Some(patterns) = &route.pattern.headers {
+                for (key, _) in patterns.iter() {
+                    headers.push(&key);
+                }
+            }
+            for filter in route.filters.iter() {
+                if let Some(ty) = filter.get("type") {
+                    if ty == "jwt" {
+                        auth = true;
+                    }
+                }
+            }
+        }
+
         let mut parser = HttpParser::new(
             open_skel.maps.rodata_data.s_init,
             open_skel.maps.rodata_data.s_any,
         );
         parser.match_http_uri()?;
-        parser.match_http_hdr("content-length")?;
-        parser.match_http_hdr("backend")?;
-        parser.match_http_hdr_auth()?;
+        for hdr in headers.iter() {
+            parser.match_http_hdr(hdr)?;
+        }
+        if auth {
+            parser.match_http_hdr_auth()?;
+        }
 
         // this is necessary so that the DFA won't
         // parse beyond the HTTP header

@@ -123,8 +123,9 @@ impl Compiler {
                         "r = pranges[{}];
                     r.len &= 0xfff;
                     bpf_probe_read_kernel(ctx->{}, r.len, data + r.idx);
-                    ctx->{}_range = r;",
-                        i, name, name
+                    ctx->{}_range = r;
+                    bpf_log(\"{} inited to %s\", ctx->{});",
+                        i, name, name, name, name
                     )
                 } else {
                     format!(
@@ -134,8 +135,9 @@ impl Compiler {
                         buf[r.len] = '\\0'; // this way, we don't need an if-clause
                         bpf_strtoul(buf, r.len + 1, 10, &tmp);
                         ctx->{} = tmp;
-                        ctx->{}_range = r;",
-                        i, name, name
+                        ctx->{}_range = r;
+                        bpf_log(\"{} inited to %d\", ctx->{});",
+                        i, name, name, name, name
                     )
                 }
             })
@@ -315,6 +317,8 @@ impl Compiler {
         ctx.push(("path".to_string(), "char".to_string(), Some(4096)));
         ctx.push(("content_length".to_string(), "u32".to_string(), None));
 
+        let mut auth = false;
+
         for route in &config.routes {
             if let Some(headers) = &route.pattern.headers {
                 for (key, _) in headers {
@@ -323,10 +327,14 @@ impl Compiler {
             }
             for filter in &route.filters {
                 if filter["type"] == "jwt" {
-                    ctx.push(("jwt_claims".to_string(), "char".to_string(), Some(4096)));
-                    ctx.push(("jwt_sig".to_string(), "char".to_string(), Some(4096)));
+                    auth = true;
                 }
             }
+        }
+
+        if auth {
+            ctx.push(("jwt_claims".to_string(), "char".to_string(), Some(4096)));
+            ctx.push(("jwt_sig".to_string(), "char".to_string(), Some(4096)));
         }
 
         let ctx = self.generate_ctx(ctx);
