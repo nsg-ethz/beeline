@@ -314,12 +314,6 @@ static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool dow
     return PR_PASS;
 }
 
-// ----------------------------------------------
-// compiler generated
-
-// ----------------------------------------------
-// user provided
-
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 16384);

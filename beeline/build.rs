@@ -15,6 +15,12 @@ struct Filter {
     code: String,
 }
 
+#[derive(Clone, Debug)]
+struct Route {
+    cond: String,
+    filter: Filter,
+}
+
 impl Filter {
     fn replace_defs<V: ToString>(&mut self, key: &str, value: V) {
         let key = format!("{{{}}}", key);
@@ -148,13 +154,12 @@ impl Compiler {
         filter
     }
 
-    fn generate_frwd_ds_filter(&self, config: &Config) -> Filter {
-        let mut filter = self.read_filter("route");
-
-        let mut routes = config
+    fn generate_ds_routes(&self, config: &Config) -> Vec<Route> {
+        config
             .routes
             .iter()
-            .map(|route| {
+            .enumerate()
+            .map(|(idx, route)| {
                 let path_condition = if let Some(path) = &route.pattern.path {
                     if path == "*" {
                         "true".to_string()
@@ -180,53 +185,44 @@ impl Compiler {
                 let addr = config.select_backend_instance(&route.dest).unwrap();
                 let ip4: u32 = addr.ip().try_into_ne_octets().unwrap();
 
-                format!(
+                let cond = format!(
                     "if ({} && {}) {{
-                ctx->dest.ip4 = {};
-                ctx->dest.port = {};
-                return PR_PASS;
-            }}",
-                    path_condition,
-                    header_condition,
+                        if (route_ds_{}(ikey, ctx) != PR_PASS) {{
+                            bpf_err(\"ERROR: route_{} failed.\");
+                        }}
+                    }}",
+                    path_condition, header_condition, idx, idx
+                );
+
+                let set_dest = format!(
+                    "
+                    ctx->dest.ip4 = {};
+                    ctx->dest.port = {};
+                ",
                     ip4,
                     addr.port()
-                )
+                );
+
+                let mut filter = self.read_filter("route");
+                filter.replace_code("idx", idx);
+                filter.replace_code("route", set_dest);
+
+                Route { cond, filter }
             })
-            .collect::<Vec<String>>()
-            .join("\n");
-
-        filter.replace_code("routes", routes);
-
-        filter
+            .collect::<Vec<Route>>()
     }
 
-    fn generate_chain(&self, downstream: &Vec<Filter>, upstream: &Vec<Filter>) -> Filter {
+    fn generate_chain(&self, downstream: &Vec<Route>, upstream: &Vec<Route>) -> Filter {
         let mut filter = self.read_filter("chain");
         let downstream = downstream
             .iter()
-            .map(|f| {
-                format!(
-                    "if ({}(ikey, ctx) != PR_PASS) {{
-                    bpf_err(\"ERROR: {} failed.\");
-                }}",
-                    f.name.as_ref().unwrap(),
-                    f.name.as_ref().unwrap()
-                )
-            })
+            .map(|r| r.cond.clone())
             .collect::<Vec<String>>()
             .join("\n");
 
         let upstream = upstream
             .iter()
-            .map(|f| {
-                format!(
-                    "if ({}(ikey, ctx) != PR_PASS) {{
-                    bpf_err(\"ERROR: {} failed.\");
-                }}",
-                    f.name.as_ref().unwrap(),
-                    f.name.as_ref().unwrap()
-                )
-            })
+            .map(|r| r.cond.clone())
             .collect::<Vec<String>>()
             .join("\n");
 
@@ -237,8 +233,6 @@ impl Compiler {
     }
 
     fn generate_filters(&self, config: Config) -> Vec<Filter> {
-        let mut downstream = Vec::new();
-        let mut upstream = Vec::new();
         let mut ctx = Vec::new();
 
         ctx.push(("path".to_string(), "char".to_string(), Some(4096)));
@@ -260,15 +254,18 @@ impl Compiler {
             }
         }
 
-        // at the end of the chain we have to add the forwarding filters
-
         let ctx = self.generate_ctx(ctx);
-        let frwd = self.generate_frwd_ds_filter(&config);
-        let chain = self.generate_chain(&downstream, &upstream);
+        let ds_routes = self.generate_ds_routes(&config);
+        let us_routes = Vec::new();
+        let chain = self.generate_chain(&ds_routes, &us_routes);
 
         let mut filters = Vec::new();
         filters.push(ctx);
-        filters.push(frwd);
+
+        for route in &ds_routes {
+            filters.push(route.filter.clone());
+        }
+
         filters.push(chain);
 
         filters

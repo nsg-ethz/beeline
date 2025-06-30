@@ -1,9 +1,9 @@
 // ---
 
-__noinline enum pr_action forward_ds_conn(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+__noinline enum pr_action route_ds_{idx}(const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ctx == NULL) return PR_DROP;
 
-    {routes}
+    {route}
 
     return PR_PASS;
 }

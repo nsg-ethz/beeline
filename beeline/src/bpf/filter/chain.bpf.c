@@ -5,9 +5,6 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
 
     if (is_downstream) {
         {downstream}
-
-        enum pr_action res = forward_ds_conn(ikey, ctx);
-        if (res == PR_DROP) return PR_DROP;
     }
     else {
         {upstream}
