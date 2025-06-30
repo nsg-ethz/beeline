@@ -10,7 +10,6 @@ use std::{
 
 #[derive(Default, Clone, Debug)]
 struct Filter {
-    name: Option<String>,
     defs: String,
     code: String,
 }
@@ -37,22 +36,7 @@ impl From<&str> for Filter {
     fn from(text: &str) -> Self {
         let segs = text.split("// ---").collect::<Vec<&str>>();
 
-        let sig = text.split_once("__noinline enum pr_action");
-        let name = if let Some(sig) = sig {
-            Some(
-                sig.1
-                    .split_once("(")
-                    .expect("Invalid filter signature")
-                    .0
-                    .trim()
-                    .to_string(),
-            )
-        } else {
-            None
-        };
-
         Filter {
-            name,
             defs: segs[0].into(),
             code: segs[1].into(),
         }
@@ -425,13 +409,14 @@ fn main() {
     }
     .expect("Failed to create target/bpf");
 
-    let config = env::var_os("CONFIG").expect("CONFIG must be set in build script");
-    let config = PathBuf::from(&root_dir).join(config);
-    let config = std::fs::File::open(config).expect("Failed to open config file");
-    let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
+    if let Some(config) = env::var_os("CONFIG") {
+        let config = PathBuf::from(&root_dir).join(config);
+        let config = std::fs::File::open(config).expect("Failed to open config file");
+        let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
 
-    let compiler = Compiler::new(&base, &out);
-    compiler.generate(config);
+        let compiler = Compiler::new(&base, &out);
+        compiler.generate(config);
+    }
 
     let mut builder = SkeletonBuilder::new();
     let builder = builder.source(&out).clang_args([

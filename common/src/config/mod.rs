@@ -7,6 +7,7 @@ pub mod envoy;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
+    pub proxy: Option<SocketAddr>,
     pub hosts: Vec<Host>,
     pub routes: Vec<Route>,
 }
@@ -132,6 +133,10 @@ impl From<envoy::Config> for Config {
             }
         }
 
-        Config { hosts, routes }
+        Config {
+            proxy: None,
+            hosts,
+            routes,
+        }
     }
 }

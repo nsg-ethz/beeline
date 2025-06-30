@@ -15,8 +15,6 @@ use libbpf_rs::{
 };
 use libc::exit;
 use log::{debug, error, info, log_enabled, trace, warn};
-use ma::{NewUpstream, Pipeline};
-use pipeline::DebugPipeline;
 use std::{
     env,
     io::Cursor,
@@ -35,9 +33,7 @@ use tokio::{
 };
 
 pub mod bpf;
-pub mod ma;
 pub mod parse;
-pub mod pipeline;
 
 fn state_action_to_raw(state: u16, action: Action, rodata: &rodata) -> u32 {
     let action = match action {
@@ -151,7 +147,6 @@ pub struct Proxy<'obj> {
     binder: Arc<SocketBinder>,
 
     upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
-    new_upstream: Arc<Mutex<Box<dyn NewUpstream>>>,
 }
 
 unsafe impl<'obj> Send for Proxy<'obj> {}
@@ -242,10 +237,6 @@ impl<'obj> Proxy<'obj> {
 
         let binder = SocketBinder::new(12345, dests)?;
 
-        let mut pipeline = DebugPipeline::new(config.clone())?;
-        let new_upstream = pipeline.create_new_upstream()?;
-        let new_upstream = Mutex::new(new_upstream);
-
         let crypto = &skel.progs.crypto_setup;
         let input = libbpf_rs::ProgramInput::default();
 
@@ -265,17 +256,28 @@ impl<'obj> Proxy<'obj> {
             sockops,
             binder: Arc::new(binder),
             upstream_pool: Arc::new(Mutex::new(Vec::new())),
-            new_upstream: Arc::new(new_upstream),
         })
     }
 
     pub async fn listen(self) -> Result<()> {
         let fib = self.get_upstream_fib()?;
-        let addrs = self.new_upstream.lock().unwrap().all_upstream_fts();
+
+        let addrs = self
+            .config
+            .hosts
+            .iter()
+            .map(|h| addr_key::try_from(h.instances.first().unwrap()))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_or_default();
+
         for addr in addrs {
             add_pqueue_to_fib(&fib, addr)?;
         }
-        add_pqueue_to_fib(&fib, self.new_upstream.lock().unwrap().reverse_proxy_ft())?;
+
+        if let Some(proxy) = self.config.proxy {
+            let proxy_addr = addr_key::try_from(&proxy)?;
+            add_pqueue_to_fib(&fib, proxy_addr)?;
+        }
 
         let sock_wait_list = self.get_sock_wait_list()?;
         add_socket_to_wait_list(
@@ -350,7 +352,6 @@ impl<'obj> Proxy<'obj> {
         let fib_downstream = self.get_downstream_fib()?;
         let binder = self.binder.clone();
         let upstream_pool = self.upstream_pool.clone();
-        let new_upstream = self.new_upstream.clone();
 
         tokio::spawn(async move {
             let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr)).unwrap();
