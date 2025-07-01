@@ -365,13 +365,6 @@ impl Compiler {
 }
 
 fn main() {
-    let bpf_skel = std::env::var("BPF_SKEL").unwrap_or("0".to_string());
-    let bpf_skel: bool = match bpf_skel.to_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => true,
-        _ => false,
-    };
-    println!("cargo:rerun-if-env-changed=BPF_SKEL");
-
     let bpf_profile = std::env::var("BPF_PROFILE").unwrap_or("0".to_string());
     println!("cargo:rerun-if-env-changed=BPF_PROFILE");
 
@@ -430,10 +423,6 @@ fn main() {
         OsStr::new("../include"),
     ]);
 
-    if bpf_skel {
-        let out = PathBuf::from(&manifest_dir).join("src/bpf/proxy.skel.rs");
-        builder.build_and_generate(&out).unwrap();
-    } else {
-        builder.build().unwrap();
-    }
+    let out = PathBuf::from(&manifest_dir).join("src/bpf/proxy.skel.rs");
+    builder.build_and_generate(&out).unwrap();
 }
