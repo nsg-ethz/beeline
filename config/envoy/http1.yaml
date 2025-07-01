@@ -25,41 +25,22 @@ static_resources:
                     - name: envoy.filters.network.http_connection_manager
                       typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                          codec_type: auto
                           stat_prefix: ingress_http
+                          codec_type: AUTO
                           route_config:
                               name: local_route
                               virtual_hosts:
                                   - name: backend
-                                    domains:
-                                        - "*"
+                                    domains: ["*"]
                                     routes:
                                         - match:
                                               prefix: "/"
                                               headers:
-                                                  - name: "backend"
+                                                  - name: backend
                                                     string_match:
-                                                        exact: "server1"
-                                          route:
-                                              cluster: backend1
+                                                        exact: server1
+                                          route: { cluster: backend1 }
                           http_filters:
-                              - name: envoy.filters.http.JwtAuthentication
-                                typed_config:
-                                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
-                                    providers:
-                                        jwt_provider1:
-                                            issuer: beeline
-                                            local_jwks:
-                                                inline_string: >-
-                                                    {"keys": [
-                                                      {"kty":"oct",
-                                                      "k": "dGVzdHRlc3QxMjM0NTY3OA==",
-                                                      "alg":"HS256"}]}
-                                    rules:
-                                        - match:
-                                              prefix: "/"
-                                          requires:
-                                              provider_name: jwt_provider1
                               - name: envoy.filters.http.router
                                 typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
