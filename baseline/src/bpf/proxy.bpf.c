@@ -56,7 +56,7 @@ struct {
     __type(value, int);
 } contains_sock SEC(".maps");
 
-volatile const u16 port;
+volatile const u32 ip4;
 
 static __always_inline struct sock_key _invert_sock_key(const struct sock_key *key) {
     struct sock_key inv = {
@@ -121,7 +121,7 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 
         bpf_log("Established socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
 
-        if (skey.remote.port == port || skey.local.port == port) {
+        if (skey.remote.ip4 == ip4 || skey.local.ip4 == ip4) {
             if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;

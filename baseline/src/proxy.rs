@@ -1,5 +1,6 @@
 use crate::bpf::*;
 use anyhow::Result;
+use common::net::TryIntoRawOctets;
 use libbpf_rs::{
     set_print,
     skel::{OpenSkel, SkelBuilder},
@@ -8,6 +9,7 @@ use libbpf_rs::{
 use log::{debug, info, log_enabled, warn};
 use std::{
     mem::MaybeUninit,
+    net::IpAddr,
     os::{
         fd::{AsFd, AsRawFd, IntoRawFd},
         unix::fs::OpenOptionsExt,
@@ -27,7 +29,7 @@ fn print(level: PrintLevel, msg: String) {
 }
 
 pub struct Proxy<'obj> {
-    pub port: u16,
+    pub address: IpAddr,
 
     #[allow(dead_code)]
     skel: ProxySkel<'obj>,
@@ -42,10 +44,12 @@ unsafe impl<'obj> Sync for Proxy<'obj> {}
 
 impl<'obj> Proxy<'obj> {
     pub fn attach(
-        port: u16,
+        address: &str,
         open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>,
     ) -> Result<Self> {
         set_print(Some((PrintLevel::Debug, print)));
+
+        let address: IpAddr = address.parse()?;
 
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
@@ -53,7 +57,7 @@ impl<'obj> Proxy<'obj> {
             open_skel.progs.msg_verdict.set_log_level(1);
         }
 
-        open_skel.maps.rodata_data.port = port;
+        open_skel.maps.rodata_data.ip4 = address.try_into_ne_octets()?;
 
         let skel = open_skel.load()?;
 
@@ -70,7 +74,7 @@ impl<'obj> Proxy<'obj> {
         skel.progs.msg_verdict.attach_sockmap(sock_map_fd)?;
 
         Ok(Self {
-            port,
+            address,
             skel,
             sockops,
         })
