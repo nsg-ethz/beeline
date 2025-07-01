@@ -17,6 +17,8 @@ pub struct Route {
     #[serde(alias = "match")]
     pub pattern: Pattern,
     pub dest: String,
+
+    #[serde(default)]
     pub filters: Vec<HashMap<String, String>>,
 }
 
