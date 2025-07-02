@@ -141,6 +141,8 @@ struct {
     __type(value, struct pipeline_ctx);
 } ctx_percpu SEC(".maps");
 
+const u32 percpu_key = 0;
+
 const u32 a_mask = 0xFFFF0000;
 const u16 a_match = 1 << 15;
 const u16 a_done = 1 << 14;
@@ -160,8 +162,9 @@ const u16 s_any = 1;
 
 volatile const u32 ip4;
 volatile const u32 port;
+const u32 max_states = 100;
+const u32 max_trans = 128;
 volatile const u32 s2ts[128][256];
-const u32 percpu_key = 0;
 
 enum pr_action {
     PR_DROP=0,
@@ -367,8 +370,8 @@ __noinline enum pr_action post_forward_us_conn(const struct sock_key *ukey, cons
 // ----------------------------------------------
 
 static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *action) {
-    state &= 0x7F;
-    input &= 0xFF;
+    state &= 0x3FF;
+    input &= 0x7F;
 
     u32 sa = s2ts[state][input];
     if (sa == 0) {

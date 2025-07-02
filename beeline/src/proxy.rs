@@ -204,6 +204,7 @@ impl<'obj> Proxy<'obj> {
         // parse beyond the HTTP header
         parser.done_on_http_hdr_end()?;
 
+        info!("Injecting HTTP parser with {} states", parser.num_states());
         inject_parser(parser, &mut open_skel)?;
 
         open_skel.maps.rodata_data.ip4 = address.try_into_ne_octets()?;

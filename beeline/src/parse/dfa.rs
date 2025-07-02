@@ -279,6 +279,10 @@ impl Dfa {
         }
     }
 
+    pub fn num_states(&self) -> usize {
+        self.states.len()
+    }
+
     pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16> {
         self.states.iter()
     }

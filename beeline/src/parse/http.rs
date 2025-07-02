@@ -100,6 +100,10 @@ impl HttpParser {
         Ok(())
     }
 
+    pub fn num_states(&self) -> usize {
+        self.dfa.num_states()
+    }
+
     pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16> {
         self.dfa.iter_states()
     }
