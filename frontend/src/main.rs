@@ -7,6 +7,7 @@ use axum::{
 use clap::Parser;
 use log::{debug, error};
 use reqwest::Client;
+use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Parser)]
 struct Args {
@@ -75,5 +76,16 @@ async fn main() {
         service_chain
     );
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal() {
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {},
+        _ = sigterm.recv() => {},
+    }
 }

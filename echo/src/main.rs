@@ -8,6 +8,7 @@ use axum::{
 };
 use clap::Parser;
 use std::{collections::HashMap, str::FromStr, time::Duration};
+use tokio::signal::unix::{signal, SignalKind};
 
 #[derive(Parser)]
 struct Args {
@@ -78,7 +79,10 @@ async fn main() {
         .unwrap();
     log::info!("Listening on {}", address);
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
 }
 
 async fn echo(headers: HeaderMap, body: Bytes) -> Result<impl IntoResponse, StatusCode> {
@@ -86,5 +90,13 @@ async fn echo(headers: HeaderMap, body: Bytes) -> Result<impl IntoResponse, Stat
         Ok((headers, body))
     } else {
         Err(StatusCode::BAD_REQUEST)
+    }
+}
+
+async fn shutdown_signal() {
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {},
+        _ = sigterm.recv() => {},
     }
 }
