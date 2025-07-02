@@ -212,9 +212,9 @@ struct {
     __type(value, struct addr_key);
 } utrn_wait_list SEC(".maps");
 
-{{DEFS}}
-
 bpf_profile_def(auth);
+
+{{DEFS}}
 
 bpf_profile_def(mutate);
 bpf_profile_def(mutate_prelinearize);

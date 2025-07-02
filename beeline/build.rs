@@ -1,4 +1,4 @@
-use common::{net::TryIntoRawOctets, Config};
+use common::{config, net::TryIntoRawOctets, Config};
 use libbpf_cargo::SkeletonBuilder;
 use std::{
     env,
@@ -147,7 +147,7 @@ impl Compiler {
             adm_len = {adm_len};
             admitted = false;
 
-            i, j = 0;
+            j = 0;
             bpf_for(i, 0, claims_len) {{
                 if (ctx->tmp[i] == adm[j]) {{
                     j++;
@@ -240,14 +240,13 @@ impl Compiler {
                 let (mut filters, calls) = route
                     .filters
                     .iter()
-                    .map(|f| {
-                        if f["type"] == "jwt" {
-                            let aud = f.get("audience");
-                            let iss = f.get("issuer");
-                            Some(self.generate_jwt_filter(idx, aud, iss))
-                        } else {
-                            None
-                        }
+                    .map(|f| match f {
+                        config::Filter::Jwt(f) => Some(self.generate_jwt_filter(
+                            idx,
+                            f.audience.as_ref(),
+                            f.issuer.as_ref(),
+                        )),
+                        config::Filter::Mutate(f) => unimplemented!("mutate"),
                     })
                     .filter(|f| f.is_some())
                     .map(|f| f.unwrap())
@@ -310,7 +309,7 @@ impl Compiler {
                 }
             }
             for filter in &route.filters {
-                if filter["type"] == "jwt" {
+                if filter.is_jwt() {
                     auth = true;
                 }
             }

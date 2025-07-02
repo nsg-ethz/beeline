@@ -182,10 +182,8 @@ impl<'obj> Proxy<'obj> {
                 }
             }
             for filter in route.filters.iter() {
-                if let Some(ty) = filter.get("type") {
-                    if ty == "jwt" {
-                        auth = true;
-                    }
+                if filter.is_jwt() {
+                    auth = true;
                 }
             }
         }
