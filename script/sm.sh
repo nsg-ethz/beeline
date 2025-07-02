@@ -87,7 +87,7 @@ case ${ACTION} in
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -p 9999
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
             sleep 5
             echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
         fi

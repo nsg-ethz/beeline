@@ -148,8 +148,6 @@ def _load_k6_summaries(paths):
                 })
 
     df = pd.DataFrame.from_dict(rows)
-    df.set_index(["proxy", "metric_name"], inplace=True)
-
     return df
 
 
@@ -615,10 +613,10 @@ def cdf_graph_tikz(name, time_range, wrk):
             return (xs, ys)
 
         print("beeline vs baseline:", (_percentiles("beeline")[0] / _percentiles("baseline")[0]).mean())
-        print("beeline vs strawman:", (_percentiles("beeline")[0] / _percentiles("strawman")[0]).mean())
+        print("beeline vs envoy:", (_percentiles("beeline")[0] / _percentiles("envoy")[0]).mean())
         if "vanilla" in order:
             print("beeline vs vanilla:", (_percentiles("beeline")[0] / _percentiles("vanilla")[0]).mean())
-        print("baseline vs strawman:", (_percentiles("baseline")[0] / _percentiles("strawman")[0]).mean())
+        print("baseline vs envoy:", (_percentiles("baseline")[0] / _percentiles("envoy")[0]).mean())
 
         for i, proxy in enumerate(order):
             color = f"{proxy}color" # predefined in latex
@@ -654,10 +652,10 @@ def cdf_graph_tikz(name, time_range, wrk):
             return (xs, ys)
 
         print("beeline vs baseline:", (_percentiles("beeline")[0] / _percentiles("baseline")[0]).mean())
-        print("beeline vs strawman:", (_percentiles("beeline")[0] / _percentiles("strawman")[0]).mean())
+        print("beeline vs envoy:", (_percentiles("beeline")[0] / _percentiles("envoy")[0]).mean())
         if "vanilla" in order:
             print("beeline vs vanilla:", (_percentiles("beeline")[0] / _percentiles("vanilla")[0]).mean())
-        print("baseline vs strawman:", (_percentiles("baseline")[0] / _percentiles("strawman")[0]).mean())
+        print("baseline vs envoy:", (_percentiles("baseline")[0] / _percentiles("envoy")[0]).mean())
 
         for i, proxy in enumerate(order):
             color = f"{proxy}color" # predefined in latex
@@ -1239,92 +1237,107 @@ width=\\linewidth]
     print(tikz)
 
 
-def dissect_graph(name, dst):
-    paths = _get_file_paths(name, "*bpf*.log")
-    df = _load_bpf_data(paths).set_index(["bin", "epoch", "func"])
+def load_dissect_df(name):
+    paths = _get_file_paths(name, "*k6*.json")
+    k6 = _load_k6_summaries(paths)
 
-    # for func in ["ipc", "write"]:
-    #     df.loc[("envoy", slice(None), func), "mean"] += df.loc[("svc", slice(None), func), "mean"].values
-    # df = df.drop(["svc", "beeline"], level="bin").reset_index()
+    avg_req_latency = lambda df, proxy: df[(df["proxy"] == proxy) & (df["metric_name"] == "http_req_duration")]["avg"].mean()
 
-    df["mean"] = (df["total"] / df["count"]) / 1000
+    # envoy_fp does not have much network stack overhead because its sockets
+    # are connected using the eBPF program
+    envoy_fp = avg_req_latency(k6, "envoy_fp")
+    envoy = avg_req_latency(k6, "envoy")
+    beeline = avg_req_latency(k6, "beeline")
+    ideal = avg_req_latency(k6, "ideal")
+    direct = avg_req_latency(k6, "none")
+    print("application latency:", direct)
 
-    paths = _get_file_paths(name, "*wrk*.log")
-    wrk = _load_wrk_data(paths).reset_index()
-    wrk = wrk.rename(columns={"target_rate": "payload_size"})
+    envoy_fp -= direct
+    envoy -= direct
+    beeline -= ideal
 
-    df = df.set_index(["func", "payload_size"])
-    # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
-    df.loc[("parse", slice(None)), "mean"] *= 2
-    df.loc[("user", slice(None)), "mean"] *= 2
-    df.loc[("user", slice(None)), "mean"] -= df.loc[("parse", slice(None)), "mean"].values
+    print("network stack direct:", direct - ideal)
+    print("overhead from using beeline:", beeline)
 
-    strawman = wrk[wrk["proxy"] == "strawman"].set_index("payload_size")
-    none = wrk[wrk["proxy"] == "none"].set_index("payload_size")
-    overhead = strawman["mean"] - none["mean"]
+    ns_envoy = envoy - envoy_fp
+    print("overhead from using envoy:", envoy)
+    print("envoy's network stack overhead:", ns_envoy)
 
-    total_latency = df.groupby(by=["payload_size"]).agg({"mean": "sum"})
+    print("overhead from using envoy + L4 FP:", envoy_fp)
 
-    unaccounted = overhead - total_latency["mean"]
-    print("unaccounted", unaccounted.to_string())
+    paths = _get_file_paths(f"{name}_nobpf", "*k6*.json")
+    k6_nobpf = _load_k6_summaries(paths)
+    envoy_nobpf = avg_req_latency(k6_nobpf, "envoy")
+    envoy_fp_nobpf = avg_req_latency(k6_nobpf, "envoy_fp")
 
+    envoy_nobpf -= direct
+    envoy_fp_nobpf -= direct
 
-    # df = df.join(total_latency["mean"].rename('overhead'), on='payload_size')
+    print("overhead from monitoring envoy:", envoy - envoy_nobpf)
+    assert envoy > envoy_nobpf
+    # envoy = envoy_nobpf
 
-    # df["mean_rel"] = 100 * df["mean"] / df["overhead"]
-    # df = df.rename(index={"user": "other"}, level="func")
+    print("overhead from monitoring envoy_fp:", envoy_fp - envoy_fp_nobpf)
+    assert envoy_fp > envoy_fp_nobpf
+    # envoy_fp = envoy_fp_nobpf
 
-    g = sns.barplot(data=df, x="payload_size", y="mean", hue="func")
-    g.set(xlabel="req/s", ylabel="overhead [ms]")
+    iters = k6[k6["metric_name"] == "iterations"]["count"].mean()
 
-    _save_to_path(f"dissect-{name}", os.path.join(dst, name))
-
-
-def dissect_graph_tikz(name):
-    paths = _get_file_paths("mb_perf3_100B", "*wrk*.log")
-    wrk = _load_wrk_data(paths)
-    baseline = wrk[wrk["proxy"] == "baseline"]["mean"].mean()
-    strawman = wrk[wrk["proxy"] == "strawman"]["mean"].mean()
-    ns = strawman - baseline
-    print("network stack overhead:", ns)
-
-    paths = _get_file_paths(name, "*wrk*.log")
-    wrk = _load_wrk_data(paths)
-
-    print(wrk)
-
+    # we get the IPC, parsing etc overhead for every single request
     paths = _get_file_paths(name, "*bpf*.log")
     df = _load_bpf_data(paths)
-    df["mean"] = (df["total"] / df["count"]) / 1000000
+    df["mean"] = (df["total"] / iters) / 1000000
 
-    df = df[df['bin'] != 'svc']
-    df = df[df["proxy"] != "tcp"]
     df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
 
-    # postprocessing according to meshinsight https://github.com/UWNetworksLab/meshinsight/blob/b9df300a189c9475b37fc6b980ca883b9a433ab4/meshinsight/profiler/offline_profiler.py
-    df.loc[(slice(None), "parse"), "mean"] *= 2
-    df.loc[(slice(None), "user"), "mean"] *= 2
-    # df.loc[(slice(None), "user", slice(None)), "mean"] -= df.loc[(slice(None), "parse", slice(None)), "mean"].values
+    # add the overhead from traversing the network stack
+    df.loc[("envoy", "ipc"), "mean"] += ns_envoy
 
-    # we add the network stack overhead
-    df.loc[("strawman", "ns"), "mean"] = ns
-    df.loc[("naive", "ns"), "mean"] = ns
+    # userspace processing contains parsing and I/O -> subtract parsing from processing so it's not represented twice
+    df.loc[(slice(None), "user"), "mean"] -= df.loc[(slice(None), "parse"), "mean"].values
 
-    order = ["strawman", "baseline", "naive", "beeline"]
-    for proxy in order:
-        overhead = df.loc[(proxy, slice(None)), "mean"].sum()
-        total = wrk[wrk["proxy"] == proxy]["mean"].mean()
-        print(proxy, total, overhead)
-        df.loc[(proxy, "echo"), "mean"] = total - overhead
+    # this is the overhead from running an eBPF program at the sk_msg level
+    # the L4 fast path executes this twice as often as beeline
+    sk_msg = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
+    df.loc[("beeline", "eBPF"), "mean"] = sk_msg
+    df.loc[("envoy_fp", "eBPF"), "mean"] = 2*sk_msg
 
-    rename = {"user": "processing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
+    # the remainder of the request duration is unaccounted for
+    df.loc[("envoy", "unaccounted"), "mean"] = envoy - df.loc[("envoy", slice(None)), "mean"].sum()
+    df.loc[("envoy_fp", "unaccounted"), "mean"] = envoy_fp - df.loc[("envoy_fp", slice(None)), "mean"].sum()
+    df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
+
+    # sanity check that we're not misssing anything
+    assert df.loc[("envoy", slice(None)), "mean"].sum().round(5) == envoy.round(5)
+    assert df.loc[("envoy_fp", slice(None)), "mean"].sum().round(5) == envoy_fp.round(5)
+    assert df.loc[("beeline", slice(None)), "mean"].sum().round(5) == beeline.round(5)
+
+    # unaccounted goes into processing
+    rename = {"user": "Processing", "unaccounted": "Processing", "ebpf": "eBPF", "parse": "Parsing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
     df = df.rename(index=rename, level="func").reset_index()
     df = df.groupby(by=["proxy", "func"]).agg({"mean": "sum"})
 
     print(df)
 
+    return df
+
+
+def dissect_graph(name, dst):
+    df = load_dissect_df(name)
+
+    g = sns.barplot(data=df, x="proxy", y="mean", hue="func")
+    g.set(xlabel="proxy", ylabel="overhead [ms]")
+
+    _save_to_path(f"dissect-{name}", os.path.join(dst, name))
+
+
+def dissect_graph_tikz(name):
+    df = load_dissect_df(name)
+
+    order = ["envoy", "envoy_fp", "beeline"]
+
     plots = []
-    funcs = ["echo", "processing", "parse", "ns", "IPC"]
+    funcs = ["eBPF", "Processing", "Parsing", "IPC"]
     for f in funcs:
         coords = []
         for p in order:
@@ -1351,9 +1364,9 @@ every axis plot/.style={{fill}},
 bar width=20pt,
 ylabel={{latency [ms]}},
 symbolic x coords={{{proxies}}},
-legend columns=2,
+legend columns = 4,
 legend style={{at={{(0,1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
-xticklabels={{Envoy, {{Envoy + L4\\\\ Fast Path}}, {{Envoy + Naive\\\\Fast Path}}, {{Envoy +\\\\\\proj}}}},
+xticklabels={{Envoy, {{Envoy + L4\\\\ Fast Path}}, {{Envoy +\\\\\\proj}}}},
 xticklabel style={{align=center}},
 xtick=data,
 enlarge x limits={{abs=1.5cm}},

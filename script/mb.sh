@@ -71,19 +71,18 @@ case $ACTION in
         CWD=${PWD}
         if [ "${PROXY}" = "beeline" ]; then
             cd ${ROOT}/..
-            BPF_PROFILE=1 cargo b -r -p beeline
+            CONFIG=${PROXY_CONFIG} BPF_PROFILE=1 cargo b -r -p beeline
 
             launch_echo 8000
-            BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BEELINE_BIN} -a 127.0.0.1:8080 -c config/naive/mb.yaml > /dev/null 2>&1
+            BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BEELINE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > /dev/null 2>&1
 
-            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
             sleep 5
-            echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+            echo -e "${COLOR_GREEN}Launched envoy with beeline${COLOR_OFF}"
 
             if [ "${MONITOR}" = true ]; then
                 sudo -b -E systemd-run -q --scope -u mb-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
             fi
-        elif [ "${PROXY}" = "baseline" ]; then
+        elif [ "${PROXY}" = "envoy_fp" ]; then
             cd ${ROOT}/..
             cargo b -r -p baseline
 
@@ -92,7 +91,7 @@ case $ACTION in
             sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BASELINE_BIN} -a 127.0.0.1 > /dev/null 2>&1
             sleep 1
             ENVOY_PID=$(pidof envoy-static)
-            echo -e "${COLOR_GREEN}Launched baseline and envoy proxy: ${ENVOY_PID}${COLOR_OFF}"
+            echo -e "${COLOR_GREEN}Launched envoy with fast path: ${ENVOY_PID}${COLOR_OFF}"
 
             if [ "${MONITOR}" = true ]; then
                 echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
@@ -103,13 +102,31 @@ case $ACTION in
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-baseline.write-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-baseline.read-e${EPOCH}.log 2>/dev/null
 
-                sudo -b funclatency-bpfcc -p ${ECHO_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.ipc-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ECHO_PID} -r "^vfs_writev?$" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.write-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ECHO_PID} -r "^vfs_readv?$" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.read-e${EPOCH}.log 2>/dev/null
+                sleep 5
+            fi
+        elif [ "${PROXY}" = "envoy" ]; then
+            launch_echo 8000
+            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
+            sleep 1
+            ENVOY_PID=$(pidof envoy-static)
+            echo -e "${COLOR_GREEN}Launched envoy proxy: ${ENVOY_PID}${COLOR_OFF}"
+
+            if [ "${MONITOR}" = true ]; then
+                echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.parse-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onReadReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onWriteReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user2-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.ipc-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.epoll-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.write-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.read-e${EPOCH}.log 2>/dev/null
 
                 sleep 5
             fi
         elif [ "${PROXY}" = "naive" ]; then
+            cd ${ROOT}/..
+            cargo b -r -p naive
+
             launch_echo 8000
             sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${NAIVE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log 2>&1
             sleep 5
@@ -123,35 +140,33 @@ case $ACTION in
                 sudo -b funclatency-bpfcc -p ${NAIVE_PID} "__sys_recvfrom" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.read-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${NAIVE_PID} "__x64_sys_writev" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.write-e${EPOCH}.log 2>/dev/null
             fi
-        elif [ "${PROXY}" = "strawman" ]; then
+        elif [ "${PROXY}" = "naive_fp" ]; then
+            cd ${ROOT}/..
+            cargo b -r -p naive
+
             launch_echo 8000
-            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${ENVOY_BIN} -c ${PROXY_CONFIG} > /dev/null 2>&1
-            sleep 1
-            ENVOY_PID=$(pidof envoy-static)
-            echo -e "${COLOR_GREEN}Launched envoy proxy: ${ENVOY_PID}${COLOR_OFF}"
+            sudo -b -E systemd-run -q --scope -u mb-proxy --slice beeline.slice ${NAIVE_BIN} -a 127.0.0.1:8080 -c ${PROXY_CONFIG} > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log 2>&1
+            sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BASELINE_BIN} -a 127.0.0.1 > /dev/null 2>&1
+            sleep 5
+            NAIVE_PID=$(pidof naive)
+            echo -e "${COLOR_GREEN}Launched naive with fast path${COLOR_OFF}"
 
             if [ "${MONITOR}" = true ]; then
                 echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.parse-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onReadReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.ipc-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.epoll-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.write-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.read-e${EPOCH}.log 2>/dev/null
-
-                ECHO_PID=$(pidof echo)
-                sudo -b funclatency-bpfcc -p ${ECHO_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.ipc-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ECHO_PID} -r "^vfs_writev?$" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.write-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ECHO_PID} -r "^vfs_readv?$" > ${SUMMARY_DIR}/${PROXY}-bpf-svc.read-e${EPOCH}.log 2>/dev/null
-
-                sleep 5
+                sudo -b funclatency-bpfcc -p ${NAIVE_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.ipc-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${NAIVE_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.epoll-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${NAIVE_PID} "__sys_recvfrom" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.read-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${NAIVE_PID} "__x64_sys_writev" > ${SUMMARY_DIR}/${PROXY}-bpf-naive.write-e${EPOCH}.log 2>/dev/null
             fi
         elif [ "${PROXY}" = "ideal" ]; then
+            cd ${ROOT}/..
+            cargo b -r -p baseline
+
             launch_echo 8080
             sudo -b -E systemd-run -q --scope -u mb-proxy-opt --slice beeline.slice ${BASELINE_BIN} -a 127.0.0.1 > /dev/null 2>&1
             sleep 1
             echo -e "${COLOR_GREEN}Launched ideal${COLOR_OFF}"
-        elif [ "${PROXY}" = "vanilla" ]; then
+        elif [ "${PROXY}" = "none" ]; then
             launch_echo 8080
         else
             echo "Invalid proxy: ${PROXY}"
@@ -173,10 +188,10 @@ case $ACTION in
 
         if [ "${MONITOR}" = true ]; then
             if [ "${PROXY}" = "beeline" ]; then
-                grep "other total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.user-e${EPOCH}.log
+                grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.user-e${EPOCH}.log
                 grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.parse-e${EPOCH}.log
                 rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
-            elif [ "${PROXY}" = "naive" ]; then
+            elif [ "${PROXY}" = "naive" ] || [ "${PROXY}" = "naive_fp" ]; then
                 grep "other total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.user-e${EPOCH}.log
                 grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.parse-e${EPOCH}.log
                 rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
