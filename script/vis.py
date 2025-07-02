@@ -89,6 +89,10 @@ percentile.add_argument("-r", "--range", required=False, help="The time range")
 percentile_tikz = subparsers.add_parser("percentile_tikz")
 percentile_tikz.add_argument("-r", "--range", required=False, help="The time range")
 
+scaling = subparsers.add_parser("scaling")
+scaling.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
+scaling.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
+
 args = parser.parse_args()
 
 def thousand_label(x, pos):
@@ -169,7 +173,7 @@ def _load_k6_data(paths, max_epoch=30):
 
             df["proxy"] = proxy
             df["epoch"] = epoch
-            df["file"] = os.path.basename(p)
+            df["file"] = os.path.basename(p),
             df["timestamp"] -= df["timestamp"].min()
             dfs.append(df)
         except Exception as e:
@@ -1484,6 +1488,29 @@ width=\\linewidth]
     print(tikz)
 
 
+def scaling_graph(name, metric, agg, dst):
+    dfs = []
+    for i in range(1, 100):
+        paths = _get_file_paths(f"{name}-{i}", "*k6*summary*.json")
+        if len(paths) > 0:
+            df = _load_k6_summaries(paths)
+            df["services"] = i
+            dfs.append(df)
+
+    df = pd.concat(dfs)
+    df = df[df["metric_name"] == metric]
+    df = df.groupby(["proxy", "services"]).agg({agg: "mean"})
+    print(df)
+
+    g = sns.lineplot(data=df, x="services", y=agg, hue="proxy", marker="o")
+    g.set(xlabel="#Services", ylabel="Latency [ms]")
+
+    if args.legend:
+        _rename_legend_labels(g)
+
+    _save_to_path(f"scaling-{agg}", os.path.join(dst, name))
+
+
 if __name__ == "__main__":
     if args.command == "bp":
         box_plot(args.name, args.metric, args.output)
@@ -1505,8 +1532,6 @@ if __name__ == "__main__":
         scatter_graph(args.name, args.proxy, args.metric, float(args.drop), args.output)
     elif args.command == "time_profile":
         time_profile_graph_tikz(args.name, args.metric, args.agg)
-    elif args.command == "surface":
-        surface_graph(args.name, args.proxy, args.metric, args.agg, args.output)
     elif args.command == "lat":
         lat_graph(args.name, args.agg, args.output)
     elif args.command == "lat_tikz":
@@ -1531,3 +1556,5 @@ if __name__ == "__main__":
         percentile_graph(args.name, args.range, args.output)
     elif args.command == "percentile_tikz":
         percentile_graph_tikz(args.name, args.range)
+    elif args.command == "scaling":
+        scaling_graph(args.name, args.metric, args.agg, args.output)

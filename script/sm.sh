@@ -85,7 +85,7 @@ case ${ACTION} in
             elif [[ "${DOCKER_CONFIG}" == *ssm* ]]; then
                 cd ${ROOT}/..
                 CONFIG=${ROOT}/../config/beeline/ssm.yaml cargo b -r -p beeline
-                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c CONFIG=${ROOT}/../config/beeline/ssm.yaml
+                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/ssm.yaml
             fi
 
             sleep 5
