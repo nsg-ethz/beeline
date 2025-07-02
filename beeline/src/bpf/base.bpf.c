@@ -215,9 +215,58 @@ struct {
     __type(value, struct addr_key);
 } utrn_wait_list SEC(".maps");
 
-bpf_profile_def(auth);
-
 {{DEFS}}
+
+bpf_profile_def(auth);
+static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 claims_len, char *sig, u32 sig_len, char *tmp) {
+    bpf_profile_start(auth);
+
+    if (claims_len == 0 || claims_len > 4096 || sig_len == 0 || sig_len > 4096) {
+        return PR_DROP;
+    }
+
+    struct cctx_val *cctx_val = cctx_val_lookup();
+    if (cctx_val == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return PR_DROP;
+    }
+
+    struct bpf_crypto_ctx *cctx = cctx_val->ctx;
+    if (cctx == NULL) {
+        bpf_err("ERROR: Failed to find crypto context");
+        return PR_DROP;
+    }
+
+    bpf_log("Verifying JWT claims: %s with signature: %s", claims, sig);
+
+    if (bpf_crypto_digest(cctx, claims, claims_len & 0xfff, claims, 4096) < 0) {
+        bpf_err("ERROR: Failed to digest msg");
+        return PR_DROP;
+    }
+
+    sig_len = bpf_base64url_encode(claims, 32, tmp, 512);
+    if (sig_len < 0) {
+        bpf_err("ERROR: Failed to encode signature: %d", sig_len);
+        return PR_DROP;
+    }
+
+    if (sig_len > 50) sig_len = 50;
+    tmp[50] = '\0';
+
+    u32 i;
+    bpf_for(i, 0, sig_len) {
+        if (sig[i] != tmp[i]) {
+            bpf_log("Invalid JWT signature (%c != %c at %d)", sig[i], tmp[i], i);
+            return PR_DROP;
+        }
+    }
+
+    bpf_log("JWT signature verified");
+
+    bpf_profile_end(auth);
+
+    return PR_PASS;
+}
 
 bpf_profile_def(mutate);
 bpf_profile_def(mutate_prelinearize);
@@ -331,14 +380,14 @@ static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool dow
     return PR_PASS;
 }
 
-__noinline enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+static __always_inline enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
     if (ukey == NULL || ctx == NULL) return PR_DROP;
     ctx->dest = ukey->remote;
 
     return PR_PASS;
 }
 
-__noinline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
     if (ukey->local.ip4 == 0 && ukey->remote.ip4 == 0) return PR_PASS;
 
@@ -354,7 +403,7 @@ __noinline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, cons
     return PR_PASS;
 }
 
-__noinline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
     if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
 
     // make upstream connection available for new requests

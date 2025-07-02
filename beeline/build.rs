@@ -189,7 +189,7 @@ impl Compiler {
         filter.replace_code("admission", admission);
 
         let call = format!(
-            "if (_validate_jwt_signature(ctx) != PR_PASS) return PR_DROP;
+            "if (_validate_jwt_signature(ctx->jwt_claims, ctx->jwt_claims_range.len, ctx->jwt_sig, ctx->jwt_sig_range.len, ctx->tmp) != PR_PASS) return PR_DROP;
         if (_validate_jwt_admission_{}(ctx) != PR_PASS) return PR_DROP;",
             idx
         );
