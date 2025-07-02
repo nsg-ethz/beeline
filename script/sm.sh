@@ -67,6 +67,7 @@ case ${ACTION} in
         # this doesn't seem like a good idea but it works
         sudo chmod -R o+r ${ROOT}/../test/social_network/config-*
         sudo chmod -R o+r ${ROOT}/../test/media_service/config-*
+        sudo chmod o+r ${ROOT}/../config/envoy/ssm.yaml
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
 
@@ -81,6 +82,10 @@ case ${ACTION} in
                 cd ${ROOT}/..
                 SM_APP=ms cargo b -r -p beeline
                 sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/ms.yaml
+            elif [[ "${DOCKER_CONFIG}" == *ssm* ]]; then
+                cd ${ROOT}/..
+                CONFIG=${ROOT}/../config/beeline/ssm.yaml cargo b -r -p beeline
+                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c CONFIG=${ROOT}/../config/beeline/ssm.yaml
             fi
 
             sleep 5

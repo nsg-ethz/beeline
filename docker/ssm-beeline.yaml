@@ -40,3 +40,5 @@ services:
         cgroup_parent: beeline.slice
         deploy:
             replicas: ${SERVICES}
+        depends_on:
+            - frontend

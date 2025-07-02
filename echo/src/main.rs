@@ -47,32 +47,33 @@ async fn main() {
         .collect::<HashMap<String, String>>();
     let header_echos = header_echos.unwrap_or_default();
 
+    let echo = post(move |req_hdrs: HeaderMap, body: Bytes| {
+        log::trace!("Received request: {:?}", req_hdrs);
+        // this helps simulating slower backends
+        if delay_us > 0 {
+            std::thread::sleep(Duration::from_micros(delay_us));
+        }
+
+        let mut res_hdrs = HeaderMap::new();
+        for (key, val) in headers.into_iter() {
+            let key = HeaderName::from_str(key.as_str()).unwrap();
+            res_hdrs.insert(key, val.parse().unwrap());
+        }
+
+        req_hdrs
+            .iter()
+            .filter(|(k, _)| header_echos.contains(&k.to_string()))
+            .for_each(|(k, v)| {
+                res_hdrs.insert(k, v.clone());
+            });
+
+        echo(res_hdrs, body)
+    });
+
     // build our application with a route
-    let app = Router::new().route(
-        "/",
-        post(move |req_hdrs: HeaderMap, body: Bytes| {
-            log::trace!("Received request: {:?}", req_hdrs);
-            // this helps simulating slower backends
-            if delay_us > 0 {
-                std::thread::sleep(Duration::from_micros(delay_us));
-            }
-
-            let mut res_hdrs = HeaderMap::new();
-            for (key, val) in headers.into_iter() {
-                let key = HeaderName::from_str(key.as_str()).unwrap();
-                res_hdrs.insert(key, val.parse().unwrap());
-            }
-
-            req_hdrs
-                .iter()
-                .filter(|(k, _)| header_echos.contains(&k.to_string()))
-                .for_each(|(k, v)| {
-                    res_hdrs.insert(k, v.clone());
-                });
-
-            echo(res_hdrs, body)
-        }),
-    );
+    let app = Router::new()
+        .route("/", echo.clone())
+        .route("/{path}", echo);
 
     let listener = tokio::net::TcpListener::bind(address.clone())
         .await

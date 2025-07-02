@@ -44,7 +44,7 @@ async fn main() {
                 log::debug!("Received request: {:?}", req_hdrs);
 
                 if let Ok(body) = String::from_utf8(body.to_vec()) {
-                    for i in 0..service_chain {
+                    for i in 1..=service_chain {
                         let addr = if let Some(proxy) = &proxy {
                             format!("http://{}/{}{}", proxy, service_prefix, i)
                         } else {
@@ -53,9 +53,29 @@ async fn main() {
 
                         debug!("Sending request {} to {}", i, addr);
 
-                        if let Err(e) = client.post(addr.clone()).body(body.clone()).send().await {
-                            error!("Error while sending request to {}: {}", addr, e);
-                            return Err(StatusCode::BAD_REQUEST);
+                        match client.post(addr.clone()).body(body.clone()).send().await {
+                            Ok(response) => {
+                                let status = response.status();
+                                if status.is_success() {
+                                    let response_body = response.text().await.unwrap();
+                                    log::trace!(
+                                        "Received response from {}: {}",
+                                        addr,
+                                        response_body
+                                    );
+                                } else {
+                                    let response_body = response.text().await.unwrap();
+                                    error!(
+                                        "Request to {} failed: {:?} {:?}",
+                                        addr, status, response_body
+                                    );
+                                    return Err(StatusCode::BAD_REQUEST);
+                                }
+                            }
+                            Err(e) => {
+                                error!("Error while sending request to {}: {:?}", addr, e);
+                                return Err(StatusCode::BAD_REQUEST);
+                            }
                         }
                     }
 

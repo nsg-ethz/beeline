@@ -4,7 +4,7 @@ import http from "k6/http";
 import encoding from "k6/encoding";
 import exec from "k6/execution";
 
-export const url = __ENV.URL || "http://127.0.0.1:9999";
+export const url = __ENV.URL || "http://127.0.0.1:8080";
 export const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
 const randomBody = "b".repeat(payloadSize);
 
@@ -71,9 +71,6 @@ export function requestTo(url, headers = {}) {
         console.log(
             `Failed request to ${url}:\nreq = ${payload},\nres = ${res.body},\nheaders = ${JSON.stringify(res.headers)}`,
         );
-    }
-    if (!passed) {
-        exec.test.abort("Fail");
     }
 
     return passed;

@@ -11,7 +11,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-1
+                                      address: 172.18.0.3
                                       port_value: 9999
         - name: service-2
           connect_timeout: 3s
@@ -24,7 +24,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-2
+                                      address: 172.18.0.4
                                       port_value: 9999
         - name: service-3
           connect_timeout: 3s
@@ -37,7 +37,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-3
+                                      address: 172.18.0.5
                                       port_value: 9999
         - name: service-4
           connect_timeout: 3s
@@ -50,7 +50,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-4
+                                      address: 172.18.0.6
                                       port_value: 9999
         - name: service-5
           connect_timeout: 3s
@@ -63,7 +63,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-5
+                                      address: 172.18.0.7
                                       port_value: 9999
         - name: service-6
           connect_timeout: 3s
@@ -76,7 +76,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-6
+                                      address: 172.18.0.8
                                       port_value: 9999
         - name: service-7
           connect_timeout: 3s
@@ -89,7 +89,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-7
+                                      address: 172.18.0.9
                                       port_value: 9999
         - name: service-8
           connect_timeout: 3s
@@ -102,7 +102,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-8
+                                      address: 172.18.0.10
                                       port_value: 9999
         - name: service-9
           connect_timeout: 3s
@@ -115,7 +115,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-9
+                                      address: 172.18.0.11
                                       port_value: 9999
         - name: service-10
           connect_timeout: 3s
@@ -128,7 +128,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: service-10
+                                      address: 172.18.0.12
                                       port_value: 9999
     listeners:
         - name: listener0

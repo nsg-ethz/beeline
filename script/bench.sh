@@ -9,8 +9,9 @@ BENCH=$1
 shift 1
 
 # Parse arguments
-while getopts "c:f:t:n:p:s:" opt; do
+while getopts "c:e:f:t:n:p:s:" opt; do
     case $opt in
+        e ) ENV=${OPTARG} ;;
         f ) FROM=${OPTARG} ;;
         t ) TO=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
@@ -36,17 +37,19 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
     case ${BENCH} in
         sm)
-            ssh -t moonshine "source ~/.profile && ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
+            ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
-            if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
+            if [[ "${CONFIG}" == *sn* ]]; then
                 K6_SCRIPT=${ROOT}/../k6/sn-compose-post.js
-            elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
+            elif [[ "${CONFIG}" == *ms* ]]; then
                 K6_SCRIPT=${ROOT}/../k6/ms-compose-review.js
+            elif [[ "${CONFIG}" == *ssm* ]]; then
+                K6_SCRIPT="${ROOT}/../k6/rps.js -e PAYLOAD_SIZE=100 -e RATE=1000"
             fi
             k6 run ${K6_SCRIPT} --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
 
-            ssh -t moonshine "source ~/.profile && ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG}"
+            ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             ;;
 
         mb)

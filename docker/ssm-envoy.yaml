@@ -21,7 +21,7 @@ services:
                 "-a",
                 "0.0.0.0:8080",
                 "-p",
-                "sidecar:9999",
+                "172.18.0.13:9999",
                 "-s",
                 "service-",
                 "-c",
@@ -40,11 +40,16 @@ services:
         cgroup_parent: beeline.slice
         deploy:
             replicas: ${SERVICES}
+        depends_on:
+            - frontend
+            - sidecar
 
     sidecar:
         image: envoyproxy/envoy:v1.34-latest
         hostname: sidecar
         cgroup_parent: beeline.slice
-        restart: always
         volumes:
             - ../config/envoy/ssm.yaml:/etc/envoy/envoy.yaml
+        networks:
+            default:
+                ipv4_address: 172.18.0.13
