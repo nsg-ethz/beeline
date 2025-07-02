@@ -1,0 +1,50 @@
+name: synthetic-service-mesh
+
+networks:
+    default:
+        ipam:
+            config:
+                - subnet: 172.18.0.0/24
+
+services:
+    frontend:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.frontend
+        ports:
+            - 8080:8080
+        extra_hosts:
+            - "beeline:host-gateway"
+        entrypoint:
+            [
+                "frontend",
+                "-a",
+                "0.0.0.0:8080",
+                "-p",
+                "sidecar:9999",
+                "-s",
+                "service-",
+                "-c",
+                "${SERVICES}",
+            ]
+        cgroup_parent: beeline.slice
+        networks:
+            default:
+                ipv4_address: 172.18.0.2
+
+    service:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.echo
+        entrypoint: "echo -a 0.0.0.0:9999"
+        cgroup_parent: beeline.slice
+        deploy:
+            replicas: ${SERVICES}
+
+    sidecar:
+        image: envoyproxy/envoy:v1.34-latest
+        hostname: sidecar
+        cgroup_parent: beeline.slice
+        restart: always
+        volumes:
+            - ../config/envoy/ssm.yaml:/etc/envoy/envoy.yaml

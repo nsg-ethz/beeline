@@ -35,8 +35,3 @@ hosts:
     - name: movie-info-service
       instances:
           - 172.18.0.31:9999
-
-parse:
-    http:
-        backend: str,
-        content-length: u32

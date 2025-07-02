@@ -13,13 +13,17 @@ services:
             dockerfile: docker/Dockerfile.frontend
         ports:
             - 8080:8080
+        extra_hosts:
+            - "beeline:host-gateway"
         entrypoint:
             [
                 "frontend",
                 "-a",
                 "0.0.0.0:8080",
+                "-p",
+                "beeline:9999",
                 "-s",
-                "172.18.0.3:9999",
+                "service-",
                 "-c",
                 "${SERVICES}",
             ]

@@ -32,8 +32,3 @@ hosts:
     - name: user-mention-service
       instances:
           - 172.18.0.35:9999
-
-parse:
-    http:
-        backend: str,
-        content-length: u32
