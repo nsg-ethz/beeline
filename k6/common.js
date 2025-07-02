@@ -39,7 +39,7 @@ function encode(payload, secret, algorithm) {
 }
 
 export function generateWebToken(valid, claims = {}) {
-    const payload = claims ?? {
+    const payload = claims ? (claims) : {
         sub: exec.scenario.iterationInInstance.toString(),
         name: "John Doe",
     };
