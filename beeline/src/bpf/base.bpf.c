@@ -370,7 +370,7 @@ __noinline enum pr_action post_forward_us_conn(const struct sock_key *ukey, cons
 // ----------------------------------------------
 
 static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *action) {
-    state &= 0x3FF;
+    state &= 0x7F;
     input &= 0x7F;
 
     u32 sa = s2ts[state][input];
