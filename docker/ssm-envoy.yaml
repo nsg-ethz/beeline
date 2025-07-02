@@ -26,6 +26,7 @@ services:
                 "service-",
                 "-c",
                 "${SERVICES}",
+                "${FRONTEND_ARGS}",
             ]
         cgroup_parent: beeline.slice
         networks:
