@@ -15,6 +15,7 @@ use tokio::{
 };
 
 #[derive(Parser)]
+#[command(ignore_errors(true))] // this way we can pass FRONTEND_ARGS, even if it's an empty string
 struct Args {
     #[arg(short, long, default_value = "0.0.0.0:8000")]
     address: String,
