@@ -24,7 +24,7 @@ services:
                 "beeline:9999",
                 "-s",
                 "service-",
-                "-c",
+                "-n",
                 "${SERVICES}",
                 "${FRONTEND_ARGS}",
             ]

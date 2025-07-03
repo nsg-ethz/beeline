@@ -28,8 +28,8 @@ struct Args {
     #[arg(short, long, default_value = "echo")]
     service_prefix: String,
 
-    #[arg(short = 'c', long, default_value = "1")]
-    service_chain: usize,
+    #[arg(short = 'n', long, default_value = "1")]
+    num_services: usize,
 
     #[arg(short, long, default_value = "false")]
     fan_out: bool,
@@ -44,7 +44,7 @@ async fn main() {
         headers,
         proxy,
         service_prefix,
-        service_chain,
+        num_services,
         fan_out,
     } = Args::parse();
 
@@ -60,12 +60,18 @@ async fn main() {
         })
         .collect::<HeaderMap<HeaderValue>>();
 
-    let strategy = if fan_out { "fan-out" } else { "chain" };
+    let strategy_msg = if fan_out { "fan-out" } else { "chain" };
+    let proxy_msg = if let Some(proxy) = &proxy {
+        format!("connecting via proxy ({})", proxy)
+    } else {
+        "connecting directly".to_string()
+    };
     log::info!(
-        "Listening on {}, {} with {} services",
+        "Listening on {}, {} with {} services, {}",
         address,
-        strategy,
-        service_chain
+        strategy_msg,
+        num_services,
+        proxy_msg
     );
     if headers.len() > 0 {
         log::info!("Will use headers: {:?}", headers);
@@ -78,7 +84,7 @@ async fn main() {
 
                 if let Ok(body) = String::from_utf8(body.to_vec()) {
                     let mut set = JoinSet::new();
-                    for i in 1..=service_chain {
+                    for i in 1..=num_services {
                         let addr = if let Some(proxy) = &proxy {
                             format!("http://{}/{}{}", proxy, service_prefix, i)
                         } else {
@@ -122,7 +128,7 @@ async fn main() {
                 log::debug!("Received request: {:?}", req_hdrs);
 
                 if let Ok(body) = String::from_utf8(body.to_vec()) {
-                    for i in 1..=service_chain {
+                    for i in 1..=num_services {
                         let addr = if let Some(proxy) = &proxy {
                             format!("http://{}/{}{}", proxy, service_prefix, i)
                         } else {

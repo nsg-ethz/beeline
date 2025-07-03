@@ -24,7 +24,7 @@ services:
                 "172.18.0.13:9999",
                 "-s",
                 "service-",
-                "-c",
+                "-n",
                 "${SERVICES}",
                 "${FRONTEND_ARGS}",
             ]
@@ -50,7 +50,7 @@ services:
         hostname: sidecar
         cgroup_parent: beeline.slice
         volumes:
-            - ../config/envoy/ssm.yaml:/etc/envoy/envoy.yaml
+            - ../${ENVOY_CONFIG:-config/envoy/ssm.yaml}:/etc/envoy/envoy.yaml
         networks:
             default:
                 ipv4_address: 172.18.0.13
