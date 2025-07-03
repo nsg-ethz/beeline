@@ -45,7 +45,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
             elif [[ "${CONFIG}" == *ms* ]]; then
                 K6_SCRIPT=${ROOT}/../k6/ms-compose-review.js
             elif [[ "${CONFIG}" == *ssm* ]]; then
-                K6_SCRIPT="${ROOT}/../k6/rps.js -e PAYLOAD_SIZE=100 -e RATE=5000"
+                K6_SCRIPT="${ROOT}/../k6/rps.js -e PAYLOAD_SIZE=100 -e RATE=5000  -e URL=http://moonshine:8080"
             fi
             k6 run ${K6_SCRIPT} --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
 
