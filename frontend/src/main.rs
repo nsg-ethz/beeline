@@ -1,7 +1,9 @@
+use std::{collections::HashMap, str::FromStr};
+
 use axum::{
     Router,
     body::Bytes,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     routing::post,
 };
 use clap::Parser;
@@ -16,6 +18,9 @@ use tokio::{
 struct Args {
     #[arg(short, long, default_value = "0.0.0.0:8000")]
     address: String,
+
+    #[arg(short = 'H', long = "header")]
+    headers: Option<Vec<String>>,
 
     #[arg(short, long)]
     proxy: Option<String>,
@@ -36,6 +41,7 @@ async fn main() {
 
     let Args {
         address,
+        headers,
         proxy,
         service_prefix,
         service_chain,
@@ -43,6 +49,27 @@ async fn main() {
     } = Args::parse();
 
     let client = Client::new();
+    let headers = headers
+        .unwrap_or(vec![])
+        .iter()
+        .map(|h| {
+            let hs: Vec<&str> = h.split_terminator(":").map(|s| s.trim()).collect();
+            let key = HeaderName::from_str(hs[0]).expect("Invalid header key");
+            let val = HeaderValue::from_str(hs[1]).expect("Invalid header value");
+            (key, val)
+        })
+        .collect::<HeaderMap<HeaderValue>>();
+
+    let strategy = if fan_out { "fan-out" } else { "chain" };
+    log::info!(
+        "Listening on {}, {} with {} services",
+        address,
+        strategy,
+        service_chain
+    );
+    if headers.len() > 0 {
+        log::info!("Will use headers: {:?}", headers);
+    }
 
     let svc = if fan_out {
         post(
@@ -60,7 +87,13 @@ async fn main() {
 
                         debug!("Sending request {} to {}", i, addr);
 
-                        set.spawn(client.post(addr.clone()).body(body.clone()).send());
+                        set.spawn(
+                            client
+                                .post(addr.clone())
+                                .headers(headers.clone())
+                                .body(body.clone())
+                                .send(),
+                        );
                     }
 
                     while let Some(res) = set.join_next().await {
@@ -98,7 +131,12 @@ async fn main() {
 
                         debug!("Sending request {} to {}", i, addr);
 
-                        let res = client.post(addr.clone()).body(body.clone()).send().await;
+                        let res = client
+                            .post(addr.clone())
+                            .headers(headers.clone())
+                            .body(body.clone())
+                            .send()
+                            .await;
                         if let Err(e) = handle_echo_res(res).await {
                             return Err(e);
                         }
@@ -117,14 +155,6 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(address.clone())
         .await
         .unwrap();
-
-    let strategy = if fan_out { "fan-out" } else { "chain" };
-    log::info!(
-        "Listening on {}, {} with {} services",
-        address,
-        strategy,
-        service_chain
-    );
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
