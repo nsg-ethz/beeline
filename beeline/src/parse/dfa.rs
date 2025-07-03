@@ -19,8 +19,14 @@ pub struct DfaBuilder<'a> {
 
 impl DfaBuilder<'_> {
     pub fn push(&mut self, input: &str) -> Result<&mut Self> {
-        trace!(target: "dfa", "push: {}", input);
-        assert!(self.dfa.states.contains(&self.sid));
+        self.sid = self.push_from(self.sid, input)?;
+
+        Ok(self)
+    }
+
+    fn push_from(&mut self, mut sid: u16, input: &str) -> Result<u16> {
+        trace!(target: "dfa", "push: {}, from {}", input.escape_debug(), sid);
+        assert!(self.dfa.states.contains(&sid));
 
         for c in input.chars() {
             let start_capture = self.capturing && self.cid.is_none();
@@ -28,7 +34,7 @@ impl DfaBuilder<'_> {
             if let Some((to, act)) = self
                 .dfa
                 .transitions
-                .get(&(self.sid, c))
+                .get(&(sid, c))
                 .map(|(to, action)| (*to, *action))
             {
                 trace!(target: "dfa", "push_optional: reusing transition");
@@ -37,9 +43,9 @@ impl DfaBuilder<'_> {
                     // we just take over the capture id
                     (Action::StartCapture(cid), true) => {
                         self.cid = Some(cid);
-                        self.sid = to;
+                        sid = to;
                     }
-                    (Action::None, false) => self.sid = to,
+                    (Action::None, false) => sid = to,
                     (act, _) => bail!(
                         "Conflicting action {:?} for input {}",
                         act,
@@ -56,16 +62,16 @@ impl DfaBuilder<'_> {
                 };
 
                 let next = self.dfa.insert_state();
-                self.dfa.insert_transition(self.sid, next, c, action);
-                self.sid = next;
+                self.dfa.insert_transition(sid, next, c, action);
+                sid = next;
             }
         }
 
-        Ok(self)
+        Ok(sid)
     }
 
     pub fn push_optional(&mut self, input: char) -> Result<&mut Self> {
-        trace!(target: "dfa", "push_optional: {}", input);
+        trace!(target: "dfa", "push_optional: {}", input.escape_debug());
         assert!(self.dfa.states.contains(&self.sid));
 
         // if we start capturing, we have to create a new state
@@ -106,7 +112,7 @@ impl DfaBuilder<'_> {
     }
 
     pub fn end_capturing(&mut self, input: &str) -> Result<&mut Self> {
-        trace!(target: "dfa", "end_capturing: {}", input);
+        trace!(target: "dfa", "end_capturing: {}", input.escape_debug());
         if !self.capturing || self.cid.is_none() {
             bail!("No capture ID set.");
         }
@@ -120,15 +126,23 @@ impl DfaBuilder<'_> {
         Ok(self)
     }
 
-    pub fn end_caputuring_and_restart_with(&mut self, input: &str) -> Result<&mut Self> {
-        trace!(target: "dfa", "end_capturing_and_restart_with: {}", input);
+    pub fn end_caputuring_and_restart_with(
+        &mut self,
+        input: &str,
+        restart_from: u16,
+    ) -> Result<&mut Self> {
+        trace!(target: "dfa", "end_capturing_and_restart_with: {}", input.escape_debug());
         if !self.capturing || self.cid.is_none() {
             bail!("No capture ID set.");
         }
 
         let rid = self.dfa.insert_new_range();
-        let to = self.get_sid(input);
-        self.end_pattern(input, Action::EndCapture(self.cid.unwrap(), rid), to)
+        let to = match self.get_sid(input) {
+            Some(sid) => sid,
+            None => self.push_from(restart_from, input)?,
+        };
+
+        self.end_pattern(input, Action::EndCapture(self.cid.unwrap(), rid), Some(to))
     }
 
     pub fn done_on(&mut self, input: &str) -> Result<&mut Self> {

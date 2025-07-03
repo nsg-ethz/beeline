@@ -409,6 +409,7 @@ fn main() {
         let compiler = Compiler::new(&base, &out);
         compiler.generate(config);
     }
+    println!("cargo:rerun-if-env-changed=CONFIG");
 
     let mut builder = SkeletonBuilder::new();
     let builder = builder.source(&out).clang_args([

@@ -455,6 +455,10 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
         u16 a = 0;
         _next(*s, c, s, &a);
 
+        if (*s == s_any) {
+            _next(s_any, c, s, &a);
+        }
+
         // it should never happen that any of these cases are true simultaneously
         // but it makes the verifier happy when we don't use else if here
         if ((a & a_start_capture) != 0) {
@@ -477,12 +481,6 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, s
         if ((a & a_done) != 0) {
             bpf_log("Done parsing at %d", i);
             return i-1;
-        }
-
-        // this means that we failed to match the current pattern
-        // but maybe a new one starts now?
-        if (*s == s_any) {
-            _next(s_any, c, s, &a);
         }
     }
 
@@ -512,21 +510,6 @@ static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges)
     bpf_profile_end(parse);
 
     return res;
-}
-
-static __always_inline int _log_msg_range(struct sk_msg_md *msg, u16 idx, u16 len) {
-    if (bpf_msg_pull_data(msg, idx, idx+len, 0) < 0) return -1;
-
-    char *data = (char *)(long)msg->data;
-    char *data_end = (char *)(long)msg->data_end;
-
-    u16 j;
-    bpf_for(j, 0, len+1) {
-        if (data + j + 1 > data_end) return -1;
-        bpf_log("data[%d]=%c", idx+j, data[j]);
-    }
-
-    return 0;
 }
 
 bpf_profile_def(sk_msg);

@@ -38,7 +38,7 @@ impl HttpParser {
             .start_capturing()
             .push_optional('*')?
             .push(" HTTP/1.1")?
-            .end_caputuring_and_restart_with(CRLF)?;
+            .end_caputuring_and_restart_with(CRLF, self.s_any)?;
 
         Ok(())
     }
@@ -55,7 +55,7 @@ impl HttpParser {
             .push_optional(' ')?
             .start_capturing()
             .push_optional('*')?
-            .end_caputuring_and_restart_with(CRLF)?;
+            .end_caputuring_and_restart_with(CRLF, self.s_any)?;
 
         Ok(())
     }
@@ -77,9 +77,8 @@ impl HttpParser {
     }
 
     pub fn match_http_hdr_auth(&mut self) -> Result<()> {
-        let mut builder = self.dfa.start_pattern(self.s_any);
-
-        builder
+        self.dfa
+            .start_pattern(self.s_any)
             .push(CRLF)?
             .push("Authorization")?
             .push_optional('\t')?
@@ -95,7 +94,7 @@ impl HttpParser {
             .end_capturing(".")?
             .start_capturing() //start capturing signature
             .push_optional('*')?
-            .end_caputuring_and_restart_with(CRLF)?;
+            .end_caputuring_and_restart_with(CRLF, self.s_any)?;
 
         Ok(())
     }
