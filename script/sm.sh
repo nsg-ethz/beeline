@@ -84,8 +84,8 @@ case ${ACTION} in
                 sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/ms.yaml
             elif [[ "${DOCKER_CONFIG}" == *ssm* ]]; then
                 cd ${ROOT}/..
-                CONFIG=${ROOT}/../config/beeline/ssm.yaml cargo b -r -p beeline
-                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/ssm.yaml
+                CONFIG=${ROOT}/../${BEELINE_CONFIG} cargo b -r -p beeline
+                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../${BEELINE_CONFIG}
             fi
 
             sleep 5
