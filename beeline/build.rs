@@ -33,8 +33,8 @@ fn main() {
     let filter_dir = PathBuf::from(&manifest_dir).join("src/bpf/filter/");
     let out = PathBuf::from(&target_dir).join("proxy.bpf.c");
 
-    println!("cargo:rerun-if-changed={:?}", base);
-    println!("cargo:rerun-if-changed={:?}", filter_dir);
+    println!("cargo:rerun-if-changed={}", base.to_str().unwrap());
+    println!("cargo:rerun-if-changed={}", filter_dir.to_str().unwrap());
 
     match fs::create_dir(&target_dir) {
         Ok(_) => Ok(()),
@@ -67,4 +67,5 @@ fn main() {
 
     let out = PathBuf::from(&manifest_dir).join("src/bpf/proxy.skel.rs");
     builder.build_and_generate(&out).unwrap();
+    println!("cargo:rerun-if-changed={}", out.to_str().unwrap());
 }
