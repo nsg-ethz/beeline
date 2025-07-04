@@ -1,7 +1,6 @@
 struct pipeline_ctx {
     u32 done_idx;
 
-    {ranges}
     {vars}
 
     char tmp[512];

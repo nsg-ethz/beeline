@@ -131,9 +131,6 @@ struct {
     __type(value, enum pr_sock_action);
 } sock_wait_list SEC(".maps");
 
-// TODO: These per-cpu maps are only necessary if the respective struct
-// doesn't fit onto the stack
-// TODO: percpu maps might also be necessary for forwarding and auth tokens
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);

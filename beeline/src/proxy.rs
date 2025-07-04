@@ -6,7 +6,7 @@ use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
 use common::{
     net::{SocketBinder, TryIntoRawOctets},
-    Config,
+    Compiler, Config,
 };
 use libbpf_rs::{
     set_print,
@@ -201,21 +201,19 @@ impl<'obj> Proxy<'obj> {
             open_skel.progs.msg_verdict.set_log_level(1);
         }
 
-        let mut auth = false;
-        let mut headers = vec!["content-length"];
-
-        for route in config.routes.iter() {
-            if let Some(patterns) = &route.pattern.headers {
-                for (key, _) in patterns.iter() {
-                    headers.push(&key);
-                }
-            }
-            for filter in route.filters.iter() {
-                if filter.is_jwt() {
-                    auth = true;
-                }
-            }
-        }
+        let compiler = Compiler::new(config.clone());
+        let vars = compiler.get_ctx_vars();
+        let auth = vars.iter().any(|v| v.name() == "jwt_claims");
+        let headers = vars
+            .iter()
+            .filter(|v| {
+                v.is_buffer()
+                    && v.name() != "path"
+                    && v.name() != "jwt_claims"
+                    && v.name() != "jwt_sig"
+            })
+            .collect::<Vec<_>>();
+        println!("Headers: {:?}", headers);
 
         let mut parser = HttpParser::new(
             open_skel.maps.rodata_data.s_init,
@@ -223,7 +221,7 @@ impl<'obj> Proxy<'obj> {
         );
         parser.match_http_uri()?;
         for hdr in headers.iter() {
-            parser.match_http_hdr(hdr)?;
+            parser.match_http_hdr(hdr.name())?;
         }
         if auth {
             parser.match_http_hdr_auth()?;

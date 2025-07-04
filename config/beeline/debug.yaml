@@ -15,7 +15,12 @@ routes:
               backend: server1
       dest: server1
       filters:
-          - type: jwt
-            secret: "testtest12345678"
-            audience: aud1
-            issuer: iss1
+          # - type: jwt
+          #   secret: "testtest12345678"
+          #   audience: aud1
+          #   issuer: iss1
+          - type: mutate
+            add:
+                x-processed-by: beeline
+            # remove:
+            #     - backend

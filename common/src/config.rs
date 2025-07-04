@@ -54,8 +54,8 @@ pub struct JwtFilter {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct MutateFilter {
-    pub add: HashMap<String, String>,
-    pub remove: Vec<String>,
+    pub add: Option<HashMap<String, String>>,
+    pub remove: Option<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]

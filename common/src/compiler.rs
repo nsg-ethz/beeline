@@ -1,0 +1,476 @@
+use crate::{
+    config::{self, JwtFilter, MutateFilter},
+    net::TryIntoRawOctets,
+    Config,
+};
+use std::{
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
+};
+
+#[derive(Default, Clone, Debug)]
+struct Filter {
+    defs: String,
+    code: String,
+}
+
+#[derive(Clone, Debug)]
+struct Route {
+    cond: String,
+    filters: Vec<Filter>,
+}
+
+impl Filter {
+    fn replace_defs<V: ToString>(&mut self, key: &str, value: V) {
+        let key = format!("{{{}}}", key);
+        self.defs = self.defs.replace(&key, &value.to_string());
+    }
+
+    fn replace_code<V: ToString>(&mut self, key: &str, value: V) {
+        let key = format!("{{{}}}", key);
+        self.code = self.code.replace(&key, &value.to_string());
+    }
+}
+
+impl From<&str> for Filter {
+    fn from(text: &str) -> Self {
+        let segs = text.split("// ---").collect::<Vec<&str>>();
+
+        Filter {
+            defs: segs[0].into(),
+            code: segs[1].into(),
+        }
+    }
+}
+
+pub struct Compiler {
+    config: Config,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Variable {
+    Buffer(String, String),
+    Range(String),
+}
+
+impl Variable {
+    pub fn buffer(name: &str, ty: &str) -> Self {
+        Variable::Buffer(name.to_string(), ty.to_string())
+    }
+
+    pub fn range(name: &str) -> Self {
+        Variable::Range(name.to_string())
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Variable::Buffer(name, _) => name,
+            Variable::Range(name) => name,
+        }
+    }
+
+    pub fn is_buffer(&self) -> bool {
+        match self {
+            Variable::Buffer(_, _) => true,
+            Variable::Range(_) => false,
+        }
+    }
+}
+
+fn sanitize_var_name(var: &str) -> String {
+    var.replace("-", "_")
+}
+
+impl Compiler {
+    pub fn new(config: Config) -> Self {
+        Compiler { config }
+    }
+
+    fn read_filter(&self, name: &str) -> Filter {
+        let manifest_dir =
+            std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set");
+        let path = format!("src/bpf/filter/{}.bpf.c", name);
+        let path = PathBuf::from(&manifest_dir).join(path);
+        let filter = fs::read_to_string(&path)
+            .expect(format!("Failed to find filter at {:?}", &path).as_str());
+        Filter::from(filter.as_str())
+    }
+
+    fn generate_ctx(&self, vars: Vec<Variable>) -> Filter {
+        let mut filter = self.read_filter("ctx");
+
+        let var_defs = vars
+            .iter()
+            .map(|var| match &var {
+                &Variable::Buffer(name, ty) => {
+                    if ty == "char" {
+                        format!(
+                            "struct prange {name}_range;\nchar {name}[{size}];",
+                            name = sanitize_var_name(name),
+                            size = 2048
+                        )
+                    } else {
+                        format!(
+                            "struct prange {name}_range;\n{ty} {name};",
+                            name = sanitize_var_name(name),
+                            ty = ty
+                        )
+                    }
+                }
+                &Variable::Range(name) => {
+                    format!("struct prange {}_range;", sanitize_var_name(name))
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        filter.replace_defs("vars", var_defs);
+
+        let inits = vars
+            .iter()
+            .enumerate()
+            .map(|(i, var)| {
+                // TODO: let the initialization fail if len < size
+                match &var {
+                    &Variable::Buffer(name, ty) => {
+                        let name = sanitize_var_name(name);
+                        if ty == "char" {
+                            format!(
+                                "r = pranges[{}];
+                            r.len &= 0x7ff;
+                            bpf_probe_read_kernel(ctx->{}, r.len, data + r.idx);
+                            ctx->{}_range = r;
+                            bpf_log(\"{} inited to %s\", ctx->{});",
+                                i, name, name, name, name
+                            )
+                        } else if ty == "u32" {
+                            format!(
+                                "r = pranges[{}];
+                                r.len &= 0x3f;
+                                bpf_probe_read_kernel(buf, r.len, data + r.idx);
+                                buf[r.len] = '\\0'; // this way, we don't need an if-clause
+                                bpf_strtoul(buf, r.len + 1, 10, &tmp);
+                                ctx->{} = tmp;
+                                ctx->{}_range = r;
+                                bpf_log(\"{} inited to %d\", ctx->{});",
+                                i, name, name, name, name
+                            )
+                        } else {
+                            unimplemented!("{}", ty)
+                        }
+                    }
+                    &Variable::Range(name) => {
+                        format!("ctx->{}_range = pranges[{}];", sanitize_var_name(name), i)
+                    }
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+        filter.replace_code("init", inits);
+
+        filter
+    }
+
+    fn generate_jwt_filter(&self, idx: usize, jwt: JwtFilter) -> (Filter, String) {
+        let verify_sig = "if (_validate_jwt_signature(ctx->jwt_claims, ctx->jwt_claims_range.len, ctx->jwt_sig, ctx->jwt_sig_range.len, ctx->tmp) != PR_PASS) return PR_DROP;";
+
+        if jwt.audience.is_none() && jwt.issuer.is_none() {
+            let filter = Filter::default();
+            return (filter, verify_sig.to_string());
+        }
+
+        let adm_templ = "
+            adm = \"{adm}\";
+            adm_len = {adm_len};
+            admitted = false;
+
+            j = 0;
+            bpf_for(i, 0, claims_len) {{
+                if (ctx->tmp[i] == adm[j]) {{
+                    j++;
+                    if (j == adm_len) {{
+                        admitted = true;
+                        break;
+                    }}
+                }}
+                else if (ctx->tmp[i] != ' ') {{
+                    j = 0;
+                }}
+            }}
+
+            if (!admitted) {{
+                bpf_log(\"JWT admission failed\");
+                return PR_DROP;
+            }}";
+
+        let mut admission = String::new();
+        if let Some(aud) = jwt.audience {
+            let aud = format!("\\\"audience\\\":\\\"{}\\\"", aud);
+            let aud_admission = adm_templ
+                .replace("{adm}", &aud)
+                .replace("{adm_len}", &(aud.len() - 4).to_string());
+            admission.push_str(&aud_admission);
+            admission.push('\n');
+        }
+
+        if let Some(iss) = jwt.issuer {
+            let iss = format!("\\\"issuer\\\":\\\"{}\\\"", iss);
+            let iss_admission = adm_templ
+                .replace("{adm}", &iss)
+                .replace("{adm_len}", &(iss.len() - 4).to_string());
+            admission.push_str(&iss_admission);
+        }
+
+        let mut filter = self.read_filter("jwt");
+        filter.replace_code("idx", idx);
+        filter.replace_code("admission", admission);
+
+        let call = format!(
+            "{}\nif (_validate_jwt_admission_{}(ctx) != PR_PASS) return PR_DROP;",
+            verify_sig, idx
+        );
+
+        (filter, call)
+    }
+
+    fn generate_mutate_filter(&self, idx: usize, mutate: MutateFilter) -> (Filter, String) {
+        if mutate.add.is_none() && mutate.remove.is_none() {
+            let filter = Filter::default();
+            return (filter, String::new());
+        }
+
+        let mut mutation = String::new();
+        if let Some(remove) = mutate.remove {
+            for key in remove.iter() {
+                let rmv = format!(
+                    "if (ctx->{key}_range.len > 0) {{
+                        remove_range.idx = ctx->{key}_range.idx-{key_len};
+                        remove_range.len = ctx->{key}_range.len+{key_len_crlf};
+                            if (_mutate(msg, remove_range, NULL, 0) < 0) {{
+                                bpf_err(\"ERROR: Failed to remove {key}\");
+                                return PR_DROP;
+                            }}
+                            ctx->done_idx -= remove_range.len;
+                    }}",
+                    key = key,
+                    key_len = key.len() + 2,
+                    key_len_crlf = key.len() + 3,
+                );
+                mutation.push_str(&rmv);
+            }
+        }
+
+        if let Some(add) = mutate.add {
+            for (key, val) in add.iter() {
+                let new_hdr = format!("{}: {}\\r\\n", key, val);
+                let hdr_len = new_hdr.len() - 2;
+                let add = format!(
+                    "new_hdr = \"{}\";
+                        if (_mutate(msg, append_range, new_hdr, {}) < 0) {{
+                            bpf_err(\"ERROR: Failed to add %s\", new_hdr);
+                            return PR_DROP;
+                        }}
+                        ctx->done_idx += {};",
+                    new_hdr, hdr_len, hdr_len
+                );
+                mutation.push_str(&add);
+            }
+        }
+
+        let mut filter = self.read_filter("mutate");
+        filter.replace_code("idx", idx);
+        filter.replace_code("mutation", mutation);
+
+        let call = format!(
+            "if (_mutate_msg_{}(msg, ctx) != PR_PASS) return PR_DROP;",
+            idx
+        );
+
+        (filter, call)
+    }
+
+    fn generate_ds_routes(&self) -> Vec<Route> {
+        self.config
+            .routes
+            .iter()
+            .enumerate()
+            .map(|(idx, route)| {
+                let path_condition = if let Some(path) = &route.pattern.path {
+                    if path == "*" {
+                        "true".to_string()
+                    } else {
+                        format!("bpf_strncmp(ctx->path, {}, \"{}\") == 0", path.len(), path)
+                    }
+                } else {
+                    "true".to_string()
+                };
+
+                let header_condition = if let Some(headers) = &route.pattern.headers {
+                    headers
+                        .iter()
+                        .map(|(key, val)| {
+                            format!("bpf_strncmp(ctx->{}, {}, \"{}\") == 0", key, val.len(), val)
+                        })
+                        .collect::<Vec<String>>()
+                        .join(" && ")
+                } else {
+                    "true".to_string()
+                };
+
+                let addr = self.config.select_backend_instance(&route.dest).unwrap();
+                let ip4: u32 = addr.ip().try_into_ne_octets().unwrap();
+
+                let cond = format!(
+                    "if ({} && {}) {{
+                        if (route_ds_{}(msg, ikey, ctx) != PR_PASS) {{
+                            bpf_err(\"ERROR: route_{} failed.\");
+                        }}
+                    }}",
+                    path_condition, header_condition, idx, idx
+                );
+
+                let (mut filters, calls) = route
+                    .filters
+                    .clone()
+                    .into_iter()
+                    .map(|f| match f {
+                        config::Filter::Jwt(f) => Some(self.generate_jwt_filter(idx, f)),
+                        config::Filter::Mutate(f) => Some(self.generate_mutate_filter(idx, f)),
+                    })
+                    .filter(|f| f.is_some())
+                    .map(|f| f.unwrap())
+                    .collect::<(Vec<Filter>, Vec<String>)>();
+
+                let chain = format!(
+                    "
+                    {}
+                    ctx->dest.ip4 = {};
+                    ctx->dest.port = {};
+                ",
+                    calls.join("\n"),
+                    ip4,
+                    addr.port()
+                );
+
+                let mut route = self.read_filter("route");
+                route.replace_code("idx", idx);
+                route.replace_code("route", chain);
+
+                filters.push(route);
+
+                Route { cond, filters }
+            })
+            .collect::<Vec<Route>>()
+    }
+
+    fn generate_chain(&self, downstream: &Vec<Route>, upstream: &Vec<Route>) -> Filter {
+        let mut filter = self.read_filter("chain");
+        let downstream = downstream
+            .iter()
+            .map(|r| r.cond.clone())
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        let upstream = upstream
+            .iter()
+            .map(|r| r.cond.clone())
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        filter.replace_code("downstream", downstream);
+        filter.replace_code("upstream", upstream);
+
+        filter
+    }
+
+    fn generate_filters(&self) -> Vec<Filter> {
+        let ctx = self.get_ctx_vars();
+        let ctx = self.generate_ctx(ctx);
+        let ds_routes = self.generate_ds_routes();
+        let us_routes = Vec::new();
+        let chain = self.generate_chain(&ds_routes, &us_routes);
+
+        let mut filters = Vec::new();
+        filters.push(ctx);
+
+        for route in &ds_routes {
+            for filter in &route.filters {
+                filters.push(filter.clone());
+            }
+        }
+
+        filters.push(chain);
+
+        filters
+    }
+
+    pub fn generate<P: AsRef<Path>>(&self, base: P, out: P) {
+        let base = fs::read_to_string(base).expect("Failed to read base file");
+        let out = out.as_ref().to_string_lossy().into_owned();
+        let filters = self.generate_filters();
+
+        let defs = filters
+            .iter()
+            .map(|f| f.defs.clone())
+            .collect::<Vec<String>>()
+            .join("\n");
+        let prog = base.replace("{{DEFS}}", &defs);
+
+        let code = filters
+            .iter()
+            .map(|f| f.code.clone())
+            .collect::<Vec<String>>()
+            .join("\n");
+        let prog = prog.replace("{{FILTERS}}", &code);
+
+        let mut file = File::create(&out).expect("Failed to create src file");
+        file.write_all(prog.as_bytes())
+            .expect("Failed to write to src file");
+    }
+
+    pub fn get_ctx_vars(&self) -> Vec<Variable> {
+        let mut ctx: Vec<Variable> = Vec::new();
+        let mut insert = |var: Variable| {
+            if ctx.iter().any(|v| v.name() == var.name() && v.is_buffer()) {
+                return;
+            }
+
+            ctx.push(var.clone());
+        };
+
+        insert(Variable::buffer("path", "char"));
+        insert(Variable::buffer("content-length", "u32"));
+
+        for route in &self.config.routes {
+            if let Some(headers) = &route.pattern.headers {
+                for (key, _) in headers {
+                    insert(Variable::buffer(key, "char"));
+                }
+            }
+
+            let mut auth = false;
+            for filter in &route.filters {
+                match filter {
+                    config::Filter::Jwt(_) => {
+                        auth = true;
+                    }
+                    config::Filter::Mutate(mutate) => {
+                        if let Some(remove) = mutate.remove.as_ref() {
+                            for key in remove {
+                                insert(Variable::range(key));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if auth {
+                insert(Variable::buffer("jwt_claims", "char"));
+                insert(Variable::buffer("jwt_sig", "char"));
+            }
+        }
+
+        ctx
+    }
+}

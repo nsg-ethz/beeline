@@ -1,9 +1,6 @@
-use common::Config;
-use compiler::Compiler;
+use common::{Compiler, Config};
 use libbpf_cargo::SkeletonBuilder;
 use std::{env, ffi::OsStr, fs, path::PathBuf};
-
-mod compiler;
 
 fn main() {
     let bpf_profile = std::env::var("BPF_PROFILE").unwrap_or("0".to_string());
@@ -48,8 +45,8 @@ fn main() {
         let config = fs::File::open(config).expect("Failed to open config file");
         let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
 
-        let compiler = Compiler::new(&base, &out);
-        compiler.generate(config);
+        let compiler = Compiler::new(config);
+        compiler.generate(&base, &out);
     }
     println!("cargo:rerun-if-env-changed=CONFIG");
 
