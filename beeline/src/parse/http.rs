@@ -60,22 +60,6 @@ impl HttpParser {
         Ok(())
     }
 
-    pub fn match_http_hdr_val(&mut self, key: &str, val: &str) -> Result<()> {
-        self.dfa
-            .start_pattern(self.s_any)
-            .push(CRLF)?
-            .push(key)?
-            .push_optional('\t')?
-            .push_optional(' ')?
-            .push(":")?
-            .push_optional('\t')?
-            .push_optional(' ')?
-            .push(val)?
-            .match_and_restart_with(CRLF)?;
-
-        Ok(())
-    }
-
     pub fn match_http_hdr_auth(&mut self) -> Result<()> {
         self.dfa
             .start_pattern(self.s_any)

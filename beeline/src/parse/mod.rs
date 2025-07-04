@@ -1,5 +1,5 @@
-pub mod http;
 pub mod dfa;
+pub mod http;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -11,18 +11,14 @@ pub enum Action {
     /// The range is identified by the rid (2nd argument)
     EndCapture(u8, u8),
 
-    /// Matches a pattern with a given mid
-    Match(u8),
-
     /// Terminates parsing
     Done,
 
     // No action
-    None
+    None,
 }
 
 impl Action {
-
     pub fn is_some(&self) -> bool {
         !self.is_none()
     }
@@ -30,5 +26,4 @@ impl Action {
     pub fn is_none(&self) -> bool {
         matches!(self, Action::None)
     }
-
 }

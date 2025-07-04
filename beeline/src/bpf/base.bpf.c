@@ -143,12 +143,9 @@ struct {
 
 const u32 percpu_key = 0;
 
-const u32 a_mask = 0xFFFF0000;
-const u16 a_match = 1 << 15;
 const u16 a_done = 1 << 14;
 const u16 a_start_capture = 1 << 13;
 const u16 a_end_capture = 1 << 12;
-// if a_match -> then this represents the fid
 // if a_done -> then this is 0
 // if a_start_capture -> then this is the cid
 // if a_end_capture -> then this is cid | mid
@@ -156,15 +153,21 @@ const u16 a_id_mask = 0x0FFF;
 const u16 a_id_1_mask = 0x0FC0;
 const u16 a_id_2_mask = 0x003F;
 
-const u32 s_mask = 0x0000FFFF;
 const u16 s_init = 0;
 const u16 s_any = 1;
 
+struct trans {
+    u16 state;
+    u16 action;
+    u8 input;
+};
+
+const u32 max_states = 4096;
+const u32 max_trans = 8;
+volatile const struct trans s2ts[max_states][max_trans];
+
 volatile const u32 ip4;
 volatile const u32 port;
-const u32 max_states = 100;
-const u32 max_trans = 128;
-volatile const u32 s2ts[128][256];
 
 enum pr_action {
     PR_DROP=0,
@@ -418,26 +421,37 @@ static __always_inline enum pr_action post_forward_us_conn(const struct sock_key
 
 // ----------------------------------------------
 
-static __always_inline void _next(u16 state, u32 input, u16 *next_state, u16 *action) {
-    state &= 0x7F;
+static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *action) {
+    state &= 0xFFF;
     input &= 0x7F;
 
-    u32 sa = s2ts[state][input];
-    if (sa == 0) {
-        sa = s2ts[state]['*'];
-        bpf_clamp_uminmax(sa, 0, 0xFFFFFFFF);
-        if (sa == 0) {
-            *next_state = s_any;
-            *action = 0;
+    u8 i;
+    bpf_for(i, 1, max_trans) {
+        // i &= 0b111 is not working...
+        bpf_clamp_uminmax(i, 0, 0b111);
+
+        struct trans t = s2ts[state][i];
+        if (t.input == input) {
+            *next_state = t.state;
+            *action = t.action;
             return;
         }
+        if (t.state == 0) break;
     }
 
-    *next_state = sa & s_mask;
-    *action = (sa & a_mask) >> 16;
+    // check wildcard transition
+    struct trans t = s2ts[state][0];
+    if (t.input == '*') {
+        *next_state = t.state;
+        *action = t.action;
+        return;
+    }
+
+    *next_state = s_any;
+    *action = 0;
 }
 
-static __always_inline int _parse_from(const struct sk_msg_md *msg, u32 start, struct prange *pranges, u32* cidx, u16* s) {
+static __always_inline int _parse_from(const struct sk_msg_md *msg, u16 start, struct prange *pranges, u32* cidx, u16* s) {
     bpf_profile_start(parse_range);
     char *data = (char *)(long)msg->data;
     char *data_end = (char *)(long)msg->data_end;

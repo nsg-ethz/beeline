@@ -35,25 +35,41 @@ use tokio::{
 pub mod bpf;
 pub mod parse;
 
-fn state_action_to_raw(state: u16, action: Action, rodata: &rodata) -> u32 {
+fn new_transition(state: u16, action: Action, input: u8, rodata: &rodata) -> trans {
     let action = match action {
         Action::StartCapture(mid) => rodata.a_start_capture | (mid as u16) & rodata.a_id_mask,
         Action::EndCapture(cid, mid) => {
             let id = (cid as u16) << 6 | (mid as u16);
             rodata.a_end_capture | id & rodata.a_id_mask
         }
-        Action::Match(fid) => rodata.a_match | (fid as u16) & rodata.a_id_mask,
         Action::Done => rodata.a_done,
         Action::None => 0,
     };
 
-    ((action as u32) << 16) | (state as u32)
+    trans {
+        state,
+        action,
+        input,
+    }
 }
 
 fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
+    let mut num_ts = vec![1; parser.num_states()];
+
     for (from, to, input, action) in parser.iter_transitions() {
-        let val = state_action_to_raw(*to, *action, skel.maps.rodata_data);
-        skel.maps.rodata_data.s2ts[*from as usize][*input as usize] = val;
+        let s = *from as usize;
+        let t = new_transition(*to, *action, *input as u8, skel.maps.rodata_data);
+        let is_wildcard = t.input as char == '*';
+        let idx = if is_wildcard { 0 } else { num_ts[s] };
+
+        if idx == skel.maps.rodata_data.max_trans as usize {
+            bail!("Attempting to inject too many transitions for state {}", s);
+        }
+
+        skel.maps.rodata_data.s2ts[s][idx] = t;
+        if !is_wildcard {
+            num_ts[s] += 1;
+        }
     }
 
     Ok(())

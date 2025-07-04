@@ -98,19 +98,6 @@ impl DfaBuilder<'_> {
         self
     }
 
-    pub fn match_on(&mut self, input: &str) -> Result<()> {
-        let mid = self.dfa.insert_new_match();
-        self.end_pattern(input, Action::Match(mid), None)?;
-        Ok(())
-    }
-
-    pub fn match_and_restart_with(&mut self, input: &str) -> Result<()> {
-        let mid = self.dfa.insert_new_match();
-        let to = self.get_sid(input);
-        self.end_pattern(input, Action::Match(mid), to)?;
-        Ok(())
-    }
-
     pub fn end_capturing(&mut self, input: &str) -> Result<&mut Self> {
         trace!(target: "dfa", "end_capturing: {}", input.escape_debug());
         if !self.capturing || self.cid.is_none() {
@@ -211,9 +198,6 @@ pub(crate) struct Dfa {
     /// The next free range id
     rid: u8,
 
-    /// The next free match id
-    mid: u8,
-
     states: HashSet<u16>,
     transitions: HashMap<(u16, char), (u16, Action)>,
 }
@@ -224,7 +208,6 @@ impl Dfa {
             sid: 0,
             cid: 0,
             rid: 0,
-            mid: 0,
             states: reserved_states.collect(),
             transitions: HashMap::new(),
         }
@@ -249,12 +232,6 @@ impl Dfa {
         let rid = self.rid;
         self.rid += 1;
         rid
-    }
-
-    fn insert_new_match(&mut self) -> u8 {
-        let mid = self.mid;
-        self.mid += 1;
-        mid
     }
 
     pub fn insert_transition(

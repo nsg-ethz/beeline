@@ -194,6 +194,8 @@ impl Compiler {
         (filter, call)
     }
 
+    // fn generate_mutate_filter(&self, idx: usize) -> (Filter, String) {}
+
     fn generate_ds_routes(&self, config: &Config) -> Vec<Route> {
         config
             .routes
