@@ -10,10 +10,13 @@ export const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
 const randomBody = "b".repeat(payloadSize);
 
 export const headers = new Object();
-(__ENV.HEADERS == null ? "" : __ENV.HEADERS).split(",").forEach((header) => {
-    const [key, val] = header.split(":");
-    headers[key.trim()] = val.trim();
-});
+
+if (__ENV.HEADERS != null) {
+    __ENV.HEADERS.split(",").forEach((header) => {
+        const [key, val] = header.split(":");
+        headers[key.trim()] = val.trim();
+    });
+}
 
 function sign(data, hashAlg, secret) {
     let hasher = crypto.createHMAC(hashAlg, secret);
