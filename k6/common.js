@@ -5,8 +5,15 @@ import encoding from "k6/encoding";
 import exec from "k6/execution";
 
 export const url = __ENV.URL || "http://127.0.0.1:8080";
+
 export const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
 const randomBody = "b".repeat(payloadSize);
+
+export const headers = new Object();
+(__ENV.HEADERS == null ? "" : __ENV.HEADERS).split(",").forEach((header) => {
+    const [key, val] = header.split(":");
+    headers[key.trim()] = val.trim();
+});
 
 function sign(data, hashAlg, secret) {
     let hasher = crypto.createHMAC(hashAlg, secret);
@@ -39,17 +46,19 @@ function encode(payload, secret, algorithm) {
 }
 
 export function generateWebToken(valid, claims = {}) {
-    const payload = claims ? (claims) : {
-        sub: exec.scenario.iterationInInstance.toString(),
-        name: "John Doe",
-    };
+    const payload = claims
+        ? claims
+        : {
+              sub: exec.scenario.iterationInInstance.toString(),
+              name: "John Doe",
+          };
     const secret = valid ? "testtest12345678" : "invalid";
 
     return encode(payload, secret);
 }
 
 export function request() {
-    requestTo(url);
+    requestTo(url, headers);
 }
 
 export function requestTo(url, headers = {}) {
