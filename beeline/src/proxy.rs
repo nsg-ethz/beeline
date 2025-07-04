@@ -60,11 +60,24 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
         let s = *from as usize;
         let t = new_transition(*to, *action, *input as u8, skel.maps.rodata_data);
         let is_wildcard = t.input as char == '*';
-        let idx = if is_wildcard { 0 } else { num_ts[s] };
 
-        if idx == skel.maps.rodata_data.max_trans as usize {
-            bail!("Attempting to inject too many transitions for state {}", s);
+        let idx = if is_wildcard { 0 } else { num_ts[s] };
+        let max_trans = skel.maps.rodata_data.max_trans as usize;
+        if idx == max_trans {
+            bail!(
+                "Attempting to inject too many transitions ({}) for state {}",
+                max_trans,
+                s
+            );
         }
+
+        trace!(
+            "Inserting transition {} {} --({})--> {}",
+            idx,
+            *from,
+            input.escape_debug(),
+            *to
+        );
 
         skel.maps.rodata_data.s2ts[s][idx] = t;
         if !is_wildcard {

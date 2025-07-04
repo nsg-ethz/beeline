@@ -274,6 +274,19 @@ impl Dfa {
         self.states.len()
     }
 
+    pub fn get_state(&self, from: u16, pattern: &str) -> Option<u16> {
+        let mut res = from;
+        for c in pattern.chars() {
+            if let Some(to) = self.transitions.get(&(res, c.to_ascii_lowercase())) {
+                res = to.0;
+            } else {
+                return None;
+            }
+        }
+
+        Some(res)
+    }
+
     pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16> {
         self.states.iter()
     }

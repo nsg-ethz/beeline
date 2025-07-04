@@ -102,7 +102,7 @@ impl Compiler {
                 if **ty == "char" {
                     format!(
                         "r = pranges[{}];
-                    r.len &= 0xfff;
+                    r.len &= 0x7ff;
                     bpf_probe_read_kernel(ctx->{}, r.len, data + r.idx);
                     ctx->{}_range = r;
                     bpf_log(\"{} inited to %s\", ctx->{});",
@@ -296,7 +296,7 @@ impl Compiler {
     fn generate_filters(&self, config: Config) -> Vec<Filter> {
         let mut ctx = Vec::new();
 
-        ctx.push(("path".to_string(), "char".to_string(), Some(4096)));
+        ctx.push(("path".to_string(), "char".to_string(), Some(2048)));
         ctx.push(("content_length".to_string(), "u32".to_string(), None));
 
         let mut auth = false;
@@ -304,7 +304,7 @@ impl Compiler {
         for route in &config.routes {
             if let Some(headers) = &route.pattern.headers {
                 for (key, _) in headers {
-                    ctx.push((key.to_string(), "char".to_string(), Some(4096)));
+                    ctx.push((key.to_string(), "char".to_string(), Some(2048)));
                 }
             }
             for filter in &route.filters {
@@ -315,8 +315,8 @@ impl Compiler {
         }
 
         if auth {
-            ctx.push(("jwt_claims".to_string(), "char".to_string(), Some(4096)));
-            ctx.push(("jwt_sig".to_string(), "char".to_string(), Some(4096)));
+            ctx.push(("jwt_claims".to_string(), "char".to_string(), Some(2048)));
+            ctx.push(("jwt_sig".to_string(), "char".to_string(), Some(2048)));
         }
 
         let ctx = self.generate_ctx(ctx);

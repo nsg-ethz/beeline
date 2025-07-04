@@ -87,6 +87,10 @@ impl HttpParser {
         self.dfa.num_states()
     }
 
+    pub fn s_crlf(&self) -> Option<u16> {
+        self.dfa.get_state(self.s_any, "\r\n")
+    }
+
     pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = &'a u16> {
         self.dfa.iter_states()
     }

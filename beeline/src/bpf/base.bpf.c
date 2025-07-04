@@ -162,8 +162,8 @@ struct trans {
     u8 input;
 };
 
-const u32 max_states = 4096;
-const u32 max_trans = 8;
+const u32 max_states = 2048;
+const u32 max_trans = 32;
 volatile const struct trans s2ts[max_states][max_trans];
 
 volatile const u32 ip4;
@@ -224,7 +224,7 @@ bpf_profile_def(auth);
 static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 claims_len, char *sig, u32 sig_len, char *tmp) {
     bpf_profile_start(auth);
 
-    if (claims_len == 0 || claims_len > 4096 || sig_len == 0 || sig_len > 4096) {
+    if (claims_len == 0 || claims_len > 2048 || sig_len == 0 || sig_len > 2048) {
         return PR_DROP;
     }
 
@@ -242,7 +242,7 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
 
     bpf_log("Verifying JWT claims: %s with signature: %s", claims, sig);
 
-    if (bpf_crypto_digest(cctx, claims, claims_len & 0xfff, claims, 4096) < 0) {
+    if (bpf_crypto_digest(cctx, claims, claims_len & 0x7ff, claims, 2048) < 0) {
         bpf_err("ERROR: Failed to digest msg");
         return PR_DROP;
     }
@@ -422,13 +422,13 @@ static __always_inline enum pr_action post_forward_us_conn(const struct sock_key
 // ----------------------------------------------
 
 static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *action) {
-    state &= 0xFFF;
+    state &= 0x7FF;
     input &= 0x7F;
 
     u8 i;
     bpf_for(i, 1, max_trans) {
-        // i &= 0b111 is not working...
-        bpf_clamp_uminmax(i, 0, 0b111);
+        // i &= 0x1F is not working...
+        bpf_clamp_uminmax(i, 0, 0x1F);
 
         struct trans t = s2ts[state][i];
         if (t.input == input) {
