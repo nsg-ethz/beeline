@@ -1,0 +1,30 @@
+hosts:
+    - name: server1
+      instances:
+          - 127.0.0.1:8001
+
+routes:
+    - match:
+          path: "*"
+          headers:
+              aaaaaaa: 1
+              bbbbbbb: 2
+              ccccccc: 3
+              ddddddd: 4
+              fffffff: 5
+              ggggggg: 6
+              hhhhhhh: 7
+              iiiiiii: 8
+              jjjjjjj: 9
+              kkkkkkk: 10
+              lllllll: 11
+              mmmmmmm: 12
+              nnnnnnn: 13
+              ooooooo: 14
+              ppppppp: 15
+              qqqqqqq: 16
+              rrrrrrr: 17
+              sssssss: 18
+              ttttttt: 19
+              uuuuuuu: 20
+      dest: server1
