@@ -94,6 +94,10 @@ scaling = subparsers.add_parser("scaling")
 scaling.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
 scaling.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
+table = subparsers.add_parser("table")
+table.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
+table.add_argument("-a", "--agg", default="rate", help="The aggregation func")
+
 args = parser.parse_args()
 
 def thousand_label(x, pos):
@@ -1566,7 +1570,51 @@ def scaling_graph(policy, metric, agg, dst):
     if args.legend:
         _rename_legend_labels(g)
 
-    _save_to_path(f"scaling-{agg}", os.path.join(dst, name))
+    _save_to_path(f"scaling-{agg}", os.path.join(dst, policy))
+
+
+def _load_table_df(name, metric, agg):
+    def _load_df(policy):
+        dfs = []
+        for i in range(1, 100):
+            paths = _get_file_paths(f"{name}_{policy}-{i}", "*k6*summary*.json")
+            if len(paths) > 0:
+                df = _load_k6_summaries(paths)
+                df["services"] = i
+                dfs.append(df)
+        return pd.concat(dfs)
+
+    dfs = []
+    policies = ["route"]
+    for pol in policies:
+        df = _load_df(pol)
+        df["policy"] = pol
+        dfs.append(df)
+
+    df = pd.concat(dfs)
+    df = df[df["metric_name"] == metric]
+    df = df.groupby(["proxy", "services", "policy"]).agg({agg: "mean"})
+
+    df = df.unstack(level=2)
+    df.columns = df.columns.droplevel(0)
+    df.columns.name = None
+
+    df = df.loc[("beeline", slice(None), slice(None))] - df.loc[("envoy", slice(None), slice(None))]
+    df = df.transpose()
+
+    return df
+
+
+def table_graph(name, metric, agg, dst):
+    df = _load_table_df(name, metric, agg)
+
+    g = sns.heatmap(df)
+    g.set(xlabel="#Services", ylabel="Latency [ms]")
+
+    if args.legend:
+        _rename_legend_labels(g)
+
+    _save_to_path(f"table-{agg}", os.path.join(dst, name))
 
 
 if __name__ == "__main__":
@@ -1616,3 +1664,5 @@ if __name__ == "__main__":
         percentile_graph_tikz(args.name, args.range)
     elif args.command == "scaling":
         scaling_graph(args.name, args.metric, args.agg, args.output)
+    elif args.command == "table":
+        table_graph(args.name, args.metric, args.agg, args.output)
