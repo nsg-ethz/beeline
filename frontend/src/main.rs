@@ -1,5 +1,3 @@
-use std::{collections::HashMap, str::FromStr};
-
 use axum::{
     Router,
     body::Bytes,
@@ -9,6 +7,7 @@ use axum::{
 use clap::Parser;
 use log::{debug, error};
 use reqwest::Client;
+use std::str::FromStr;
 use tokio::{
     signal::unix::{SignalKind, signal},
     task::JoinSet,
