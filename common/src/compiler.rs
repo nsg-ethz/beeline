@@ -300,7 +300,11 @@ impl Compiler {
                     if path == "*" {
                         "true".to_string()
                     } else {
-                        format!("bpf_strncmp(ctx->path, {}, \"{}\") == 0", path.len(), path)
+                        format!(
+                            "bpf_strncmp(ctx->path, {}, \"{} \") == 0",
+                            path.len() + 1,
+                            path
+                        )
                     }
                 } else {
                     "true".to_string()
@@ -321,13 +325,14 @@ impl Compiler {
                 let addr = self.config.select_backend_instance(&route.dest).unwrap();
                 let ip4: u32 = addr.ip().try_into_ne_octets().unwrap();
 
+                let else_if = if idx > 0 { "else " } else { "" };
                 let cond = format!(
-                    "if ({} && {}) {{
-                        if (route_ds_{}(msg, ikey, ctx) != PR_PASS) {{
+                    "{}if ({} && {}) {{
+                    if (route_ds_{}(msg, ikey, ctx) != PR_PASS) {{
                             bpf_err(\"ERROR: route_{} failed.\");
                         }}
                     }}",
-                    path_condition, header_condition, idx, idx
+                    else_if, path_condition, header_condition, idx, idx
                 );
 
                 let (mut filters, calls) = route
