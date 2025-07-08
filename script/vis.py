@@ -5,6 +5,7 @@ import glob
 import argparse
 import re
 import os
+from matplotlib.artist import get
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
@@ -93,6 +94,10 @@ scaling = subparsers.add_parser("scaling")
 scaling.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
 scaling.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
 
+table = subparsers.add_parser("table")
+table.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
+table.add_argument("-a", "--agg", default="rate", help="The aggregation func")
+
 args = parser.parse_args()
 
 def thousand_label(x, pos):
@@ -163,21 +168,21 @@ def _load_k6_data(paths, max_epoch=30):
         if epochs.get(proxy, 0) >= max_epoch:
             continue
 
-        try:
-            df = pd.read_csv(p, low_memory=False)
-            num_failed_res = (df["expected_response"] == False).sum()
-            if num_failed_res / len(df) > 0.01:
-                continue
+        # try:
+        df = pd.read_csv(p, low_memory=False)
+        num_failed_res = (df["expected_response"] == False).sum()
+        if num_failed_res / len(df) > 0.01:
+            continue
 
-            epochs[proxy] = epochs.get(proxy, 0) + 1
+        epochs[proxy] = epochs.get(proxy, 0) + 1
 
-            df["proxy"] = proxy
-            df["epoch"] = epoch
-            df["file"] = os.path.basename(p),
-            df["timestamp"] -= df["timestamp"].min()
-            dfs.append(df)
-        except Exception as e:
-            print(f"Error loading {p}: {e}")
+        df["proxy"] = proxy
+        df["epoch"] = epoch
+        # df["file"] = os.path.basename(p),
+        df["timestamp"] -= df["timestamp"].min()
+        dfs.append(df)
+        # except Exception as e:
+        #     print(f"Error loading {p}: {e}")
 
     return pd.concat(dfs)
 
@@ -575,13 +580,21 @@ def cdf_graph(name, time_range, dst):
     print("Number of epochs per proxy:")
     print(num_epochs.to_string())
 
-    g = sns.ecdfplot(data=df, x="metric_value", hue="proxy")
+    order = df["proxy"].unique()
+
+    g = sns.ecdfplot(data=df, x="metric_value", hue="proxy", hue_order=order)
     g.set_xlabel("latency [ms]")
+
+    for p, l, h in zip(order, reversed(g.lines), g.legend_.legend_handles):
+        if p == "envoy":
+            l.set_linestyle("--")
+            h.set_linestyle("--")
 
     if args.legend:
         _rename_legend_labels(g)
 
-    plt.xlim(0, 40)
+    plt.ylim(0.9, 1)
+    plt.xlim(0, 2)
     # plt.xscale("log")
     _save_to_path(f"cdf", os.path.join(dst, name))
 
@@ -1488,27 +1501,120 @@ width=\\linewidth]
     print(tikz)
 
 
-def scaling_graph(name, metric, agg, dst):
+# def scaling_graph(name, metric, agg, dst):
+#     dfs = []
+#     for i in range(1, 100):
+#         paths = _get_file_paths(f"{name}-{i}", "*k6*summary*.json")
+#         if len(paths) > 0:
+#             df = _load_k6_summaries(paths)
+#             df["services"] = i
+#             dfs.append(df)
+
+#     df = pd.concat(dfs)
+#     df = df[df["metric_name"] == metric]
+#     df = df.groupby(["proxy", "services"]).agg({agg: "mean"})
+#     print(df)
+
+#     g = sns.lineplot(data=df, x="services", y=agg, hue="proxy", marker="o")
+#     g.set(xlabel="#Services", ylabel="Latency [ms]")
+
+#     if args.legend:
+#         _rename_legend_labels(g)
+
+#     _save_to_path(f"scaling-{agg}", os.path.join(dst, name))
+
+def scaling_graph(policy, metric, agg, dst):
+    def _load_df(name):
+        dfs = []
+        for i in range(1, 100):
+            paths = _get_file_paths(f"{name}-{i}", "*k6*summary*.json")
+            if len(paths) > 0:
+                df = _load_k6_summaries(paths)
+                df["services"] = i
+                dfs.append(df)
+        return pd.concat(dfs)
+
     dfs = []
-    for i in range(1, 100):
-        paths = _get_file_paths(f"{name}-{i}", "*k6*summary*.json")
-        if len(paths) > 0:
-            df = _load_k6_summaries(paths)
-            df["services"] = i
-            dfs.append(df)
+    policies = [("chain-mutate", "mutate"), ("chain-jwt", "jwt"), ("chain", "none")]
+    for (name, pol) in policies:
+        df = _load_df(name)
+        df["policy"] = pol
+        dfs.append(df)
 
     df = pd.concat(dfs)
     df = df[df["metric_name"] == metric]
-    df = df.groupby(["proxy", "services"]).agg({agg: "mean"})
+    df = df.groupby(["proxy", "services", "policy"]).agg({agg: "mean"})
+
+    order = df.index.get_level_values("proxy").unique()
+    order = sorted(order)
+
+    df = df.unstack(level=2)
+    df.columns = df.columns.droplevel(0)
+    df.columns.name = None
+
+    # df['mutate'] = df['mutate'] - df['none']
+    # df['jwt'] = df['jwt'] - df['none']
+    # df = df.reset_index().melt(id_vars=["proxy", "services"], value_vars=["mutate", "jwt"], var_name="policy", value_name="value")
+    df = df.reset_index()
+
+
+    # df = df[df["policy"] == policy]
+    df = df[df["services"] < 30]
     print(df)
 
-    g = sns.lineplot(data=df, x="services", y=agg, hue="proxy", marker="o")
+    g = sns.catplot(data=df, kind="bar", x="services", y=policy, hue="proxy")
+    g.set(xlabel="#Services", ylabel="Latency [ms]")
+
+    plt.yscale("log")
+
+    if args.legend:
+        _rename_legend_labels(g)
+
+    _save_to_path(f"scaling-{agg}", os.path.join(dst, policy))
+
+
+def _load_table_df(name, metric, agg):
+    def _load_df(policy):
+        dfs = []
+        for i in range(1, 100):
+            paths = _get_file_paths(f"{name}_{policy}-{i}", "*k6*summary*.json")
+            if len(paths) > 0:
+                df = _load_k6_summaries(paths)
+                df["services"] = i
+                dfs.append(df)
+        return pd.concat(dfs)
+
+    dfs = []
+    policies = ["route"]
+    for pol in policies:
+        df = _load_df(pol)
+        df["policy"] = pol
+        dfs.append(df)
+
+    df = pd.concat(dfs)
+    df = df[df["metric_name"] == metric]
+    df = df.groupby(["proxy", "services", "policy"]).agg({agg: "mean"})
+
+    df = df.unstack(level=2)
+    df.columns = df.columns.droplevel(0)
+    df.columns.name = None
+
+    df = df.loc[("beeline", slice(None), slice(None))] - df.loc[("envoy", slice(None), slice(None))]
+    df = df.transpose()
+
+    return df
+
+
+def table_graph(name, metric, agg, dst):
+    df = _load_table_df(name, metric, agg)
+
+    g = sns.heatmap(df)
     g.set(xlabel="#Services", ylabel="Latency [ms]")
 
     if args.legend:
         _rename_legend_labels(g)
 
-    _save_to_path(f"scaling-{agg}", os.path.join(dst, name))
+    _save_to_path(f"table-{agg}", os.path.join(dst, name))
 
 
 if __name__ == "__main__":
@@ -1558,3 +1664,5 @@ if __name__ == "__main__":
         percentile_graph_tikz(args.name, args.range)
     elif args.command == "scaling":
         scaling_graph(args.name, args.metric, args.agg, args.output)
+    elif args.command == "table":
+        table_graph(args.name, args.metric, args.agg, args.output)
