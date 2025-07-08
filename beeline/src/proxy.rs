@@ -213,7 +213,6 @@ impl<'obj> Proxy<'obj> {
                     && v.name() != "jwt_sig"
             })
             .collect::<Vec<_>>();
-        println!("Headers: {:?}", headers);
 
         let mut parser = HttpParser::new(
             open_skel.maps.rodata_data.s_init,
