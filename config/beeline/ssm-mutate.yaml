@@ -125,278 +125,278 @@ routes:
       dest: service-1
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-2"
       dest: service-2
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-3"
       dest: service-3
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-4"
       dest: service-4
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-5"
       dest: service-5
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-6"
       dest: service-6
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-7"
       dest: service-7
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-8"
       dest: service-8
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-9"
       dest: service-9
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-10"
       dest: service-10
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-11"
       dest: service-11
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-12"
       dest: service-12
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-13"
       dest: service-13
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-14"
       dest: service-14
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-15"
       dest: service-15
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-16"
       dest: service-16
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-17"
       dest: service-17
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-18"
       dest: service-18
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-19"
       dest: service-19
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-20"
       dest: service-20
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-21"
       dest: service-21
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-22"
       dest: service-22
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-23"
       dest: service-23
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-24"
       dest: service-24
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-25"
       dest: service-25
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-26"
       dest: service-26
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-27"
       dest: service-27
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-28"
       dest: service-28
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-29"
       dest: service-29
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-30"
       dest: service-30
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-31"
       dest: service-31
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-32"
       dest: service-32
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-33"
       dest: service-33
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-34"
       dest: service-34
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-35"
       dest: service-35
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-36"
       dest: service-36
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-37"
       dest: service-37
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-38"
       dest: service-38
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-39"
       dest: service-39
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline
     - match:
           path: "/service-40"
       dest: service-40
       filters:
           - type: mutate
-            remove:
-                - x-processed-by
+            add:
+                x-processed-by: beeline

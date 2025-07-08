@@ -130,6 +130,396 @@ static_resources:
                                   socket_address:
                                       address: 172.18.0.12
                                       port_value: 9999
+        - name: service-11
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-11
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.13
+                                      port_value: 9999
+        - name: service-12
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-12
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.14
+                                      port_value: 9999
+        - name: service-13
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-13
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.15
+                                      port_value: 9999
+        - name: service-14
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-14
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.16
+                                      port_value: 9999
+        - name: service-15
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-15
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.17
+                                      port_value: 9999
+        - name: service-16
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-16
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.18
+                                      port_value: 9999
+        - name: service-17
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-17
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.19
+                                      port_value: 9999
+        - name: service-18
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-18
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.20
+                                      port_value: 9999
+        - name: service-19
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-19
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.21
+                                      port_value: 9999
+        - name: service-20
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-20
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.22
+                                      port_value: 9999
+        - name: service-21
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-21
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.23
+                                      port_value: 9999
+        - name: service-22
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-22
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.24
+                                      port_value: 9999
+        - name: service-23
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-23
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.25
+                                      port_value: 9999
+        - name: service-24
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-24
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.26
+                                      port_value: 9999
+        - name: service-25
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-25
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.27
+                                      port_value: 9999
+        - name: service-26
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-26
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.28
+                                      port_value: 9999
+        - name: service-27
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-27
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.29
+                                      port_value: 9999
+        - name: service-28
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-28
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.30
+                                      port_value: 9999
+        - name: service-29
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-29
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.31
+                                      port_value: 9999
+        - name: service-30
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-30
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.32
+                                      port_value: 9999
+        - name: service-31
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-31
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.33
+                                      port_value: 9999
+        - name: service-32
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-32
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.34
+                                      port_value: 9999
+        - name: service-33
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-33
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.35
+                                      port_value: 9999
+        - name: service-34
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-34
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.36
+                                      port_value: 9999
+        - name: service-35
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-35
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.37
+                                      port_value: 9999
+        - name: service-36
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-36
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.38
+                                      port_value: 9999
+        - name: service-37
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-37
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.39
+                                      port_value: 9999
+        - name: service-38
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-38
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.40
+                                      port_value: 9999
+        - name: service-39
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-39
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.41
+                                      port_value: 9999
+        - name: service-40
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-40
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.42
+                                      port_value: 9999
     listeners:
         - name: listener0
           address:
@@ -220,6 +610,216 @@ static_resources:
                                                     key: "X-Processed-By"
                                                     value: "envoy"
                                           route: { cluster: service-10 }
+                                        - match:
+                                              prefix: "/service-11"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-11 }
+                                        - match:
+                                              prefix: "/service-12"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-12 }
+                                        - match:
+                                              prefix: "/service-13"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-13 }
+                                        - match:
+                                              prefix: "/service-14"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-14 }
+                                        - match:
+                                              prefix: "/service-15"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-15 }
+                                        - match:
+                                              prefix: "/service-16"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-16 }
+                                        - match:
+                                              prefix: "/service-17"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-17 }
+                                        - match:
+                                              prefix: "/service-18"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-18 }
+                                        - match:
+                                              prefix: "/service-19"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-19 }
+                                        - match:
+                                              prefix: "/service-20"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-20 }
+                                        - match:
+                                              prefix: "/service-21"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-21 }
+                                        - match:
+                                              prefix: "/service-22"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-22 }
+                                        - match:
+                                              prefix: "/service-23"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-23 }
+                                        - match:
+                                              prefix: "/service-24"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-24 }
+                                        - match:
+                                              prefix: "/service-25"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-25 }
+                                        - match:
+                                              prefix: "/service-26"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-26 }
+                                        - match:
+                                              prefix: "/service-27"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-27 }
+                                        - match:
+                                              prefix: "/service-28"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-28 }
+                                        - match:
+                                              prefix: "/service-29"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-29 }
+                                        - match:
+                                              prefix: "/service-30"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-30 }
+                                        - match:
+                                              prefix: "/service-31"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-31 }
+                                        - match:
+                                              prefix: "/service-32"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-32 }
+                                        - match:
+                                              prefix: "/service-33"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-33 }
+                                        - match:
+                                              prefix: "/service-34"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-34 }
+                                        - match:
+                                              prefix: "/service-35"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-35 }
+                                        - match:
+                                              prefix: "/service-36"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-36 }
+                                        - match:
+                                              prefix: "/service-37"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-37 }
+                                        - match:
+                                              prefix: "/service-38"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-38 }
+                                        - match:
+                                              prefix: "/service-39"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-39 }
+                                        - match:
+                                              prefix: "/service-40"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "envoy"
+                                          route: { cluster: service-40 }
                           http_filters:
                               - name: envoy.filters.http.router
                                 typed_config:
