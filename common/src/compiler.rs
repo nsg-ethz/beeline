@@ -243,6 +243,7 @@ impl Compiler {
         let mut mutation = String::new();
         if let Some(remove) = mutate.remove {
             for key in remove.iter() {
+                let key = sanitize_var_name(&key);
                 let rmv = format!(
                     "if (ctx->{key}_range.len > 0) {{
                         remove_range.idx = ctx->{key}_range.idx-{key_len};
@@ -437,7 +438,10 @@ impl Compiler {
     pub fn get_ctx_vars(&self) -> Vec<Variable> {
         let mut ctx: Vec<Variable> = Vec::new();
         let mut insert = |var: Variable| {
-            if ctx.iter().any(|v| v.name() == var.name() && v.is_buffer()) {
+            if ctx
+                .iter()
+                .any(|v| v.name() == var.name() && v.is_buffer() == var.is_buffer())
+            {
                 return;
             }
 
