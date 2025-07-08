@@ -206,7 +206,7 @@ impl Compiler {
 
         let mut admission = String::new();
         if let Some(aud) = jwt.audience {
-            let aud = format!("\\\"audience\\\":\\\"{}\\\"", aud);
+            let aud = format!("\\\"aud\\\":\\\"{}\\\"", aud);
             let aud_admission = adm_templ
                 .replace("{adm}", &aud)
                 .replace("{adm_len}", &(aud.len() - 4).to_string());
@@ -215,7 +215,7 @@ impl Compiler {
         }
 
         if let Some(iss) = jwt.issuer {
-            let iss = format!("\\\"issuer\\\":\\\"{}\\\"", iss);
+            let iss = format!("\\\"iss\\\":\\\"{}\\\"", iss);
             let iss_admission = adm_templ
                 .replace("{adm}", &iss)
                 .replace("{adm_len}", &(iss.len() - 4).to_string());
