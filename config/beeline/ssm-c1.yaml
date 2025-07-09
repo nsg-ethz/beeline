@@ -1,3 +1,4 @@
+stats: true
 hosts:
     - name: service-1
       instances:

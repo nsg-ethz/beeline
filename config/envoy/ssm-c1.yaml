@@ -1,3 +1,8 @@
+stats_config:
+    stats_matcher:
+        inclusion_list:
+            patterns:
+                - prefix: "downstream"
 static_resources:
     clusters:
         - name: service-1

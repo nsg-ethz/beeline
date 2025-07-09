@@ -1,3 +1,6 @@
+stats_config:
+    stats_matcher:
+        reject_all: true
 static_resources:
     clusters:
         - name: service-1
