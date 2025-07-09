@@ -96,7 +96,7 @@ case $ACTION in
             if [ "${MONITOR}" = true ]; then
                 echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-baseline.parse-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onReadReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-baseline.user-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} -r ${ENVOY_BIN}:"^.*on(Read|Write)Ready.*$" > ${SUMMARY_DIR}/${PROXY}-bpf-baseline.user-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-baseline.ipc-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-baseline.epoll-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-baseline.write-e${EPOCH}.log 2>/dev/null
@@ -114,8 +114,7 @@ case $ACTION in
             if [ "${MONITOR}" = true ]; then
                 echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.parse-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onReadReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*onWriteReady*" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user2-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} -r ${ENVOY_BIN}:"^.*on(Read|Write)Ready.*$" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.user-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.ipc-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.epoll-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-envoy.write-e${EPOCH}.log 2>/dev/null
