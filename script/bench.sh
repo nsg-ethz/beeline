@@ -39,10 +39,6 @@ for i in $(seq ${FROM} ${TO} ) ; do
     REPORT=${SUMMARY_DIR}/${PROXY}-k6-e${i}-full.csv
     SUMMARY=${SUMMARY_DIR}/${PROXY}-k6-e${i}-summary.json
 
-    if [ "${WRITE_REPORT}" = true ]; then
-        REPORT_OPT="--out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT})"
-    fi
-
     case ${BENCH} in
         sm)
             ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
@@ -56,7 +52,11 @@ for i in $(seq ${FROM} ${TO} ) ; do
                 K6_SCRIPT="${ROOT}/../${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=5000  -e URL=http://moonshine:8080"
             fi
 
-            k6 run ${K6_SCRIPT} --no-thresholds ${REPORT_OPT} --summary-export ${SUMMARY}
+            if [ "${WRITE_REPORT}" = true ]; then
+                k6 run ${K6_SCRIPT} --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
+            else:
+                k6 run ${K6_SCRIPT} --no-thresholds --summary-export ${SUMMARY}
+            fi
 
             ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             ;;
@@ -65,7 +65,11 @@ for i in $(seq ${FROM} ${TO} ) ; do
             ${ROOT}/mb.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} -m
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
-            k6 run ${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds ${REPORT_OPT} --summary-export ${SUMMARY}
+            if [ "${WRITE_REPORT}" = true ]; then
+                k6 run ${K6_SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
+            else:
+                k6 run ${K6_SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds --summary-export ${SUMMARY}
+            fi
 
             ${ROOT}/mb.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} -m
             ;;
