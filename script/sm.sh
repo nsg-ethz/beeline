@@ -67,7 +67,7 @@ case ${ACTION} in
         # this doesn't seem like a good idea but it works
         sudo chmod -R o+r ${ROOT}/../test/social_network/config-*
         sudo chmod -R o+r ${ROOT}/../test/media_service/config-*
-        sudo chmod o+r ${ROOT}/../config/envoy/ssm.yaml
+        sudo chmod -R o+r ${ROOT}/../config/envoy/*.yaml
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
 
