@@ -4,6 +4,8 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     enum pr_action res = PR_DROP;
 
     if (is_downstream) {
+        bpf_stats_add(downstream_rq_total, 1);
+
         {downstream}
     }
     else {

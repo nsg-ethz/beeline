@@ -320,24 +320,28 @@ impl<'obj> Proxy<'obj> {
         let listener = socket.listen(4096)?;
 
         let profile = env::var("BPF_PROFILE").unwrap_or("0".to_string());
+        let stats = env::var("STATS").unwrap_or("0".to_string());
 
-        if profile == "1" {
-            let this = Arc::new(&self);
-            tokio::spawn(unsafe {
-                let this = std::mem::transmute::<Arc<&Proxy>, Arc<&'static Proxy>>(this);
-                async move {
-                    let mut sigterm = signal(SignalKind::terminate()).unwrap();
-                    tokio::select! {
-                        _ = tokio::signal::ctrl_c() => {},
-                        _ = sigterm.recv() => {},
-                    }
-
-                    info!("Profile stats printed to the eBPF tracelog");
-                    this.print_profile_stats().await;
-                    exit(0)
+        let this = Arc::new(&self);
+        tokio::spawn(unsafe {
+            let this = std::mem::transmute::<Arc<&Proxy>, Arc<&'static Proxy>>(this);
+            async move {
+                let mut sigterm = signal(SignalKind::terminate()).unwrap();
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {},
+                    _ = sigterm.recv() => {},
                 }
-            });
-        }
+
+                if profile == "1" {
+                    info!("Profile stats printed to the eBPF tracelog");
+                    this.clone().print_profile_stats().await;
+                }
+                if stats == "1" {
+                    this.print_traffic_stats().await;
+                }
+                exit(0)
+            }
+        });
 
         loop {
             self.accept(&listener).await?;
@@ -357,6 +361,41 @@ impl<'obj> Proxy<'obj> {
             }
             Err(e) => error!("Failed to call eBPF print_profile_stats: {:?}", e),
         }
+    }
+
+    async fn print_traffic_stats(self: Arc<&Self>) {
+        let Ok(map) = self.get_traffic_stats() else {
+            error!("Failed to get traffic stats");
+            return;
+        };
+        let collected_in_ebpf = vec![
+            "downstream_cx_rx_bytes_total",
+            "downstream_cx_tx_bytes_total",
+            "downstream_rq_total",
+            "downstream_rq_1xx",
+            "downstream_rq_2xx",
+            "downstream_rq_3xx",
+            "downstream_rq_4xx",
+            "downstream_rq_5xx",
+        ];
+
+        let mut stats = String::new();
+        for (idx, key) in collected_in_ebpf.iter().enumerate() {
+            let val: Result<Option<u64>> = map.lookup_as(&(idx as u32), MapFlags::empty());
+            match val {
+                Ok(Some(value)) => {
+                    stats.push_str(&format!("{}: {}\n", key, value));
+                }
+                Ok(None) => {
+                    error!("{}: Not found", key);
+                }
+                Err(e) => {
+                    error!("Failed to lookup {:?}: {:?}", key, e);
+                }
+            }
+        }
+
+        info!("Traffic Stats:\n{}", stats);
     }
 
     async fn accept(&self, listener: &TcpListener) -> Result<()> {
@@ -512,6 +551,11 @@ impl<'obj> Proxy<'obj> {
 
     fn get_downstream_fib(&self) -> Result<MapHandle> {
         let id = self.skel.maps.fib_downstream.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_traffic_stats(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.traffic_stats.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 }

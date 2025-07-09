@@ -25,17 +25,12 @@ int bpf_base64url_decode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __k
                  : [min] "i"(UMIN), [max] "i"(UMAX))
 #endif
 
-#ifdef LOG_LEVEL
-    #if LOG_LEVEL == 0
-        #define bpf_log(...) (0)
-        #define bpf_err(...) (0)
-    #elif LOG_LEVEL == 1
-        #define bpf_log(...) (0)
-        #define bpf_err(...) bpf_printk(__VA_ARGS__)
-    #elif LOG_LEVEL == 2
-        #define bpf_log(...) bpf_printk(__VA_ARGS__)
-        #define bpf_err(...) bpf_printk(__VA_ARGS__)
-    #endif
+#if LOG_LEVEL == 1
+    #define bpf_log(...) (0)
+    #define bpf_err(...) bpf_printk(__VA_ARGS__)
+#elif LOG_LEVEL == 2
+    #define bpf_log(...) bpf_printk(__VA_ARGS__)
+    #define bpf_err(...) bpf_printk(__VA_ARGS__)
 #else
     #define bpf_log(...) (0)
     #define bpf_err(...) (0)
@@ -53,10 +48,30 @@ int bpf_base64url_decode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __k
     #define bpf_profile_print(...)
 #endif
 
-// these restrictions are needed to make the verifier happy
-#define MAX_BYTES 0xFFFE
-#define MAX_MATCHES 16
-#define MAX_MATCH_MASK 15
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 100);
+    __type(key, int);
+    __type(value, u64);
+} traffic_stats SEC(".maps");
+
+#if STATS == 1
+    u64 *__stats_val_tmp;
+    #define bpf_stats_def(NAME) const int __stats_##NAME##_idx = __COUNTER__
+    #define bpf_stats_add(NAME, VAL) __stats_val_tmp = bpf_map_lookup_elem(&traffic_stats, &__stats_##NAME##_idx); if (__stats_val_tmp != NULL) (*__stats_val_tmp += VAL)
+#else
+    #define bpf_stats_def(...)
+    #define bpf_stats_add(...)
+#endif
+
+bpf_stats_def(downstream_cx_rx_bytes_total);
+bpf_stats_def(downstream_cx_tx_bytes_total);
+bpf_stats_def(downstream_rq_total);
+bpf_stats_def(downstream_rq_1xx);
+bpf_stats_def(downstream_rq_2xx);
+bpf_stats_def(downstream_rq_3xx);
+bpf_stats_def(downstream_rq_4xx);
+bpf_stats_def(downstream_rq_5xx);
 
 struct cctx_val {
     struct bpf_crypto_ctx __kptr *ctx;
@@ -68,39 +83,6 @@ struct {
     __type(value, struct cctx_val);
     __uint(max_entries, 1);
 } cctx_map SEC(".maps");
-
-static __always_inline struct cctx_val *cctx_val_lookup(void) {
-	u32 key = 0;
-	return bpf_map_lookup_elem(&cctx_map, &key);
-}
-
-static __always_inline int crypto_ctx_insert(struct bpf_crypto_ctx *ctx) {
-    struct cctx_val local, *v;
-    struct bpf_crypto_ctx *old;
-    u32 key = 0;
-    int err;
-
-    local.ctx = NULL;
-    err = bpf_map_update_elem(&cctx_map, &key, &local, 0);
-    if (err) {
-        bpf_crypto_ctx_release(ctx);
-        return err;
-    }
-
-    v = bpf_map_lookup_elem(&cctx_map, &key);
-    if (!v) {
-        bpf_crypto_ctx_release(ctx);
-        return -ENOENT;
-    }
-
-    old = bpf_kptr_xchg(&v->ctx, ctx);
-    if (old) {
-        bpf_crypto_ctx_release(old);
-        return -EEXIST;
-    }
-
-    return 0;
-}
 
 struct addr_key {
     u32 ip4;
@@ -138,34 +120,6 @@ struct {
     __type(value, struct pipeline_ctx);
 } ctx_percpu SEC(".maps");
 
-const u32 percpu_key = 0;
-
-const u16 a_done = 1 << 14;
-const u16 a_start_capture = 1 << 13;
-const u16 a_end_capture = 1 << 12;
-// if a_done -> then this is 0
-// if a_start_capture -> then this is the cid
-// if a_end_capture -> then this is cid | mid
-const u16 a_id_mask = 0x0FFF;
-const u16 a_id_1_mask = 0x0FC0;
-const u16 a_id_2_mask = 0x003F;
-
-const u16 s_init = 0;
-const u16 s_any = 1;
-
-struct trans {
-    u16 state;
-    u16 action;
-    u8 input;
-};
-
-const u32 max_states = 2048;
-const u32 max_trans = 32;
-volatile const struct trans s2ts[max_states][max_trans];
-
-volatile const u32 ip4;
-volatile const u32 port;
-
 enum pr_action {
     PR_DROP=0,
     PR_PASS,
@@ -176,16 +130,6 @@ enum pr_sock_action {
     PR_ADD_LOCAL=0,
     PR_ADD_REMOTE,
     PR_ADD_BOTH,
-};
-
-struct ft_route {
-    struct addr_key addr;
-
-    char path[256];
-    u8 path_len;
-    u8 header_idx;
-    char header_val[256];
-    u8 header_len;
 };
 
 struct fib_pqueue {
@@ -215,7 +159,73 @@ struct {
     __type(value, struct addr_key);
 } utrn_wait_list SEC(".maps");
 
+const u32 percpu_key = 0;
+
+const u16 a_done = 1 << 14;
+const u16 a_start_capture = 1 << 13;
+const u16 a_end_capture = 1 << 12;
+// if a_done -> then this is 0
+// if a_start_capture -> then this is the cid
+// if a_end_capture -> then this is cid | mid
+const u16 a_id_mask = 0x0FFF;
+const u16 a_id_1_mask = 0x0FC0;
+const u16 a_id_2_mask = 0x003F;
+
+const u16 s_init = 0;
+const u16 s_any = 1;
+
+struct trans {
+    u16 state;
+    u16 action;
+    u8 input;
+};
+
+// these restrictions are needed to make the verifier happy
+#define MAX_BYTES 0xFFFE
+#define MAX_MATCHES 16
+#define MAX_MATCH_MASK 15
+const u32 max_states = 2048;
+const u32 max_trans = 32;
+
+volatile const struct trans s2ts[max_states][max_trans];
+
+volatile const u32 ip4;
+volatile const u32 port;
+
 {{DEFS}}
+
+static __always_inline struct cctx_val *_cctx_val_lookup(void) {
+	u32 key = 0;
+	return bpf_map_lookup_elem(&cctx_map, &key);
+}
+
+static __always_inline int _crypto_ctx_insert(struct bpf_crypto_ctx *ctx) {
+    struct cctx_val local, *v;
+    struct bpf_crypto_ctx *old;
+    u32 key = 0;
+    int err;
+
+    local.ctx = NULL;
+    err = bpf_map_update_elem(&cctx_map, &key, &local, 0);
+    if (err) {
+        bpf_crypto_ctx_release(ctx);
+        return err;
+    }
+
+    v = bpf_map_lookup_elem(&cctx_map, &key);
+    if (!v) {
+        bpf_crypto_ctx_release(ctx);
+        return -ENOENT;
+    }
+
+    old = bpf_kptr_xchg(&v->ctx, ctx);
+    if (old) {
+        bpf_crypto_ctx_release(old);
+        return -EEXIST;
+    }
+
+    return 0;
+}
 
 bpf_profile_def(auth);
 static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 claims_len, char *sig, u32 sig_len, char *tmp) {
@@ -225,7 +235,7 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
         return PR_DROP;
     }
 
-    struct cctx_val *cctx_val = cctx_val_lookup();
+    struct cctx_val *cctx_val = _cctx_val_lookup();
     if (cctx_val == NULL) {
         bpf_err("ERROR: Failed to find crypto context");
         return PR_DROP;
@@ -239,12 +249,12 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
 
     bpf_log("Verifying JWT claims: %s with signature: %s", claims, sig);
 
-    if (bpf_crypto_digest(cctx, claims, claims_len & 0x7ff, claims, 2048) < 0) {
+    if (bpf_crypto_digest(cctx, (const u8*)claims, claims_len & 0x7ff, (u8*)claims, 2048) < 0) {
         bpf_err("ERROR: Failed to digest msg");
         return PR_DROP;
     }
 
-    sig_len = bpf_base64url_encode(claims, 32, tmp, 512);
+    sig_len = bpf_base64url_encode((const u8*)claims, 32, tmp, 512);
     if (sig_len < 0) {
         bpf_err("ERROR: Failed to encode signature: %d", sig_len);
         return PR_DROP;
@@ -575,6 +585,13 @@ int msg_verdict(struct sk_msg_md *msg) {
     bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
     bpf_msg_apply_bytes(msg, msg_len);
 
+    if (is_downstream) {
+        bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
+    }
+    else {
+        bpf_stats_add(downstream_cx_tx_bytes_total, msg_len);
+    }
+
     if (res == PR_DROP) {
         bpf_err("PLUGIN: Drop msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
         return SK_DROP;
@@ -686,7 +703,7 @@ int crypto_setup() {
         return -err;
     }
 
-    err = crypto_ctx_insert(cctx);
+    err = _crypto_ctx_insert(cctx);
     if (err && err != -EEXIST)
         return -err;
 

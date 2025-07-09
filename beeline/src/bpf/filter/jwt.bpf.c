@@ -8,7 +8,7 @@ enum pr_action _validate_jwt_admission_{idx}(struct pipeline_ctx *ctx) {
 
     int claims_len = ctx->jwt_claims_range.len-37;
     claims_len &= 0x1ff;
-    claims_len = bpf_base64url_decode(ctx->jwt_claims+37, claims_len, ctx->tmp, 512);
+    claims_len = bpf_base64url_decode((const u8*)ctx->jwt_claims+37, claims_len, ctx->tmp, 512);
     if (claims_len < 0) {
         bpf_err("ERROR: Failed to decode claims: %d", claims_len);
         return PR_DROP;

@@ -6,6 +6,9 @@ fn main() {
     let bpf_profile = std::env::var("BPF_PROFILE").unwrap_or("0".to_string());
     println!("cargo:rerun-if-env-changed=BPF_PROFILE");
 
+    let stats = std::env::var("STATS").unwrap_or("0".to_string());
+    println!("cargo:rerun-if-env-changed=STATS");
+
     let log_level = std::env::var("RUST_LOG").unwrap_or("error".to_string());
     let log_level: u32 = match log_level.to_lowercase().as_str() {
         "debug" => 2,
@@ -56,6 +59,8 @@ fn main() {
         OsStr::new(format!("LOG_LEVEL={log_level}").as_str()),
         OsStr::new("-D"),
         OsStr::new(format!("BPF_PROFILE={bpf_profile}").as_str()),
+        OsStr::new("-D"),
+        OsStr::new(format!("STATS={stats}").as_str()),
         OsStr::new("-D"),
         OsStr::new(format!("SM_APP={sm}").as_str()),
         OsStr::new("-I"),
