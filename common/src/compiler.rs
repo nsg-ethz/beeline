@@ -135,7 +135,7 @@ impl Compiler {
                 match &var {
                     &Variable::Buffer(name, ty) => {
                         let name = sanitize_var_name(name);
-                        if ty == "char" {
+                        let code = if ty == "char" {
                             format!(
                                 "r = pranges[{}];
                             r.len &= 0x7ff;
@@ -158,6 +158,12 @@ impl Compiler {
                             )
                         } else {
                             unimplemented!("{}", ty)
+                        };
+
+                        if name == "status_code" {
+                            format!("#if STATS == 1\n{}\n#endif", code)
+                        } else {
+                            code
                         }
                     }
                     &Variable::Range(name) => {
@@ -449,6 +455,7 @@ impl Compiler {
         };
 
         insert(Variable::buffer("path", "char"));
+        insert(Variable::buffer("status_code", "u32"));
         insert(Variable::buffer("content-length", "u32"));
 
         for route in &self.config.routes {

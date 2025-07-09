@@ -43,6 +43,17 @@ impl HttpParser {
         Ok(())
     }
 
+    pub fn match_http_status_code(&mut self) -> Result<()> {
+        self.dfa
+            .start_pattern(self.s_init)
+            .push("HTTP/1.1 ")?
+            .start_capturing()
+            .push_optional('*')?
+            .end_caputuring_and_restart_with(CRLF, self.s_any)?;
+
+        Ok(())
+    }
+
     pub fn match_http_hdr(&mut self, key: &str) -> Result<()> {
         self.dfa
             .start_pattern(self.s_any)

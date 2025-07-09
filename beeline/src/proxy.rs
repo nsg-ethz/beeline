@@ -209,6 +209,7 @@ impl<'obj> Proxy<'obj> {
             .filter(|v| {
                 v.is_buffer()
                     && v.name() != "path"
+                    && v.name() != "status_code"
                     && v.name() != "jwt_claims"
                     && v.name() != "jwt_sig"
             })
@@ -219,6 +220,7 @@ impl<'obj> Proxy<'obj> {
             open_skel.maps.rodata_data.s_any,
         );
         parser.match_http_uri()?;
+        parser.match_http_status_code()?;
         for hdr in headers.iter() {
             parser.match_http_hdr(hdr.name())?;
         }
@@ -320,7 +322,7 @@ impl<'obj> Proxy<'obj> {
         let listener = socket.listen(4096)?;
 
         let profile = env::var("BPF_PROFILE").unwrap_or("0".to_string());
-        let stats = env::var("STATS").unwrap_or("0".to_string());
+        let stats = self.config.stats;
 
         let this = Arc::new(&self);
         tokio::spawn(unsafe {
@@ -336,7 +338,7 @@ impl<'obj> Proxy<'obj> {
                     info!("Profile stats printed to the eBPF tracelog");
                     this.clone().print_profile_stats().await;
                 }
-                if stats == "1" {
+                if stats {
                     this.print_traffic_stats().await;
                 }
                 exit(0)
@@ -395,7 +397,7 @@ impl<'obj> Proxy<'obj> {
             }
         }
 
-        info!("Traffic Stats:\n{}", stats);
+        info!("Traffic Stats:\n{}", stats.trim());
     }
 
     async fn accept(&self, listener: &TcpListener) -> Result<()> {

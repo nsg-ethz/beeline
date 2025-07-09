@@ -6,9 +6,6 @@ fn main() {
     let bpf_profile = std::env::var("BPF_PROFILE").unwrap_or("0".to_string());
     println!("cargo:rerun-if-env-changed=BPF_PROFILE");
 
-    let stats = std::env::var("STATS").unwrap_or("0".to_string());
-    println!("cargo:rerun-if-env-changed=STATS");
-
     let log_level = std::env::var("RUST_LOG").unwrap_or("error".to_string());
     let log_level: u32 = match log_level.to_lowercase().as_str() {
         "debug" => 2,
@@ -43,10 +40,15 @@ fn main() {
     }
     .expect("Failed to create target/bpf");
 
+    let mut stats = "0";
     if let Some(config) = env::var_os("CONFIG") {
         let config = PathBuf::from(&root_dir).join(config);
         let config = fs::File::open(config).expect("Failed to open config file");
         let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
+
+        if config.stats {
+            stats = "1";
+        }
 
         let compiler = Compiler::new(config);
         compiler.generate(&base, &out);
