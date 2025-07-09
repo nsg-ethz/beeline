@@ -54,7 +54,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
             if [ "${WRITE_REPORT}" = true ]; then
                 k6 run ${K6_SCRIPT} --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
-            else:
+            else
                 k6 run ${K6_SCRIPT} --no-thresholds --summary-export ${SUMMARY}
             fi
 
@@ -67,7 +67,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
             if [ "${WRITE_REPORT}" = true ]; then
                 k6 run ${K6_SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
-            else:
+            else
                 k6 run ${K6_SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds --summary-export ${SUMMARY}
             fi
 
