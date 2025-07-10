@@ -56,9 +56,8 @@ struct {
 } traffic_stats SEC(".maps");
 
 #if STATS == 1
-    u64 *__stats_val_tmp;
     #define bpf_stats_def(NAME) const int __stats_##NAME##_idx = __COUNTER__
-    #define bpf_stats_add(NAME, VAL) __stats_val_tmp = bpf_map_lookup_elem(&traffic_stats, &__stats_##NAME##_idx); if (__stats_val_tmp != NULL) (*__stats_val_tmp += VAL)
+    #define bpf_stats_add(NAME, VAL) u64 *__stats_val_tmp_##__LINE__ = bpf_map_lookup_elem(&traffic_stats, &__stats_##NAME##_idx); if (__stats_val_tmp_##__LINE__ != NULL) (__sync_fetch_and_add(__stats_val_tmp_##__LINE__, VAL))
 #else
     #define bpf_stats_def(...)
     #define bpf_stats_add(...)
