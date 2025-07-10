@@ -576,7 +576,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         bpf_err("ERROR: Failed to init pipeline context");
         return SK_DROP;
     }
-    _init_pipeline_ctx(msg, done_idx, pranges, ctx);
+    _init_pipeline_ctx(msg, ctx, done_idx, pranges);
 
     res = _pipeline(msg, ctx, &ikey);
 
@@ -684,8 +684,6 @@ int crypto_setup() {
     struct bpf_crypto_params params = {
         .type = "shash",
         .algo = "hmac(sha256)",
-        // .type = "skcipher",
-        // .algo = "ecb(aes)",
         .key_len = key_len,
         .authsize = 0,
     };
@@ -694,7 +692,6 @@ int crypto_setup() {
         return err;
     }
 
-    // __builtin_memcpy(&params.algo, cipher, sizeof(cipher));
     __builtin_memcpy(&params.key, key, 16);
     cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
 

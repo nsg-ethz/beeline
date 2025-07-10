@@ -1,11 +1,12 @@
 use crate::{
-    config::{self, JwtFilter, MutateFilter},
+    config::{self, JwtFilter, LoadBalancer, MutateFilter},
     net::TryIntoRawOctets,
     Config,
 };
 use std::{
     fs::{self, File},
     io::Write,
+    net::SocketAddr,
     path::{Path, PathBuf},
 };
 
@@ -297,6 +298,38 @@ impl Compiler {
         (filter, call)
     }
 
+    fn generate_load_balancing(
+        &self,
+        idx: usize,
+        lb: &LoadBalancer,
+        instances: &Vec<SocketAddr>,
+    ) -> (Filter, String) {
+        let ring_len = match lb {
+            LoadBalancer::Ring(lb) => lb.size,
+        };
+
+        let mut filter = self.read_filter("lb");
+        filter.replace_code("idx", idx);
+        filter.replace_defs("idx", idx);
+
+        let hashes_per_instance = ring_len / instances.len();
+        let ring = instances
+            .iter()
+            .map(|addr| {
+                let ip4: u32 = addr.ip().try_into_ne_octets().unwrap();
+                format!("{{.ip4 = {}, .port = {}}},", ip4, addr.port()).repeat(hashes_per_instance)
+            })
+            .collect::<Vec<String>>()
+            .join("");
+
+        filter.replace_code("ring_len", ring.len());
+        filter.replace_defs("ring", ring);
+
+        let call = format!("_load_balance_{}(msg, ctx);", idx);
+
+        (filter, call)
+    }
+
     fn generate_ds_routes(&self) -> Vec<Route> {
         self.config
             .routes
@@ -329,13 +362,10 @@ impl Compiler {
                     "true".to_string()
                 };
 
-                let addr = self.config.select_backend_instance(&route.dest).unwrap();
-                let ip4: u32 = addr.ip().try_into_ne_octets().unwrap();
-
                 let else_if = if idx > 0 { "else " } else { "" };
                 let cond = format!(
                     "{}if ({} && {}) {{
-                    if (route_ds_{}(msg, ikey, ctx) != PR_PASS) {{
+                    if (route_ds_{}(msg, ctx, ikey) != PR_PASS) {{
                             bpf_err(\"ERROR: route_{} failed.\");
                         }}
                     }}",
@@ -354,15 +384,39 @@ impl Compiler {
                     .map(|f| f.unwrap())
                     .collect::<(Vec<Filter>, Vec<String>)>();
 
+                let host = self.config.resolve_host(&route.dest).unwrap();
+                let route_code = match (host.instances.len(), &host.load_balancer) {
+                    (0, _) => unreachable!(),
+                    (1, _) => {
+                        let addr = self.config.select_backend_instance(&route.dest).unwrap();
+                        let ip4: u32 = addr.ip().try_into_ne_octets().unwrap();
+                        format!(
+                            "ctx->dest.ip4 = {};
+                        ctx->dest.port = {};",
+                            ip4,
+                            addr.port()
+                        )
+                    }
+                    (_, Some(lb)) => {
+                        let (filter, call) = self.generate_load_balancing(idx, lb, &host.instances);
+                        filters.push(filter);
+                        call
+                    }
+                    (_, None) => {
+                        panic!(
+                            "{} has multiple instances without a load balancer specified",
+                            host.name
+                        );
+                    }
+                };
+
                 let chain = format!(
                     "
                     {}
-                    ctx->dest.ip4 = {};
-                    ctx->dest.port = {};
+                    {}
                 ",
                     calls.join("\n"),
-                    ip4,
-                    addr.port()
+                    route_code
                 );
 
                 let mut route = self.read_filter("route");

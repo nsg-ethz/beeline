@@ -20,10 +20,12 @@ pub fn config() -> Config {
             Host {
                 name: "server1".into(),
                 instances: vec!["127.0.0.1:8001".parse().unwrap()],
+                ..Default::default()
             },
             Host {
                 name: "server2".into(),
                 instances: vec!["127.0.0.1:8002".parse().unwrap()],
+                ..Default::default()
             },
         ],
         ..Config::default()

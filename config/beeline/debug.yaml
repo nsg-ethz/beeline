@@ -5,8 +5,12 @@ hosts:
       instances:
           - 127.0.0.1:8001
     - name: server2
+      load_balancer:
+          type: ring
+          size: 50
       instances:
           - 127.0.0.1:8002
+          - 127.0.0.1:8003
 
 routes:
     - match:
@@ -24,3 +28,8 @@ routes:
                 x-processed-by: beeline
             # remove:
             #     - backend
+    - match:
+          path: "*"
+          headers:
+              backend: server2
+      dest: server2

@@ -66,18 +66,29 @@ pub struct Pattern {
     pub headers: Option<HashMap<String, String>>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub struct Host {
     pub name: String,
+    #[serde(default)]
+    pub load_balancer: Option<LoadBalancer>,
     pub instances: Vec<SocketAddr>,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum LoadBalancer {
+    #[serde(rename = "ring")]
+    Ring(RingLoadBalancer),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub struct RingLoadBalancer {
+    pub size: usize,
+}
+
 impl Config {
-    pub fn resolve_instance(&self, backend: &str, instance: u16) -> Option<&SocketAddr> {
-        self.hosts
-            .iter()
-            .find(|host| host.name == *backend)
-            .and_then(|host| host.instances.iter().find(|addr| addr.port() == instance))
+    pub fn resolve_host(&self, name: &str) -> Option<&Host> {
+        self.hosts.iter().find(|host| host.name == *name)
     }
 
     pub fn select_backend_instance(&self, backend: &str) -> Option<&SocketAddr> {

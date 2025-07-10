@@ -9,7 +9,7 @@ struct pipeline_ctx {
 
 // ---
 
-static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, u16 done_idx, const struct prange *pranges, struct pipeline_ctx *ctx) {
+static __always_inline void _init_pipeline_ctx(struct sk_msg_md *msg, struct pipeline_ctx *ctx, u16 done_idx, const struct prange *pranges) {
     char *data = (char *)(long)msg->data;
     char buf[64]; // a number cannot be larger than 64 bytes
     unsigned long tmp = 0;
