@@ -9,6 +9,7 @@
 #include <linux/filter.h>
 #include <linux/module.h>
 #include <linux/types.h>
+#include <linux/xxhash.h>
 
 #define DYNPTR_TYPE_SHIFT	28
 #define DYNPTR_SIZE_MASK	0xFFFFFF
@@ -216,12 +217,20 @@ __bpf_kfunc int bpf_base64url_decode(const u8 *src,
 	return bp - dst;
 }
 
+__bpf_kfunc unsigned long bpf_xxhash(const u8 *src,
+								  u32 src__sz,
+								  u64 seed)
+{
+    return xxhash(src, src__sz, seed);
+}
+
 __bpf_kfunc_end_defs();
 
 BTF_KFUNCS_START(crypto_kfunc_btf_ids)
 BTF_ID_FLAGS(func, bpf_crypto_digest, KF_RCU)
 BTF_ID_FLAGS(func, bpf_base64url_encode, KF_RCU)
 BTF_ID_FLAGS(func, bpf_base64url_decode, KF_RCU)
+BTF_ID_FLAGS(func, bpf_xxhash, KF_RCU)
 BTF_KFUNCS_END(crypto_kfunc_btf_ids)
 
 static const struct btf_kfunc_id_set cryto_kfunc_set = {

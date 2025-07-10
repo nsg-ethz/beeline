@@ -322,7 +322,8 @@ impl Compiler {
             .collect::<Vec<String>>()
             .join("");
 
-        filter.replace_code("ring_len", ring.len());
+        let ring_len = hashes_per_instance * instances.len(); // to avoid rounding errors
+        filter.replace_code("ring_len", ring_len);
         filter.replace_defs("ring", ring);
 
         let call = format!("_load_balance_{}(msg, ctx);", idx);

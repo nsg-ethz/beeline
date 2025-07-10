@@ -13,6 +13,7 @@ int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src,
 int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
 int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
 int bpf_base64url_decode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
+unsigned long bpf_xxhash(const u8 *src, u32 src__sz, u64 seed) __ksym;
 
 #ifndef bpf_clamp_uminmax
 #define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
