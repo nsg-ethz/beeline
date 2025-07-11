@@ -474,12 +474,16 @@ impl<'obj> Proxy<'obj> {
 
                 let Some(us_remote_addr) = us_remote_addr else {
                     warn!(
-                        "No address found in wait list for downstream connection: [{:?}->{:?}]",
+                        "No address found in wait list for downstream connection: {:?}",
                         &downstream.peer_addr().unwrap(),
-                        &us_remote_addr
                     );
                     continue;
                 };
+
+                if us_remote_addr.ip4 == 0 && us_remote_addr.port == 0 {
+                    error!("Unknown upstream address {:?}", us_remote_addr);
+                    continue;
+                }
 
                 let us_remote_addr: SocketAddr = us_remote_addr.into();
                 debug!("Connecting to {}", us_remote_addr);

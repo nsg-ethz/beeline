@@ -232,6 +232,7 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
     bpf_profile_start(auth);
 
     if (claims_len == 0 || claims_len > 2048 || sig_len == 0 || sig_len > 2048) {
+        bpf_err("ERROR: Invalid JWT claims or signature length (%d, %d)", claims_len, sig_len);
         return PR_DROP;
     }
 
@@ -268,7 +269,7 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
     u32 i;
     bpf_for(i, 0, sig_len) {
         if (sig[i] != res[i]) {
-            bpf_log("Invalid JWT signature (%c != %c at %d)", sig[i], tmp[i], i);
+            bpf_err("ERROR: Invalid JWT signature (%c != %c at %d)", sig[i], tmp[i], i);
             return PR_DROP;
         }
     }
