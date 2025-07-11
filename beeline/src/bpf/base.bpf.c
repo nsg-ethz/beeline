@@ -249,23 +249,25 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
 
     bpf_log("Verifying JWT claims: %s with signature: %s", claims, sig);
 
-    if (bpf_crypto_digest(cctx, (const u8*)claims, claims_len & 0x7ff, (u8*)claims, 2048) < 0) {
+    if (bpf_crypto_digest(cctx, (const u8*)claims, claims_len & 0x7ff, tmp, 2048) < 0) {
         bpf_err("ERROR: Failed to digest msg");
         return PR_DROP;
     }
 
-    sig_len = bpf_base64url_encode((const u8*)claims, 32, tmp, 512);
+    u32 dig_len = 32;
+    sig_len = bpf_base64url_encode(tmp, dig_len, tmp+dig_len, 2048-dig_len);
     if (sig_len < 0) {
         bpf_err("ERROR: Failed to encode signature: %d", sig_len);
         return PR_DROP;
     }
 
+    char *res = tmp + dig_len;
     if (sig_len > 50) sig_len = 50;
-    tmp[50] = '\0';
+    res[50] = '\0';
 
     u32 i;
     bpf_for(i, 0, sig_len) {
-        if (sig[i] != tmp[i]) {
+        if (sig[i] != res[i]) {
             bpf_log("Invalid JWT signature (%c != %c at %d)", sig[i], tmp[i], i);
             return PR_DROP;
         }

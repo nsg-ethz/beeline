@@ -3,7 +3,7 @@ struct pipeline_ctx {
 
     {vars}
 
-    char tmp[512];
+    char tmp[2048];
     struct addr_key dest;
 };
 
