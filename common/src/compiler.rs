@@ -168,7 +168,9 @@ impl Compiler {
                         }
                     }
                     &Variable::Range(name) => {
-                        format!("ctx->{}_range = pranges[{}];", sanitize_var_name(name), i)
+                        let name = sanitize_var_name(name);
+                        format!("ctx->{}_range = pranges[{}];
+                            bpf_log(\"{} inited to (%d, %d)\", ctx->{}_range.idx, ctx->{}_range.len);", name, i, name, name, name)
                     }
                 }
             })
@@ -251,8 +253,28 @@ impl Compiler {
         if let Some(remove) = mutate.remove {
             for key in remove.iter() {
                 let key = sanitize_var_name(&key);
-                let rmv = format!(
-                    "if (ctx->{key}_range.len > 0) {{
+                let rmv_auth = if key == "authorization" {
+                    format!(
+                        "if (ctx->jwt_claims_range.len > 0) {{
+                            remove_range.idx = ctx->jwt_claims_range.idx-7-{key_len};
+                            remove_range.len = ctx->jwt_claims_range.len+ctx->jwt_sig_range.len+8+{key_len_crlf};
+                                if (_mutate(msg, remove_range, NULL, 0) < 0) {{
+                                    bpf_err(\"ERROR: Failed to remove {key}\");
+                                    return PR_DROP;
+                                }}
+                                ctx->done_idx -= remove_range.len;
+                        }}",
+                        key = key,
+                        key_len = key.len() + 2,
+                        key_len_crlf = key.len() + 3,
+                    )
+                } else {
+                    String::new()
+                };
+
+                let rmv_hdr = format!(
+                    "{rmv_auth}
+                    if (ctx->{key}_range.len > 0) {{
                         remove_range.idx = ctx->{key}_range.idx-{key_len};
                         remove_range.len = ctx->{key}_range.len+{key_len_crlf};
                             if (_mutate(msg, remove_range, NULL, 0) < 0) {{
@@ -261,11 +283,13 @@ impl Compiler {
                             }}
                             ctx->done_idx -= remove_range.len;
                     }}",
+                    rmv_auth = rmv_auth,
                     key = key,
                     key_len = key.len() + 2,
                     key_len_crlf = key.len() + 3,
                 );
-                mutation.push_str(&rmv);
+
+                mutation.push_str(&rmv_hdr);
             }
         }
 
@@ -513,6 +537,7 @@ impl Compiler {
         insert(Variable::buffer("status_code", "u32"));
         insert(Variable::buffer("content-length", "u32"));
 
+        let mut auth = false;
         for route in &self.config.routes {
             if let Some(headers) = &route.pattern.headers {
                 for (key, _) in headers {
@@ -520,7 +545,6 @@ impl Compiler {
                 }
             }
 
-            let mut auth = false;
             for filter in &route.filters {
                 match filter {
                     config::Filter::Jwt(_) => {
@@ -535,11 +559,11 @@ impl Compiler {
                     }
                 }
             }
+        }
 
-            if auth {
-                insert(Variable::buffer("jwt_claims", "char"));
-                insert(Variable::buffer("jwt_sig", "char"));
-            }
+        if auth {
+            insert(Variable::buffer("jwt_claims", "char"));
+            insert(Variable::buffer("jwt_sig", "char"));
         }
 
         ctx

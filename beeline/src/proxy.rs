@@ -203,29 +203,20 @@ impl<'obj> Proxy<'obj> {
 
         let compiler = Compiler::new(config.clone());
         let vars = compiler.get_ctx_vars();
-        let auth = vars.iter().any(|v| v.name() == "jwt_claims");
-        let headers = vars
-            .iter()
-            .filter(|v| {
-                v.is_buffer()
-                    && v.name() != "path"
-                    && v.name() != "status_code"
-                    && v.name() != "jwt_claims"
-                    && v.name() != "jwt_sig"
-            })
-            .collect::<Vec<_>>();
 
         let mut parser = HttpParser::new(
             open_skel.maps.rodata_data.s_init,
             open_skel.maps.rodata_data.s_any,
         );
-        parser.match_http_uri()?;
-        parser.match_http_status_code()?;
-        for hdr in headers.iter() {
-            parser.match_http_hdr(hdr.name())?;
-        }
-        if auth {
-            parser.match_http_hdr_auth()?;
+
+        for hdr in vars.iter() {
+            match hdr.name() {
+                "path" => parser.match_http_uri()?,
+                "status_code" => parser.match_http_status_code()?,
+                "jwt_claims" => parser.match_http_hdr_auth()?,
+                "jwt_sig" => (),
+                name => parser.match_http_hdr(name)?,
+            }
         }
 
         // this is necessary so that the DFA won't
