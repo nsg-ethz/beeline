@@ -293,7 +293,8 @@ impl<'obj> Proxy<'obj> {
             .config
             .hosts
             .iter()
-            .map(|h| addr_key::try_from(h.instances.first().unwrap()))
+            .flat_map(|h| h.instances.clone())
+            .map(|a| addr_key::try_from(&a))
             .collect::<Result<Vec<_>, _>>()
             .unwrap_or_default();
 
