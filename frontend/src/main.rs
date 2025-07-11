@@ -52,6 +52,11 @@ async fn main() {
     let headers = headers
         .unwrap_or(vec![])
         .iter()
+        .flat_map(|h| {
+            h.split_terminator(",")
+                .map(|s| s.trim())
+                .collect::<Vec<&str>>()
+        })
         .map(|h| {
             let hs: Vec<&str> = h.split_terminator(":").map(|s| s.trim()).collect();
             let key = HeaderName::from_str(hs[0]).expect("Invalid header key");
