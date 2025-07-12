@@ -1,3 +1,4 @@
+socket: 172.17.0.1:9999
 hosts:
     - name: service-1
       instances:

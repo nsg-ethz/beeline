@@ -4,6 +4,7 @@ use std::{collections::HashMap, net::SocketAddr};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
+    pub socket: Option<SocketAddr>,
     pub proxy: Option<SocketAddr>,
     #[serde(default)]
     pub stats: bool,

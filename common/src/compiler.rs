@@ -194,24 +194,18 @@ impl Compiler {
             adm_len = {adm_len};
             admitted = false;
 
-            j = 0;
-            bpf_for(i, 0, claims_len) {{
-                if (ctx->tmp[i] == adm[j]) {{
-                    j++;
-                    if (j == adm_len) {{
-                        admitted = true;
-                        break;
-                    }}
-                }}
-                else if (ctx->tmp[i] != ' ') {{
-                    j = 0;
-                }}
-            }}
+            bpf_for(i, 0, claims_len-adm_len) {
+                bpf_clamp_uminmax(i, 0, 2048-{adm_len});
+                if (bpf_strncmp(ctx->tmp + i, adm_len, adm) == 0) {
+                    admitted = true;
+                    break;
+                }
+            }
 
-            if (!admitted) {{
+            if (!admitted) {
                 bpf_log(\"JWT admission failed\");
                 return PR_DROP;
-            }}";
+            }";
 
         let mut admission = String::new();
         if let Some(aud) = jwt.audience {

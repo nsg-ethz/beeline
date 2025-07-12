@@ -292,10 +292,10 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
     u16 len = r.len;
     u16 idx = r.idx;
 
-    if (len > MAX_BYTES) return -1;
-    len &= 0xFF;
+    if (len > 0x7FF) return -1;
+    len &= 0x7FF;
 
-    if (idx > MAX_BYTES) return -1;
+    if (idx > 0xFFF) return -1;
     idx &= 0xFFF;
 
     s16 delta = str_len - len;
