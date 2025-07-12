@@ -25,7 +25,7 @@ services:
                 "-s",
                 "service-",
                 "-n",
-                "${SERVICES}",
+                "${SERVICES:-${REPLICAS}}",
                 "${FRONTEND_ARGS}",
             ]
         cgroup_parent: beeline.slice
@@ -40,7 +40,7 @@ services:
         entrypoint: "echo -a 0.0.0.0:9999"
         cgroup_parent: beeline.slice
         deploy:
-            replicas: ${SERVICES}
+            replicas: ${REPLICAS}
         depends_on:
             - frontend
             - sidecar

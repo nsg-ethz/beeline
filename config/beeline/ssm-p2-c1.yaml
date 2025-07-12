@@ -39,8 +39,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-2"
       dest: service-2
@@ -50,8 +50,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-3"
       dest: service-3
@@ -61,8 +61,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-4"
       dest: service-4
@@ -72,8 +72,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-5"
       dest: service-5
@@ -83,8 +83,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-6"
       dest: service-6
@@ -94,8 +94,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-7"
       dest: service-7
@@ -105,8 +105,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-8"
       dest: service-8
@@ -116,8 +116,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-9"
       dest: service-9
@@ -127,8 +127,8 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "/service-10"
       dest: service-10
@@ -138,5 +138,5 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
+            remove:
+                - authorization

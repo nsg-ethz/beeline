@@ -33,6 +33,7 @@ Install the following packets:
 
 ```
 sudo apt install autoconf autopoint binutils-dev bison clang-15 cmake dwarves flex libc6-dev-i386 libcap-dev libdwarf-dev libdw-dev libelf-dev libssl-dev llvm pkg-config python3-venv lua5.1 liblua5.1-dev unzip
+cargo install jwt-cli
 ```
 
 Note: depending on your kernel version, you'll have to install [dwarves](https://github.com/acmel/dwarves) from source.

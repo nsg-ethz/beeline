@@ -155,54 +155,75 @@ static_resources:
                                     routes:
                                         - match:
                                               prefix: "/service-1"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-1 }
                                         - match:
                                               prefix: "/service-2"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-2 }
                                         - match:
                                               prefix: "/service-3"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-3 }
                                         - match:
                                               prefix: "/service-4"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-4 }
                                         - match:
                                               prefix: "/service-5"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-5 }
                                         - match:
                                               prefix: "/service-6"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-6 }
                                         - match:
                                               prefix: "/service-7"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-7 }
                                         - match:
                                               prefix: "/service-8"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-8 }
                                         - match:
                                               prefix: "/service-9"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-9 }
                                         - match:
                                               prefix: "/service-10"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "asdf"
+                                                    value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                           route: { cluster: service-10 }
                           http_filters:
-                              - name: envoy.filters.http.JwtAuthentication
-                                typed_config:
-                                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
-                                    providers:
-                                        jwt_provider1:
-                                            audiences:
-                                                - echo
-                                            issuer: beeline
-                                            local_jwks:
-                                                inline_string: >-
-                                                    {"keys": [
-                                                      {"kty":"oct",
-                                                      "k": "dGVzdHRlc3QxMjM0NTY3OA==",
-                                                      "alg":"HS256"}]}
-                                    rules:
-                                        - match:
-                                              prefix: "/"
-                                          requires:
-                                              provider_name: jwt_provider1
                               - name: envoy.filters.http.router
                                 typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

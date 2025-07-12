@@ -15,19 +15,19 @@ hosts:
 routes:
     - match:
           path: "*"
-          headers:
-              backend: server1
+          # headers:
+          #     backend: server1
       dest: server1
       filters:
-          # - type: jwt
-          #   secret: "testtest12345678"
-          #   audience: aud1
-          #   issuer: iss1
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
           - type: mutate
-            add:
-                x-processed-by: beeline
-            # remove:
-            #     - backend
+            # add:
+            #     x-processed-by: beeline
+            remove:
+                - authorization
     - match:
           path: "*"
           headers:
