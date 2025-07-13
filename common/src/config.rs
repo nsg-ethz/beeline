@@ -23,15 +23,17 @@ pub struct Policy {
     pub method: Option<String>,
     pub path: Option<String>,
 
-    #[serde(rename = "destination_ip4")]
+    #[serde(rename = "destination_ip")]
     pub dest_ip4: Option<IpAddr>,
     #[serde(rename = "destination_port")]
     pub dest_port: Option<u16>,
 
-    #[serde(rename = "source_ip4")]
+    #[serde(rename = "source_ip")]
     pub src_ip4: Option<IpAddr>,
     #[serde(rename = "source_port")]
     pub src_port: Option<u16>,
+
+    pub headers: Option<HashMap<String, String>>,
 
     pub allow: bool,
 }

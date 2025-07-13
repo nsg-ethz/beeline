@@ -177,17 +177,16 @@ const u16 s_any = 1;
 struct trans {
     u16 state;
     u16 action;
-    u8 input;
 };
 
 // these restrictions are needed to make the verifier happy
 #define MAX_BYTES 0xFFFE
 #define MAX_MATCHES 16
 #define MAX_MATCH_MASK 15
-const u32 max_states = 2048;
-const u32 max_trans = 32;
+#define MAX_STATES 512
+#define MAX_TRANS 128
 
-volatile const struct trans s2ts[max_states][max_trans];
+volatile const struct trans s2ts[MAX_STATES][MAX_TRANS];
 
 volatile const u32 ip4;
 volatile const u32 port;
@@ -432,33 +431,21 @@ static __always_inline enum pr_action post_forward_us_conn(const struct sock_key
 // ----------------------------------------------
 
 static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *action) {
-    state &= 0x7FF;
+    state &= 0x1FF;
     input &= 0x7F;
 
-    u8 i;
-    bpf_for(i, 1, max_trans) {
-        // i &= 0x1F is not working...
-        bpf_clamp_uminmax(i, 0, 0x1F);
-
-        struct trans t = s2ts[state][i];
-        if (t.input == input) {
-            *next_state = t.state;
-            *action = t.action;
+    struct trans t = s2ts[state][input];
+    if (t.state == 0 && t.action == 0) {
+        t = s2ts[state]['*'];
+        if (t.state == 0 && t.action == 0) {
+            *next_state = s_any;
+            *action = 0;
             return;
         }
-        if (t.state == 0) break;
     }
 
-    // check wildcard transition
-    struct trans t = s2ts[state][0];
-    if (t.input == '*') {
-        *next_state = t.state;
-        *action = t.action;
-        return;
-    }
-
-    *next_state = s_any;
-    *action = 0;
+    *next_state = t.state;
+    *action = t.action;
 }
 
 static __always_inline int _parse_from(const struct sk_msg_md *msg, u16 start, struct prange *pranges, u32* cidx, u16* s) {

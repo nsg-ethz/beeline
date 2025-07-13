@@ -80,7 +80,7 @@ impl Variable {
 }
 
 fn sanitize_var_name(var: &str) -> String {
-    var.replace("-", "_")
+    var.replace("-", "_").to_lowercase()
 }
 
 impl Compiler {
@@ -498,6 +498,27 @@ impl Compiler {
                     .map(|port| format!("ikey->local.port == {}", port))
                     .unwrap_or(String::from("true"));
 
+                let hdrs_cond = p
+                    .headers
+                    .as_ref()
+                    .map(|hdrs| {
+                        let cond = hdrs
+                            .iter()
+                            .map(|(key, val)| {
+                                format!(
+                                    "bpf_strncmp(ctx->{}, {}, \"{}\") == 0",
+                                    sanitize_var_name(key),
+                                    val.len(),
+                                    val
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" && ");
+
+                        format!("({})", cond)
+                    })
+                    .unwrap_or(String::from("true"));
+
                 let action = if p.allow {
                     format!(
                         "bpf_log(\"RBAC {} allowed\");
@@ -515,7 +536,7 @@ impl Compiler {
                 };
 
                 format!(
-                    "if (({}) && ({}) && ({}) && ({}) && ({}) && ({})) {{
+                    "if (({}) && ({}) && ({}) && ({}) && ({}) && ({}) && ({})) {{
                        {}
                     }}",
                     method_cond,
@@ -524,6 +545,7 @@ impl Compiler {
                     dest_port_cond,
                     src_ip4_cond,
                     src_port_cond,
+                    hdrs_cond,
                     action
                 )
             })

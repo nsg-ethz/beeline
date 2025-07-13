@@ -192,7 +192,81 @@ static_resources:
                                     rules:
                                         action: ALLOW
                                         policies:
-                                            "service-1-post-policy":
+                                            "allow-get-to-service-1":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/debug/service-1"
+                                                              - destination_port: 8888
+                                                principals:
+                                                    - any: true
+                                            "allow-get-to-service-2":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/debug/service-2"
+                                                              - destination_port: 8888
+                                                principals:
+                                                    - any: true
+                                            "allow-get-to-service-3":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/debug/service-2"
+                                                              - destination_port: 8888
+                                                principals:
+                                                    - any: true
+                                            "allow-admin":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/admin"
+                                                              - destination_port: 7777
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: 172.18.0.1
+                                                          prefix_len: 32
+                                            "allow-dev":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/dev"
+                                                              - destination_port: 7777
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: 172.18.0.1
+                                                          prefix_len: 32
+                                            "allow-post-to-service-1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
@@ -206,7 +280,7 @@ static_resources:
                                                               - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "service-2-post-policy":
+                                            "allow-post-to-service-2":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
@@ -220,7 +294,7 @@ static_resources:
                                                               - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "service-3-post-policy":
+                                            "allow-post-to-service-3":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
