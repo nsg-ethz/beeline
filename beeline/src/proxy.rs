@@ -372,6 +372,8 @@ impl<'obj> Proxy<'obj> {
             "downstream_rq_3xx",
             "downstream_rq_4xx",
             "downstream_rq_5xx",
+            "http_rbac_allowed",
+            "http_rbac_denied",
         ];
 
         let mut stats = String::new();

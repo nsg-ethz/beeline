@@ -502,6 +502,7 @@ impl Compiler {
                     format!(
                         "if (!({}) || !({}) || !({}) || !({}) || !({}) || !({})) {{
                             bpf_log(\"RBAC {} denied\");
+                            bpf_stats_add(http_rbac_denied, 1);
                             return SK_DROP;
                         }}",
                         method_cond,
@@ -516,6 +517,7 @@ impl Compiler {
                     format!(
                         "if (({}) && ({}) && ({}) && ({}) && ({}) && ({})) {{
                             bpf_log(\"RBAC {} denied\");
+                            bpf_stats_add(http_rbac_denied, 1);
                             return SK_DROP;
                         }}",
                         method_cond,

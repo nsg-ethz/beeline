@@ -3,10 +3,10 @@
 static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pipeline_ctx *ctx, const struct sock_key *ikey) {
     bool is_downstream = (ikey->remote.ip4 == ip4 && ikey->remote.port == port);
 
-    if (_check_rbac(ctx, ikey) == PR_DROP) return PR_DROP;
-
     if (is_downstream) {
         bpf_stats_add(downstream_rq_total, 1);
+
+        if (_check_rbac(ctx, ikey) == PR_DROP) return PR_DROP;
 
         {downstream}
     }
