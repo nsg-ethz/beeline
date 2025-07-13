@@ -492,12 +492,6 @@ impl Compiler {
                     .map(|ip4| format!("ikey->local.ip4 == {}", ip4.try_into_ne_octets().unwrap()))
                     .unwrap_or(String::from("true"));
 
-                let src_port_cond = p
-                    .src_port
-                    .as_ref()
-                    .map(|port| format!("ikey->local.port == {}", port))
-                    .unwrap_or(String::from("true"));
-
                 let hdrs_cond = p
                     .headers
                     .as_ref()
@@ -536,7 +530,7 @@ impl Compiler {
                 };
 
                 format!(
-                    "if (({}) && ({}) && ({}) && ({}) && ({}) && ({}) && ({})) {{
+                    "if (({}) && ({}) && ({}) && ({}) && ({}) && ({})) {{
                        {}
                     }}",
                     method_cond,
@@ -544,7 +538,6 @@ impl Compiler {
                     dest_ip4_cond,
                     dest_port_cond,
                     src_ip4_cond,
-                    src_port_cond,
                     hdrs_cond,
                     action
                 )

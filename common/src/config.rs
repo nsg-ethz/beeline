@@ -30,8 +30,6 @@ pub struct Policy {
 
     #[serde(rename = "source_ip")]
     pub src_ip4: Option<IpAddr>,
-    #[serde(rename = "source_port")]
-    pub src_port: Option<u16>,
 
     pub headers: Option<HashMap<String, String>>,
 
