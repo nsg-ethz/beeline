@@ -16,6 +16,16 @@ policies:
       method: POST
       destination_port: 9999
       allow: true
+    - name: only-allow-post-to-service-2
+      path: "/service-2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: only-allow-post-to-service-3
+      path: "/service-3"
+      method: POST
+      destination_port: 9999
+      allow: true
 routes:
     - match:
           path: "/service-1"

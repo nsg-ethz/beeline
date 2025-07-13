@@ -8,7 +8,5 @@ __always_inline enum pr_action _check_rbac(struct pipeline_ctx *ctx, const struc
 
     {policies}
 
-    bpf_stats_add(http_rbac_allowed, 1);
-
-    return PR_PASS;
+    {no_match_action}
 }

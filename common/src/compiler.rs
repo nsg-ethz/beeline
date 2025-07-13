@@ -498,42 +498,49 @@ impl Compiler {
                     .map(|port| format!("ikey->local.port == {}", port))
                     .unwrap_or(String::from("true"));
 
-                if p.allow {
+                let action = if p.allow {
                     format!(
-                        "if (!({}) || !({}) || !({}) || !({}) || !({}) || !({})) {{
-                            bpf_log(\"RBAC {} denied\");
-                            bpf_stats_add(http_rbac_denied, 1);
-                            return SK_DROP;
-                        }}",
-                        method_cond,
-                        path_cond,
-                        dest_ip4_cond,
-                        dest_port_cond,
-                        src_ip4_cond,
-                        src_port_cond,
+                        "bpf_log(\"RBAC {} allowed\");
+                    bpf_stats_add(http_rbac_allowed, 1);
+                    return SK_PASS;",
                         p.name
                     )
                 } else {
                     format!(
-                        "if (({}) && ({}) && ({}) && ({}) && ({}) && ({})) {{
-                            bpf_log(\"RBAC {} denied\");
-                            bpf_stats_add(http_rbac_denied, 1);
-                            return SK_DROP;
-                        }}",
-                        method_cond,
-                        path_cond,
-                        dest_ip4_cond,
-                        dest_port_cond,
-                        src_ip4_cond,
-                        src_port_cond,
+                        "bpf_log(\"RBAC {} denied\");
+                    bpf_stats_add(http_rbac_denied, 1);
+                    return SK_DROP;",
                         p.name
                     )
-                }
+                };
+
+                format!(
+                    "if (({}) && ({}) && ({}) && ({}) && ({}) && ({})) {{
+                       {}
+                    }}",
+                    method_cond,
+                    path_cond,
+                    dest_ip4_cond,
+                    dest_port_cond,
+                    src_ip4_cond,
+                    src_port_cond,
+                    action
+                )
             })
             .collect::<Vec<String>>()
             .join("\n");
 
+        let no_match_action = if policies.is_empty() {
+            String::from("return SK_PASS;")
+        } else {
+            format!(
+                "bpf_stats_add(http_rbac_denied, 1);
+                return SK_DROP;"
+            )
+        };
+
         filter.replace_code("policies", policies);
+        filter.replace_code("no_match_action", no_match_action);
 
         filter
     }
