@@ -43,7 +43,7 @@ public:
         h << "POST " << path_ << " HTTP/1.1" << CRLF << "Host: " << host_ << CRLF
           << "Content-Type: application/x-thrift" << CRLF << "Content-Length: " << len << CRLF
           << "Accept: application/x-thrift" << CRLF << "User-Agent: Thrift/" << PACKAGE_VERSION
-          << " (C++/THttpClient)" << CRLF << "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3N1ZXIiOiJiZWVsaW5lIn0.K37-whsn_HoSEXeaITzeK2YmMGg7ylr3STNn6M7_Wys" << CRLF << CRLF;
+          << " (C++/THttpClient)" << CRLF << "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NTI0MjkwNjIsImlzcyI6ImJlZWxpbmUifQ.bsSu3b_wHNRIv0q8AFHMJczwc0_PADfdcGh-8D2HJ3I" << CRLF << CRLF;
         string header = h.str();
 
         if (header.size() > (std::numeric_limits<uint32_t>::max)())

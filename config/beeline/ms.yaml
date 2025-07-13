@@ -1,3 +1,4 @@
+socket: 172.17.0.1:9999
 hosts:
     - name: unique-id-service
       instances:
@@ -35,3 +36,88 @@ hosts:
     - name: movie-info-service
       instances:
           - 172.18.0.31:9999
+routes:
+    - match:
+          path: "/unique-id-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: unique-id-service
+    - match:
+          path: "/movie-id-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: movie-id-service
+    - match:
+          path: "/text-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: text-service
+    - match:
+          path: "/rating-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: rating-service
+    - match:
+          path: "/user-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: user-service
+    - match:
+          path: "/compose-review-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: compose-review-service
+    - match:
+          path: "/review-storage-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: review-storage-service
+    - match:
+          path: "/user-review-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: user-review-service
+    - match:
+          path: "/movie-review-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: movie-review-service
+    - match:
+          path: "/cast-info-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: cast-info-service
+    - match:
+          path: "/plot-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: plot-service
+    - match:
+          path: "/movie-info-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: movie-info-service

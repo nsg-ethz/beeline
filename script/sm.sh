@@ -51,6 +51,7 @@ case ${ACTION} in
         fi
         docker container prune -f
         docker volume prune -f
+        docker network prune -f
 
         sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
         sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
@@ -74,19 +75,9 @@ case ${ACTION} in
         CWD=${PWD}
         if [ "${PROXY}" = "beeline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
-                cd ${ROOT}/..
-                SM_APP=sn cargo b -r -p beeline
-                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/sn.yaml
-            elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
-                cd ${ROOT}/..
-                SM_APP=ms cargo b -r -p beeline
-                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../config/beeline/ms.yaml
-            elif [[ "${DOCKER_CONFIG}" == *ssm* ]]; then
-                cd ${ROOT}/..
-                CONFIG=${ROOT}/../${BEELINE_CONFIG} cargo b -r -p beeline
-                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1:9999 -c ${ROOT}/../${BEELINE_CONFIG}
-            fi
+            cd ${ROOT}/..
+            CONFIG=${ROOT}/../${BEELINE_CONFIG} cargo b -r -p beeline
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -c ${ROOT}/../${BEELINE_CONFIG}
 
             sleep 5
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"

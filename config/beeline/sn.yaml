@@ -1,3 +1,4 @@
+socket: 172.17.0.1:9999
 hosts:
     - name: social-graph-service
       instances:
@@ -32,3 +33,81 @@ hosts:
     - name: user-mention-service
       instances:
           - 172.18.0.35:9999
+routes:
+    - match:
+          path: "/social-graph-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: social-graph-service
+    - match:
+          path: "/home-timeline-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: home-timeline-service
+    - match:
+          path: "/compose-post-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: compose-post-service
+    - match:
+          path: "/post-storage-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: post-storage-service
+    - match:
+          path: "/user-timeline-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: user-timeline-service
+    - match:
+          path: "/url-shorten-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: url-shorten-service
+    - match:
+          path: "/user-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: user-service
+    - match:
+          path: "/media-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: media-service
+    - match:
+          path: "/text-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: text-service
+    - match:
+          path: "/unique-id-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: unique-id-service
+    - match:
+          path: "/user-mention-service"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: user-mention-service

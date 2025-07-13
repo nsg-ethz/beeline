@@ -14,14 +14,6 @@ fn main() {
     };
     println!("cargo:rerun-if-env-changed=RUST_LOG");
 
-    let sm = std::env::var("SM_APP").unwrap_or("mb".to_string());
-    let sm: u32 = match sm.to_lowercase().as_str() {
-        "sn" => 1,
-        "ms" => 2,
-        _ => 0,
-    };
-    println!("cargo:rerun-if-env-changed=SM_APP");
-
     let manifest_dir =
         env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set in build script");
     let root_dir = PathBuf::from(&manifest_dir).join("..");
@@ -63,8 +55,6 @@ fn main() {
         OsStr::new(format!("BPF_PROFILE={bpf_profile}").as_str()),
         OsStr::new("-D"),
         OsStr::new(format!("STATS={stats}").as_str()),
-        OsStr::new("-D"),
-        OsStr::new(format!("SM_APP={sm}").as_str()),
         OsStr::new("-I"),
         OsStr::new("../include"),
     ]);
