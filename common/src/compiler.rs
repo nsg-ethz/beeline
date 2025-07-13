@@ -1,5 +1,5 @@
 use crate::{
-    config::{self, JwtFilter, LoadBalancer, MutateFilter},
+    config::{self, JwtFilter, LoadBalancer, MutateFilter, Policy},
     net::TryIntoRawOctets,
     Config,
 };
@@ -51,13 +51,13 @@ pub struct Compiler {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Variable {
-    Buffer(String, String),
+    Buffer(String, String, Option<usize>),
     Range(String),
 }
 
 impl Variable {
-    pub fn buffer(name: &str, ty: &str) -> Self {
-        Variable::Buffer(name.to_string(), ty.to_string())
+    pub fn buffer(name: &str, ty: &str, size: Option<usize>) -> Self {
+        Variable::Buffer(name.to_string(), ty.to_string(), size)
     }
 
     pub fn range(name: &str) -> Self {
@@ -66,14 +66,14 @@ impl Variable {
 
     pub fn name(&self) -> &str {
         match self {
-            Variable::Buffer(name, _) => name,
+            Variable::Buffer(name, _, _) => name,
             Variable::Range(name) => name,
         }
     }
 
     pub fn is_buffer(&self) -> bool {
         match self {
-            Variable::Buffer(_, _) => true,
+            Variable::Buffer(_, _, _) => true,
             Variable::Range(_) => false,
         }
     }
@@ -104,12 +104,12 @@ impl Compiler {
         let var_defs = vars
             .iter()
             .map(|var| match &var {
-                &Variable::Buffer(name, ty) => {
+                &Variable::Buffer(name, ty, size) => {
                     if ty == "char" {
                         format!(
                             "struct prange {name}_range;\nchar {name}[{size}];",
                             name = sanitize_var_name(name),
-                            size = 2048
+                            size = size.unwrap()
                         )
                     } else {
                         format!(
@@ -134,16 +134,16 @@ impl Compiler {
             .map(|(i, var)| {
                 // TODO: let the initialization fail if len < size
                 match &var {
-                    &Variable::Buffer(name, ty) => {
+                    &Variable::Buffer(name, ty, _) => {
                         let name = sanitize_var_name(name);
                         let code = if ty == "char" {
                             format!(
-                                "r = pranges[{}];
+                                "r = pranges[{idx}];
                             r.len &= 0x7ff;
-                            bpf_probe_read_kernel(ctx->{}, r.len, data + r.idx);
-                            ctx->{}_range = r;
-                            bpf_log(\"{} inited to %s\", ctx->{});",
-                                i, name, name, name, name
+                            bpf_probe_read_kernel(ctx->{name}, r.len, data + r.idx);
+                            ctx->{name}_range = r;
+                            bpf_log(\"{name} inited to %s\", ctx->{name});",
+                            idx=i, name=name
                             )
                         } else if ty == "u32" {
                             format!(
@@ -449,6 +449,93 @@ impl Compiler {
             .collect::<Vec<Route>>()
     }
 
+    fn generate_rbac(&self, policies: &Vec<Policy>) -> Filter {
+        let mut filter = self.read_filter("rbac");
+        let policies = policies
+            .iter()
+            .map(|p| {
+                let method_cond = p
+                    .method
+                    .as_ref()
+                    .map(|method| {
+                        format!(
+                            "bpf_strncmp(ctx->method, {}, \"{}\") == 0",
+                            method.len(),
+                            method
+                        )
+                    })
+                    .unwrap_or(String::from("true"));
+
+                let path_cond = p
+                    .path
+                    .as_ref()
+                    .map(|path| {
+                        format!("bpf_strncmp(ctx->path, {}, \"{}\") == 0", path.len(), path)
+                    })
+                    .unwrap_or(String::from("true"));
+
+                let dest_ip4_cond = p
+                    .dest_ip4
+                    .as_ref()
+                    .map(|ip4| format!("ikey->remote.ip4 == {}", ip4.try_into_ne_octets().unwrap()))
+                    .unwrap_or(String::from("true"));
+
+                let dest_port_cond = p
+                    .dest_port
+                    .as_ref()
+                    .map(|port| format!("ikey->remote.port == {}", port))
+                    .unwrap_or(String::from("true"));
+
+                let src_ip4_cond = p
+                    .src_ip4
+                    .as_ref()
+                    .map(|ip4| format!("ikey->local.ip4 == {}", ip4.try_into_ne_octets().unwrap()))
+                    .unwrap_or(String::from("true"));
+
+                let src_port_cond = p
+                    .src_port
+                    .as_ref()
+                    .map(|port| format!("ikey->local.port == {}", port))
+                    .unwrap_or(String::from("true"));
+
+                if p.allow {
+                    format!(
+                        "if (!({}) || !({}) || !({}) || !({}) || !({}) || !({})) {{
+                            bpf_log(\"RBAC {} denied\");
+                            return SK_DROP;
+                        }}",
+                        method_cond,
+                        path_cond,
+                        dest_ip4_cond,
+                        dest_port_cond,
+                        src_ip4_cond,
+                        src_port_cond,
+                        p.name
+                    )
+                } else {
+                    format!(
+                        "if (({}) && ({}) && ({}) && ({}) && ({}) && ({})) {{
+                            bpf_log(\"RBAC {} denied\");
+                            return SK_DROP;
+                        }}",
+                        method_cond,
+                        path_cond,
+                        dest_ip4_cond,
+                        dest_port_cond,
+                        src_ip4_cond,
+                        src_port_cond,
+                        p.name
+                    )
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        filter.replace_code("policies", policies);
+
+        filter
+    }
+
     fn generate_chain(&self, downstream: &Vec<Route>, upstream: &Vec<Route>) -> Filter {
         let mut filter = self.read_filter("chain");
         let downstream = downstream
@@ -456,7 +543,6 @@ impl Compiler {
             .map(|r| r.cond.clone())
             .collect::<Vec<String>>()
             .join("\n");
-
         let upstream = upstream
             .iter()
             .map(|r| r.cond.clone())
@@ -472,12 +558,15 @@ impl Compiler {
     fn generate_filters(&self) -> Vec<Filter> {
         let ctx = self.get_ctx_vars();
         let ctx = self.generate_ctx(ctx);
+
+        let rbac = self.generate_rbac(&self.config.policies);
         let ds_routes = self.generate_ds_routes();
         let us_routes = Vec::new();
         let chain = self.generate_chain(&ds_routes, &us_routes);
 
         let mut filters = Vec::new();
         filters.push(ctx);
+        filters.push(rbac);
 
         for route in &ds_routes {
             for filter in &route.filters {
@@ -527,15 +616,16 @@ impl Compiler {
             ctx.push(var.clone());
         };
 
-        insert(Variable::buffer("path", "char"));
-        insert(Variable::buffer("status_code", "u32"));
-        insert(Variable::buffer("content-length", "u32"));
+        insert(Variable::buffer("method", "char", Some(7)));
+        insert(Variable::buffer("path", "char", Some(2048)));
+        insert(Variable::buffer("status_code", "u32", None));
+        insert(Variable::buffer("content-length", "u32", None));
 
         let mut auth = false;
         for route in &self.config.routes {
             if let Some(headers) = &route.pattern.headers {
                 for (key, _) in headers {
-                    insert(Variable::buffer(key, "char"));
+                    insert(Variable::buffer(key, "char", Some(2048)));
                 }
             }
 
@@ -556,8 +646,8 @@ impl Compiler {
         }
 
         if auth {
-            insert(Variable::buffer("jwt_claims", "char"));
-            insert(Variable::buffer("jwt_sig", "char"));
+            insert(Variable::buffer("jwt_claims", "char", Some(2048)));
+            insert(Variable::buffer("jwt_sig", "char", Some(2048)));
         }
 
         ctx

@@ -250,13 +250,13 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
 
     bpf_log("Verifying JWT claims: %s with signature: %s", claims, sig);
 
-    if (bpf_crypto_digest(cctx, (const u8*)claims, claims_len & 0x7ff, tmp, 2048) < 0) {
+    if (bpf_crypto_digest(cctx, (const u8*)claims, claims_len & 0x7ff, (u8 *)tmp, 2048) < 0) {
         bpf_err("ERROR: Failed to digest msg");
         return PR_DROP;
     }
 
     u32 dig_len = 32;
-    sig_len = bpf_base64url_encode(tmp, dig_len, tmp+dig_len, 2048-dig_len);
+    sig_len = bpf_base64url_encode((const u8 *)tmp, dig_len, (char *)(tmp+dig_len), 2048-dig_len);
     if (sig_len < 0) {
         bpf_err("ERROR: Failed to encode signature: %d", sig_len);
         return PR_DROP;
@@ -596,11 +596,11 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
 
     if (res == PR_DROP) {
-        bpf_err("PLUGIN: Drop msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        bpf_log("WARN: Drop msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
         return SK_DROP;
     }
     if (res == PR_UTRN) {
-        bpf_err("PLUGIN: Invalid UTRN");
+        bpf_err("ERROR: Invalid UTRN");
         return SK_DROP;
     }
 

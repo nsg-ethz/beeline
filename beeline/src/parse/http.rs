@@ -31,10 +31,12 @@ impl HttpParser {
         Ok(())
     }
 
-    pub fn match_http_uri(&mut self) -> Result<()> {
+    pub fn match_http_req_status_line(&mut self) -> Result<()> {
         self.dfa
             .start_pattern(self.s_init)
-            .push("POST ")?
+            .start_capturing()
+            .push_optional('*')?
+            .end_capturing(" ")?
             .start_capturing()
             .push_optional('*')?
             .push(" HTTP/1.1")?

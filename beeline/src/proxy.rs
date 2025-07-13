@@ -211,7 +211,8 @@ impl<'obj> Proxy<'obj> {
 
         for hdr in vars.iter() {
             match hdr.name() {
-                "path" => parser.match_http_uri()?,
+                "method" => parser.match_http_req_status_line()?,
+                "path" => (),
                 "status_code" => parser.match_http_status_code()?,
                 "jwt_claims" => parser.match_http_hdr_auth()?,
                 "jwt_sig" => (),

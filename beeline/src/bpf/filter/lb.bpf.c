@@ -6,7 +6,7 @@ volatile const struct addr_key ring_{idx}[] = {
 
 __always_inline enum pr_action _load_balance_{idx}(struct sk_msg_md *msg, struct pipeline_ctx *ctx) {
     u64 arrival_time = bpf_ktime_get_ns();
-    u64 idx = bpf_xxhash(&arrival_time, 8, 0) % {ring_len};
+    u64 idx = bpf_xxhash((const u8 *)&arrival_time, 8, 0) % {ring_len};
     bpf_clamp_uminmax(idx, 0, {ring_len});
     ctx->dest = ring_{idx}[idx];
 

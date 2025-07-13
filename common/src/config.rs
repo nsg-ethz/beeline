@@ -1,6 +1,9 @@
 use rand::{self, seq::SliceRandom};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, net::SocketAddr};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
@@ -9,7 +12,21 @@ pub struct Config {
     #[serde(default)]
     pub stats: bool,
     pub hosts: Vec<Host>,
+    #[serde(default)]
+    pub policies: Vec<Policy>,
     pub routes: Vec<Route>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
+pub struct Policy {
+    pub name: String,
+    pub method: Option<String>,
+    pub path: Option<String>,
+    pub dest_ip4: Option<IpAddr>,
+    pub dest_port: Option<u16>,
+    pub src_ip4: Option<IpAddr>,
+    pub src_port: Option<u16>,
+    pub allow: bool,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]

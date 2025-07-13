@@ -1,0 +1,211 @@
+stats_config:
+    stats_matcher:
+        inclusion_list:
+            patterns:
+                - prefix: "downstream"
+static_resources:
+    clusters:
+        - name: service-1
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-1
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.3
+                                      port_value: 9999
+        - name: service-2
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-2
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.4
+                                      port_value: 9999
+        - name: service-3
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-3
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.5
+                                      port_value: 9999
+        - name: service-4
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-4
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.6
+                                      port_value: 9999
+        - name: service-5
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-5
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.7
+                                      port_value: 9999
+        - name: service-6
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-6
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.8
+                                      port_value: 9999
+        - name: service-7
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-7
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.9
+                                      port_value: 9999
+        - name: service-8
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-8
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.10
+                                      port_value: 9999
+        - name: service-9
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-9
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.11
+                                      port_value: 9999
+        - name: service-10
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+              cluster_name: service-10
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.12
+                                      port_value: 9999
+    listeners:
+        - name: listener0
+          address:
+              socket_address:
+                  address: 0.0.0.0
+                  port_value: 9999
+
+          filter_chains:
+              - filters:
+                    - name: envoy.filters.network.http_connection_manager
+                      typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                          stat_prefix: ingress_http
+                          codec_type: AUTO
+                          route_config:
+                              name: local_route
+                              virtual_hosts:
+                                  - name: service
+                                    domains: ["*"]
+                                    routes:
+                                        - match:
+                                              prefix: "/service-1"
+                                          route: { cluster: service-1 }
+                                        - match:
+                                              prefix: "/service-2"
+                                          route: { cluster: service-2 }
+                                        - match:
+                                              prefix: "/service-3"
+                                          route: { cluster: service-3 }
+                                        - match:
+                                              prefix: "/service-4"
+                                          route: { cluster: service-4 }
+                                        - match:
+                                              prefix: "/service-5"
+                                          route: { cluster: service-5 }
+                                        - match:
+                                              prefix: "/service-6"
+                                          route: { cluster: service-6 }
+                                        - match:
+                                              prefix: "/service-7"
+                                          route: { cluster: service-7 }
+                                        - match:
+                                              prefix: "/service-8"
+                                          route: { cluster: service-8 }
+                                        - match:
+                                              prefix: "/service-9"
+                                          route: { cluster: service-9 }
+                                        - match:
+                                              prefix: "/service-10"
+                                          route: { cluster: service-10 }
+                          http_filters:
+                              - name: envoy.filters.http.rbac
+                                typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBAC
+                                    rules:
+                                        action: ALLOW
+                                        policies:
+                                            "service-1-post-policy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                              - name: envoy.filters.http.router
+                                typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
