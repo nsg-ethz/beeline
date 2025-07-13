@@ -324,6 +324,54 @@ static_resources:
                                                     - source_ip:
                                                           address_prefix: 172.18.0.1
                                                           prefix_len: 32
+                                            "deny-post-to-service-1":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: 172.18.0.4
+                                                          prefix_len: 32
+                                            "deny-post-to-service-2":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: 172.18.0.5
+                                                          prefix_len: 32
+                                            "deny-post-to-service-3":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: 172.18.0.6
+                                                          prefix_len: 32
                                             "allow-post-to-service-1":
                                                 permissions:
                                                     - and_rules:
@@ -336,10 +384,6 @@ static_resources:
                                                                     path:
                                                                         prefix: "/service-1"
                                                               - destination_port: 9999
-                                                              - not_rule:
-                                                                    source_ip:
-                                                                        address_prefix: 172.18.0.3
-                                                                        prefix_len: 32
                                                 principals:
                                                     - any: true
                                             "allow-post-to-service-2":
@@ -354,10 +398,6 @@ static_resources:
                                                                     path:
                                                                         prefix: "/service-2"
                                                               - destination_port: 9999
-                                                              - not_rule:
-                                                                    source_ip:
-                                                                        address_prefix: 172.18.0.4
-                                                                        prefix_len: 32
                                                 principals:
                                                     - any: true
                                             "allow-post-to-service-3":
@@ -372,10 +412,6 @@ static_resources:
                                                                     path:
                                                                         prefix: "/service-3"
                                                               - destination_port: 9999
-                                                              - not_rule:
-                                                                    source_ip:
-                                                                        address_prefix: 172.18.0.5
-                                                                        prefix_len: 32
                                                 principals:
                                                     - any: true
                               - name: envoy.filters.http.router
