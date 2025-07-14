@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Parse arguments
-while getopts "f:t:n" opt; do
+while getopts "f:t:n:" opt; do
     case $opt in
         f ) FROM=${OPTARG} ;;
         t ) TO=${OPTARG} ;;
