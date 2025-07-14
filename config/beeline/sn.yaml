@@ -40,6 +40,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: social-graph-service
     - match:
           path: "/home-timeline-service"
@@ -47,6 +49,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: home-timeline-service
     - match:
           path: "/compose-post-service"
@@ -54,6 +58,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: compose-post-service
     - match:
           path: "/post-storage-service"
@@ -61,6 +67,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: post-storage-service
     - match:
           path: "/user-timeline-service"
@@ -68,6 +76,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: user-timeline-service
     - match:
           path: "/url-shorten-service"
@@ -75,6 +85,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: url-shorten-service
     - match:
           path: "/user-service"
@@ -82,6 +94,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: user-service
     - match:
           path: "/media-service"
@@ -89,6 +103,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: media-service
     - match:
           path: "/text-service"
@@ -96,6 +112,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: text-service
     - match:
           path: "/unique-id-service"
@@ -103,6 +121,8 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: unique-id-service
     - match:
           path: "/user-mention-service"
@@ -110,4 +130,6 @@ routes:
           - type: jwt
             secret: "testtest12345678"
             issuer: beeline
+      add:
+          x-processed-by: beeline
       dest: user-mention-service
