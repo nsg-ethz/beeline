@@ -562,11 +562,15 @@ impl Compiler {
 
     fn generate_chain(&self, downstream: &Vec<Route>, upstream: &Vec<Route>) -> Filter {
         let mut filter = self.read_filter("chain");
-        let downstream = downstream
+        let mut downstream = downstream
             .iter()
             .map(|r| r.cond.clone())
             .collect::<Vec<String>>()
             .join("\n");
+
+        let no_match = format!("else {{ bpf_err(\"No match: %s\", msg->data); }}");
+        downstream.push_str(&no_match);
+
         let upstream = upstream
             .iter()
             .map(|r| r.cond.clone())
