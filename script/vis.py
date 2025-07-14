@@ -1574,14 +1574,14 @@ def scaling_graph(policy, metric, agg, dst):
 
 
 def _load_complexity_df(name, metric, agg):
-    def _load_df(complexity):
+    def _load_df(policy):
         dfs = []
         for i in range(1, 100):
-            paths = _get_file_paths(f"{name}-c{complexity}-{i}", "*k6*summary*.json")
+            paths = _get_file_paths(f"{name}-p{policy}-c{i}", "*k6*summary*.json")
             if len(paths) > 0:
                 df = _load_k6_summaries(paths)
-                df["services"] = i
-                df["complexity"] = complexity
+                df["complexity"] = i
+                df["policy"] = policy
                 dfs.append(df)
 
         if len(dfs) == 0:
@@ -1590,14 +1590,15 @@ def _load_complexity_df(name, metric, agg):
         return pd.concat(dfs)
 
     dfs = []
-    for c in range(1, 20):
-        df = _load_df(c)
+    for p in range(1, 20):
+        df = _load_df(p)
         if df is not None:
             dfs.append(df)
 
     df = pd.concat(dfs)
     df = df[df["metric_name"] == metric]
-    df = df.groupby(["proxy", "services", "complexity"]).agg({agg: "mean"})
+    df = df.groupby(["proxy", "policy", "complexity"]).agg({agg: "mean"})
+    # df.loc[(slice(None), slice(None), slice(None))] -= df.loc[(slice(None), slice(None), 1)]
     df = df.reset_index()
 
     return df
@@ -1607,11 +1608,11 @@ def complexity_graph(name, metric, agg, dst):
     df = _load_complexity_df(name, metric, agg)
 
     print(df)
+    policies = sorted(df["policy"].unique())
 
-    df = df[df["services"] == 3]
-
-    g = sns.barplot(data=df, x="complexity", y=agg, hue="proxy")
-    g.set(xlabel="Policies", ylabel="p95 Latency")
+    g = sns.FacetGrid(df, row="policy", row_order=policies, height=2, aspect=4)
+    g.map_dataframe(sns.barplot, x="complexity", y=agg, hue="proxy")
+    g.set(xlabel="Policies", ylabel="req/s")
 
     if args.legend:
         _rename_legend_labels(g)
