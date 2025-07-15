@@ -6,9 +6,12 @@ static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pi
     if (is_downstream) {
         bpf_stats_add(downstream_rq_total, 1);
 
-        if (_check_rbac(ctx, ikey) == PR_DROP) return PR_DROP;
-
         {downstream}
+
+        if (_check_rbac(ctx, ikey) == PR_DROP) {
+            bpf_log("RBAC: denied");
+            return PR_DROP;
+        }
     }
     else {
         #if STATS == 1

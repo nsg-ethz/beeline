@@ -477,13 +477,13 @@ impl Compiler {
                 let dest_ip4_cond = p
                     .dest_ip4
                     .as_ref()
-                    .map(|ip4| format!("ikey->remote.ip4 == {}", ip4.try_into_ne_octets().unwrap()))
+                    .map(|ip4| format!("ctx->dest.ip4 == {}", ip4.try_into_ne_octets().unwrap()))
                     .unwrap_or(String::from("true"));
 
                 let dest_port_cond = p
                     .dest_port
                     .as_ref()
-                    .map(|port| format!("ikey->remote.port == {}", port))
+                    .map(|port| format!("ctx->dest.port == {}", port))
                     .unwrap_or(String::from("true"));
 
                 let src_ip4_cond = p
@@ -515,7 +515,7 @@ impl Compiler {
 
                 let action = if p.allow {
                     format!(
-                        "bpf_log(\"RBAC {} allowed\");
+                        "bpf_log(\"RBAC: {}\");
                     bpf_stats_add(http_rbac_allowed, 1);
                     return SK_PASS;",
                         p.name
