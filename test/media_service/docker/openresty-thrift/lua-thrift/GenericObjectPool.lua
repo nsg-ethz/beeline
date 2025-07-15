@@ -25,7 +25,7 @@ function GenericObjectPool:connection(thriftClient, ip, port)
         path = "/"
     end
 
-    local client = RpcClientFactory:createClient(thriftClient, ip, port, path)
+    local client = RpcClientFactory:createClient(thriftClient, addr, port, path)
     return client
 end
 

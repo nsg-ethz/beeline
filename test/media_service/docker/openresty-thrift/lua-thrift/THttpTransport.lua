@@ -157,9 +157,6 @@ function THttpTransport:writeHttpHeader(content_len)
             .. "Access-Control-Allow-Origin: *" .. self.CRLF
             .. "Content-Type: application/x-thrift" .. self.CRLF
             .. "Content-Length: " .. content_len .. self.CRLF
-            ..
-            "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NTI0MjkwNjIsImlzcyI6ImJlZWxpbmUifQ.bsSu3b_wHNRIv0q8AFHMJczwc0_PADfdcGh-8D2HJ3I" ..
-            self.CRLF
             .. "Connection: Keep-Alive" .. self.CRLF .. self.CRLF
         self.trans:write(header)
     else
@@ -167,11 +164,7 @@ function THttpTransport:writeHttpHeader(content_len)
             .. "Host: " .. self.trans.host .. self.CRLF
             .. "Content-Type: application/x-thrift" .. self.CRLF
             .. "Content-Length: " .. content_len .. self.CRLF
-            ..
-            "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NTI0MjkwNjIsImlzcyI6ImJlZWxpbmUifQ.bsSu3b_wHNRIv0q8AFHMJczwc0_PADfdcGh-8D2HJ3I" ..
-            self.CRLF
             .. "Accept: application/x-thrift " .. self.CRLF
-
             .. "User-Agent: Thrift/" .. self.VERSION .. " (Lua/THttpClient)"
             .. self.CRLF .. self.CRLF
         self.trans:write(header)

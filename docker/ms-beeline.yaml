@@ -337,7 +337,7 @@ services:
         restart: always
         volumes:
             - ../test/media_service/nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
-            - ../test/media_service/nginx-web-server/conf/nginx-envoy.conf:/usr/local/openresty/nginx/conf/nginx.conf
+            - ../test/media_service/nginx-web-server/conf/nginx-beeline.conf:/usr/local/openresty/nginx/conf/nginx.conf
             - ../test/media_service/nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
             - ../test/media_service/gen-lua:/gen-lua
             - ../test/media_service/docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
