@@ -94,8 +94,8 @@ case ${ACTION} in
             python3 scripts/init_social_graph.py
         elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
             cd ${ROOT}/../test/media_service/scripts
-            python3 write_movie_info.py
             ./register_users.sh
+            ./register_movies.sh
         fi
         cd ${CWD}
 

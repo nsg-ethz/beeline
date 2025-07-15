@@ -92,6 +92,31 @@ policies:
       destination_ip: 172.18.0.13
       destination_port: 9999
       allow: true
+    - name: allow-frontend-user
+      source_ip: 172.18.0.24
+      destination_ip: 172.18.0.10
+      destination_port: 9999
+      allow: true
+    - name: allow-frontend-movie-id
+      source_ip: 172.18.0.24
+      destination_ip: 172.18.0.4
+      destination_port: 9999
+      allow: true
+    - name: allow-frontend-compose-review
+      source_ip: 172.18.0.24
+      destination_ip: 172.18.0.13
+      destination_port: 9999
+      allow: true
+    - name: allow-frontend-unique-id
+      source_ip: 172.18.0.24
+      destination_ip: 172.18.0.3
+      destination_port: 9999
+      allow: true
+    - name: allow-frontend-text
+      source_ip: 172.18.0.24
+      destination_ip: 172.18.0.7
+      destination_port: 9999
+      allow: true
 routes:
     - match:
           path: "/unique-id-service"
