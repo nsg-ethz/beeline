@@ -12,6 +12,269 @@ static_resources:
                       typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                           http_filters:
+                              - name: envoy.filters.http.rbac
+                                  typed_config:
+                                      "@type": type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBAC
+                                      rules:
+                                          action: ALLOW
+                                          policies:
+                                              "allow-unique-id-compose-review":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.13"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.3"
+                                                          prefix_length: 32
+                                              "allow-compose-review-review-storage":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.15"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.13"
+                                                          prefix_length: 32
+                                              "allow-compose-review-user-review":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.18"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.13"
+                                                          prefix_length: 32
+                                              "allow-compose-review-movie-review":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.21"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.13"
+                                                          prefix_length: 32
+                                              "allow-movie-id-compose-review":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.13"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.4"
+                                                          prefix_length: 32
+                                              "allow-movie-id-rating":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.8"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.4"
+                                                          prefix_length: 32
+                                              "allow-movie-review-review-storage":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.15"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.21"
+                                                          prefix_length: 32
+                                              "allow-rating-compose-review":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.13"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.8"
+                                                          prefix_length: 32
+                                              "allow-text-compose-review":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.13"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.7"
+                                                          prefix_length: 32
+                                              "allow-user-review-review-storage":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.15"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.18"
+                                                          prefix_length: 32
+                                              "allow-user-compose-review":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.13"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.10"
+                                                          prefix_length: 32
+                                              "allow-frontend-user":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.10"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.24"
+                                                          prefix_length: 32
+                                              "allow-frontend-movie-id":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.4"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.24"
+                                                          prefix_length: 32
+                                              "allow-frontend-compose-review":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.13"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.24"
+                                                          prefix_length: 32
+                                              "allow-frontend-unique-id":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.3"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.24"
+                                                          prefix_length: 32
+                                              "allow-frontend-text":
+                                                  permissions:
+                                                      - and_rules:
+                                                            rules:
+                                                                - header:
+                                                                      name: ":method"
+                                                                      string_match:
+                                                                          exact: "POST"
+                                                                - destination_ip:
+                                                                   - address_prefix: "172.18.0.7"
+                                                                     prefix_length: 32
+                                                                - destination_port: 9999
+                                                  principals:
+                                                      - source_ip:
+                                                        - address_prefix: "172.18.0.24"
+                                                          prefix_length: 32
+
                               - name: envoy.filters.http.router
                                 typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

@@ -39,81 +39,97 @@ hosts:
 policies:
     - name: allow-unique-id-compose-review
       source_ip: 172.18.0.3
+      method: POST
       destination_ip: 172.18.0.13
       destination_port: 9999
       allow: true
     - name: allow-compose-review-review-storage
       source_ip: 172.18.0.13
+      method: POST
       destination_ip: 172.18.0.15
       destination_port: 9999
       allow: true
     - name: allow-compose-review-user-review
       source_ip: 172.18.0.13
+      method: POST
       destination_ip: 172.18.0.18
       destination_port: 9999
       allow: true
     - name: allow-compose-review-movie-review
       source_ip: 172.18.0.13
+      method: POST
       destination_ip: 172.18.0.21
       destination_port: 9999
       allow: true
     - name: allow-movie-id-compose-review
       source_ip: 172.18.0.4
+      method: POST
       destination_ip: 172.18.0.13
       destination_port: 9999
       allow: true
     - name: allow-movie-id-rating
       source_ip: 172.18.0.4
+      method: POST
       destination_ip: 172.18.0.8
       destination_port: 9999
       allow: true
     - name: allow-movie-review-review-storage
       source_ip: 172.18.0.21
+      method: POST
       destination_ip: 172.18.0.15
       destination_port: 9999
       allow: true
     - name: allow-rating-compose-review
       source_ip: 172.18.0.8
+      method: POST
       destination_ip: 172.18.0.13
       destination_port: 9999
       allow: true
     - name: allow-text-compose-review
       source_ip: 172.18.0.7
+      method: POST
       destination_ip: 172.18.0.13
       destination_port: 9999
       allow: true
     - name: allow-user-review-review-storage
       source_ip: 172.18.0.18
+      method: POST
       destination_ip: 172.18.0.15
       destination_port: 9999
       allow: true
     - name: allow-user-compose-review
       source_ip: 172.18.0.10
+      method: POST
       destination_ip: 172.18.0.13
       destination_port: 9999
       allow: true
     - name: allow-frontend-user
       source_ip: 172.18.0.24
+      method: POST
       destination_ip: 172.18.0.10
       destination_port: 9999
       allow: true
     - name: allow-frontend-movie-id
       source_ip: 172.18.0.24
+      method: POST
       destination_ip: 172.18.0.4
       destination_port: 9999
       allow: true
     - name: allow-frontend-compose-review
       source_ip: 172.18.0.24
+      method: POST
       destination_ip: 172.18.0.13
       destination_port: 9999
       allow: true
     - name: allow-frontend-unique-id
       source_ip: 172.18.0.24
+      method: POST
       destination_ip: 172.18.0.3
       destination_port: 9999
       allow: true
     - name: allow-frontend-text
       source_ip: 172.18.0.24
+      method: POST
       destination_ip: 172.18.0.7
       destination_port: 9999
       allow: true
