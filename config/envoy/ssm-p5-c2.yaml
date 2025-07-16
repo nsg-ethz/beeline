@@ -8,7 +8,7 @@ static_resources:
         - name: service-1
           connect_timeout: 3s
           type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
+          lb_policy: RING_HASH
           load_assignment:
               cluster_name: service-1
               endpoints:
@@ -18,10 +18,20 @@ static_resources:
                                   socket_address:
                                       address: 172.18.0.3
                                       port_value: 9999
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.6
+                                      port_value: 9999
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.9
+                                      port_value: 9999
         - name: service-2
           connect_timeout: 3s
           type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
+          lb_policy: RING_HASH
           load_assignment:
               cluster_name: service-2
               endpoints:
@@ -31,10 +41,20 @@ static_resources:
                                   socket_address:
                                       address: 172.18.0.4
                                       port_value: 9999
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.7
+                                      port_value: 9999
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.10
+                                      port_value: 9999
         - name: service-3
           connect_timeout: 3s
           type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
+          lb_policy: RING_HASH
           load_assignment:
               cluster_name: service-3
               endpoints:
@@ -44,96 +64,15 @@ static_resources:
                                   socket_address:
                                       address: 172.18.0.5
                                       port_value: 9999
-        - name: service-4
-          connect_timeout: 3s
-          type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-              cluster_name: service-4
-              endpoints:
-                  - lb_endpoints:
-                        - endpoint:
-                              address:
-                                  socket_address:
-                                      address: 172.18.0.6
-                                      port_value: 9999
-        - name: service-5
-          connect_timeout: 3s
-          type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-              cluster_name: service-5
-              endpoints:
-                  - lb_endpoints:
-                        - endpoint:
-                              address:
-                                  socket_address:
-                                      address: 172.18.0.7
-                                      port_value: 9999
-        - name: service-6
-          connect_timeout: 3s
-          type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-              cluster_name: service-6
-              endpoints:
-                  - lb_endpoints:
                         - endpoint:
                               address:
                                   socket_address:
                                       address: 172.18.0.8
                                       port_value: 9999
-        - name: service-7
-          connect_timeout: 3s
-          type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-              cluster_name: service-7
-              endpoints:
-                  - lb_endpoints:
-                        - endpoint:
-                              address:
-                                  socket_address:
-                                      address: 172.18.0.9
-                                      port_value: 9999
-        - name: service-8
-          connect_timeout: 3s
-          type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-              cluster_name: service-8
-              endpoints:
-                  - lb_endpoints:
-                        - endpoint:
-                              address:
-                                  socket_address:
-                                      address: 172.18.0.10
-                                      port_value: 9999
-        - name: service-9
-          connect_timeout: 3s
-          type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-              cluster_name: service-9
-              endpoints:
-                  - lb_endpoints:
                         - endpoint:
                               address:
                                   socket_address:
                                       address: 172.18.0.11
-                                      port_value: 9999
-        - name: service-10
-          connect_timeout: 3s
-          type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-              cluster_name: service-10
-              endpoints:
-                  - lb_endpoints:
-                        - endpoint:
-                              address:
-                                  socket_address:
-                                      address: 172.18.0.12
                                       port_value: 9999
     listeners:
         - name: listener0
@@ -157,34 +96,31 @@ static_resources:
                                     routes:
                                         - match:
                                               prefix: "/service-1"
+                                              headers:
+                                                  - name: "asdf"
+                                                    string_match:
+                                                        exact: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                          request_headers_to_remove:
+                                              ["authorization"]
                                           route: { cluster: service-1 }
                                         - match:
                                               prefix: "/service-2"
+                                              headers:
+                                                  - name: "asdf"
+                                                    string_match:
+                                                        exact: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                          request_headers_to_remove:
+                                              ["authorization"]
                                           route: { cluster: service-2 }
                                         - match:
                                               prefix: "/service-3"
+                                              headers:
+                                                  - name: "asdf"
+                                                    string_match:
+                                                        exact: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                          request_headers_to_remove:
+                                              ["authorization"]
                                           route: { cluster: service-3 }
-                                        - match:
-                                              prefix: "/service-4"
-                                          route: { cluster: service-4 }
-                                        - match:
-                                              prefix: "/service-5"
-                                          route: { cluster: service-5 }
-                                        - match:
-                                              prefix: "/service-6"
-                                          route: { cluster: service-6 }
-                                        - match:
-                                              prefix: "/service-7"
-                                          route: { cluster: service-7 }
-                                        - match:
-                                              prefix: "/service-8"
-                                          route: { cluster: service-8 }
-                                        - match:
-                                              prefix: "/service-9"
-                                          route: { cluster: service-9 }
-                                        - match:
-                                              prefix: "/service-10"
-                                          route: { cluster: service-10 }
                           http_filters:
                               - name: envoy.filters.http.rbac
                                 typed_config:
@@ -308,6 +244,25 @@ static_resources:
                                                               - destination_port: 9999
                                                 principals:
                                                     - any: true
+                              - name: envoy.filters.http.JwtAuthentication
+                                typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                                    providers:
+                                        jwt_provider1:
+                                            audiences:
+                                                - echo
+                                            issuer: beeline
+                                            local_jwks:
+                                                inline_string: >-
+                                                    {"keys": [
+                                                      {"kty":"oct",
+                                                      "k": "dGVzdHRlc3QxMjM0NTY3OA==",
+                                                      "alg":"HS256"}]}
+                                    rules:
+                                        - match:
+                                              prefix: "/"
+                                          requires:
+                                              provider_name: jwt_provider1
                               - name: envoy.filters.http.router
                                 typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

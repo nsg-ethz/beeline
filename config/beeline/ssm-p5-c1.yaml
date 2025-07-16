@@ -2,14 +2,29 @@ socket: 172.17.0.1:9999
 stats: true
 hosts:
     - name: service-1
+      load_balancer:
+          type: ring
+          size: 50
       instances:
           - 172.18.0.3:9999
+          - 172.18.0.6:9999
+          - 172.18.0.9:9999
     - name: service-2
+      load_balancer:
+          type: ring
+          size: 50
       instances:
           - 172.18.0.4:9999
+          - 172.18.0.7:9999
+          - 172.18.0.10:9999
     - name: service-3
+      load_balancer:
+          type: ring
+          size: 50
       instances:
           - 172.18.0.5:9999
+          - 172.18.0.8:9999
+          - 172.18.0.11:9999
 policies:
     - name: allow-post-to-service-1
       path: "/service-1"
@@ -29,10 +44,131 @@ policies:
 routes:
     - match:
           path: "/service-1"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
       dest: service-1
     - match:
           path: "/service-2"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
       dest: service-2
     - match:
           path: "/service-3"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
       dest: service-3
+    - match:
+          path: "/service-4"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
+      dest: service-4
+    - match:
+          path: "/service-5"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
+      dest: service-5
+    - match:
+          path: "/service-6"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
+      dest: service-6
+    - match:
+          path: "/service-7"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
+      dest: service-7
+    - match:
+          path: "/service-8"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
+      dest: service-8
+    - match:
+          path: "/service-9"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
+      dest: service-9
+    - match:
+          path: "/service-10"
+          headers:
+              asdf: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            audience: echo
+            issuer: beeline
+          - type: mutate
+            remove:
+                - authorization
+      dest: service-10
