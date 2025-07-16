@@ -105,7 +105,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
         echo Running policy 2 complexity 1
 
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "echo"}')
-        PAYLOAD=$(printf 'a%.0s' {1..1000})
+        PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
         script/bench.sh sm -e "BEELINE_CONFIG=config/beeline/ssm-p2-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO}
         script/bench.sh sm -e "ENVOY_CONFIG=config/envoy/ssm-p2-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}
@@ -139,7 +139,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
         echo Running policy 4 complexity 1
 
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "echo"}')
-        PAYLOAD=$(printf 'a%.0s' {1..1000})
+        PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
         script/bench.sh sm -e "BEELINE_CONFIG=config/beeline/ssm-p4-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO}
         script/bench.sh sm -e "ENVOY_CONFIG=config/envoy/ssm-p4-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}
@@ -173,7 +173,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "5" ]]; then
         echo Running policy 5 complexity 1
 
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "echo"}')
-        PAYLOAD=$(printf 'a%.0s' {1..1000})
+        PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
         script/bench.sh sm -e "BEELINE_CONFIG=config/beeline/ssm-p5-c1.yaml REPLICAS=9 SERVICES=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p5-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO}
         script/bench.sh sm -e "ENVOY_CONFIG=config/envoy/ssm-p5-c1.yaml REPLICAS=9 SERVICES=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p5-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}
