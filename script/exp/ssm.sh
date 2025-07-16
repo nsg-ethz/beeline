@@ -26,7 +26,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
         PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
         script/bench.sh sm -e "BEELINE_CONFIG=config/beeline/ssm-p1-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "ENVOY_CONFIG=config/envoy/ssm-p1-c1.yaml REPLICAS=3 FRONTEND_ARGS='-H asdf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}
+        script/bench.sh sm -e "ENVOY_CONFIG=config/envoy/ssm-p1-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
