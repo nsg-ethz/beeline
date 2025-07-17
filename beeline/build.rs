@@ -4,6 +4,11 @@ use std::{env, ffi::OsStr, fs, path::PathBuf};
 
 fn main() {
     let bpf_profile = std::env::var("BPF_PROFILE").unwrap_or("0".to_string());
+    let bpf_profile: u32 = match bpf_profile.to_lowercase().as_str() {
+        "true" => 1,
+        "1" => 1,
+        _ => 0,
+    };
     println!("cargo:rerun-if-env-changed=BPF_PROFILE");
 
     let log_level = std::env::var("RUST_LOG").unwrap_or("error".to_string());

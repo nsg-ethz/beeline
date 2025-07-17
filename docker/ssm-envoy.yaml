@@ -46,7 +46,8 @@ services:
             - sidecar
 
     sidecar:
-        image: envoyproxy/envoy:v1.34-latest
+        # image: envoyproxy/envoy:v1.34-latest
+        image: envoyproxy/envoy:debug-v1.34-latest
         hostname: sidecar
         cgroup_parent: beeline.slice
         volumes:

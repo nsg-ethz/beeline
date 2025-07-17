@@ -9,13 +9,16 @@ COLOR_OFF='\033[0m' # No Color
 ACTION=$1
 shift 1
 
+MONITOR=false
+
 # Parse arguments
-while getopts "c:n:p:e:" opt; do
+while getopts "c:n:p:e:m" opt; do
     case $opt in
         c ) DOCKER_CONFIG=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         e ) EPOCH=${OPTARG} ;;
+        m ) MONITOR=true ;;
         \?)
             echo "Invalid option: -$OPTARG"
             ;;
@@ -76,7 +79,7 @@ case ${ACTION} in
         if [ "${PROXY}" = "beeline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
             cd ${ROOT}/..
-            CONFIG=${ROOT}/../${BEELINE_CONFIG} cargo b -r -p beeline
+            CONFIG=${ROOT}/../${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
             sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -c ${ROOT}/../${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
@@ -97,6 +100,24 @@ case ${ACTION} in
             ./register_movies.sh
         fi
         cd ${CWD}
+
+        if [ "${MONITOR}" = true ]; then
+            if [ "${PROXY}" = "beeline" ]; then
+                sudo -b -E systemd-run -q --scope -u mb-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+            elif [ "${PROXY}" = "baseline" || "${PROXY}" = "envoy" ]; then
+                ENVOY_BIN=$(docker inspect synthetic-service-mesh-sidecar-1 | grep -m1 Pid | awk '{ print substr($2, 1, length($2)-1) }')
+
+                echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
+                sudo -b funclatency-bpfcc -p $(pidof envoy) ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.parse-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p $(pidof envoy) -r ${ENVOY_BIN}:"^.*on(Read|Write)Ready.*$" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.user-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p $(pidof envoy) "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.ipc-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p $(pidof envoy) "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.epoll-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p $(pidof envoy) "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.write-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p $(pidof envoy) "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.read-e${EPOCH}.log 2>/dev/null
+
+                sleep 5
+            fi
+        fi
 
         sudo -b systemd-run -q --scope -u sm-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
