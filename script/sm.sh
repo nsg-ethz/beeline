@@ -1,15 +1,13 @@
 #!/bin/bash
 
-ROOT=$(dirname "$(readlink -f "$0")")
 COLOR_RED='\033[0;31m'
 COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
+MONITOR=false
 ACTION=$1
 shift 1
-
-MONITOR=false
 
 # Parse arguments
 while getopts "c:n:p:e:m" opt; do
@@ -29,6 +27,10 @@ if [ -z "${DOCKER_CONFIG}" ]; then
     echo "Need to supply docker compose file"
     exit 1
 fi
+
+ROOT=$(dirname "$(readlink -f "$0")")
+SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
+mkdir -p ${SUMMARY_DIR}
 
 source ${ROOT}/../venv/bin/activate
 

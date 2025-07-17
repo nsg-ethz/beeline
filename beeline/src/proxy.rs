@@ -298,7 +298,7 @@ impl<'obj> Proxy<'obj> {
                     _ = sigterm.recv() => {},
                 }
 
-                if profile == "1" {
+                if profile == "1" || profile == "true" {
                     info!("Profile stats printed to the eBPF tracelog");
                     this.clone().print_profile_stats().await;
                 }
