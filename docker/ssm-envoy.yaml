@@ -45,13 +45,15 @@ services:
             - frontend
             - sidecar
 
+    # this container is setup only to simplify network
+    # an envoy proxy will be loaded into the network namespace of this container
     sidecar:
-        # image: envoyproxy/envoy:v1.34-latest
-        image: envoyproxy/envoy:debug-v1.34-latest
-        hostname: sidecar
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.echo
+        entrypoint: "echo -a 0.0.0.0:8888"
         cgroup_parent: beeline.slice
-        volumes:
-            - ../${ENVOY_CONFIG:-config/envoy/ssm.yaml}:/etc/envoy/envoy.yaml
+        hostname: sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.13

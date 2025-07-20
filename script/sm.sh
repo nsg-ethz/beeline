@@ -5,9 +5,13 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
-MONITOR=false
+MONITOR=0
 ACTION=$1
 shift 1
+
+function stop_probes {
+    sudo killall -SIGINT funclatency-bpfcc >/dev/null 2>&1
+}
 
 # Parse arguments
 while getopts "c:n:p:e:m" opt; do
@@ -16,7 +20,7 @@ while getopts "c:n:p:e:m" opt; do
         n ) NAME=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         e ) EPOCH=${OPTARG} ;;
-        m ) MONITOR=true ;;
+        m ) MONITOR=1 ;;
         \?)
             echo "Invalid option: -$OPTARG"
             ;;
@@ -30,6 +34,7 @@ fi
 
 ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
+ENVOY_BIN="${HOME}/envoy/bazel-out/k8-opt/bin/source/exe/envoy-static"
 mkdir -p ${SUMMARY_DIR}
 
 source ${ROOT}/../venv/bin/activate
@@ -58,7 +63,10 @@ case ${ACTION} in
         docker volume prune -f
         docker network prune -f
 
+        stop_probes
         sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
+        sudo systemctl stop sm-bpf-monitor.scope > /dev/null 2>&1
         sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 
         echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
@@ -82,11 +90,16 @@ case ${ACTION} in
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
             cd ${ROOT}/..
             CONFIG=${ROOT}/../${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -c ${ROOT}/../${BEELINE_CONFIG}
+            BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c ${ROOT}/../${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+        elif [ "${PROXY}" = "envoy" ]; then
+            SIDECAR_NS=$(docker inspect synthetic-service-mesh-sidecar-1 -f '{{.NetworkSettings.SandboxKey}}')
+
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${ROOT}/../${ENVOY_CONFIG} > /dev/null 2>&1
+            echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
+            sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
             echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
         fi
 
@@ -103,19 +116,19 @@ case ${ACTION} in
         fi
         cd ${CWD}
 
-        if [ "${MONITOR}" = true ]; then
-            if [ "${PROXY}" = "beeline" ]; then
-                sudo -b -E systemd-run -q --scope -u mb-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
-            elif [ "${PROXY}" = "baseline" || "${PROXY}" = "envoy" ]; then
-                ENVOY_BIN=$(docker inspect synthetic-service-mesh-sidecar-1 | grep -m1 Pid | awk '{ print substr($2, 1, length($2)-1) }')
+        if [[ "${MONITOR}" = 1 ]]; then
+            if [[ "${PROXY}" = "beeline" ]]; then
+                sudo -b -E systemd-run -q --scope -u sm-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+            elif [[ "${PROXY}" = "baseline" || "${PROXY}" = "envoy" ]]; then
+                ENVOY_PID=$(pidof envoy-static)
 
                 echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
-                sudo -b funclatency-bpfcc -p $(pidof envoy) ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.parse-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p $(pidof envoy) -r ${ENVOY_BIN}:"^.*on(Read|Write)Ready.*$" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.user-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p $(pidof envoy) "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.ipc-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p $(pidof envoy) "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.epoll-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p $(pidof envoy) "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.write-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p $(pidof envoy) "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.read-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.parse-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} -r ${ENVOY_BIN}:"^.*on(Read|Write)Ready.*$" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.user-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.ipc-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.epoll-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.write-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "vfs_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.read-e${EPOCH}.log 2>/dev/null
 
                 sleep 5
             fi
@@ -127,8 +140,23 @@ case ${ACTION} in
     down)
         CPU_SYSTEM=0-39
 
+        stop_probes
         sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
+        sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
+        sudo systemctl stop sm-bpf-monitor.scope > /dev/null 2>&1
         sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
+
+        if [[ "${MONITOR}" = 1 ]]; then
+            if [[ "${PROXY}" = "beeline" ]]; then
+                grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.user-e${EPOCH}.log
+                grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.parse-e${EPOCH}.log
+                rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+            elif [ "${PROXY}" = "naive" ] || [ "${PROXY}" = "naive_fp" ]; then
+                grep "other total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.user-e${EPOCH}.log
+                grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.parse-e${EPOCH}.log
+                rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+            fi
+        fi
 
         docker compose -f ${DOCKER_CONFIG} down
 
