@@ -91,9 +91,11 @@ case ${ACTION} in
             # envoy is not loaded by docker
             # this is because uprobes do not work well in docker
             SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
-            SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
-            echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+            if [[ -n "${SIDECAR_NAME}" ]]; then
+                SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
+                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
+                echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+            fi
         fi
 
         CWD=${PWD}
@@ -105,7 +107,7 @@ case ${ACTION} in
 
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
-        elif [ "${PROXY}" = "l4fp" ]; then
+        elif [ "${PROXY}" = "*l4fp" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
             cargo b -r -p l4fp
 

@@ -1,0 +1,41 @@
+name: synthetic-service-mesh
+
+networks:
+    default:
+        ipam:
+            config:
+                - subnet: 172.18.0.0/24
+
+services:
+    frontend:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.frontend
+        ports:
+            - 8080:8080
+        entrypoint:
+            [
+                "frontend",
+                "-a",
+                "0.0.0.0:8080",
+                "-s",
+                "synthetic-service-mesh-service-",
+                "-n",
+                "${SERVICES:-${REPLICAS}}",
+                "${FRONTEND_ARGS}",
+            ]
+        cgroup_parent: beeline.slice
+        networks:
+            default:
+                ipv4_address: 172.18.0.2
+
+    service:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.echo
+        entrypoint: "echo -a 0.0.0.0:80"
+        cgroup_parent: beeline.slice
+        deploy:
+            replicas: ${REPLICAS}
+        depends_on:
+            - frontend
