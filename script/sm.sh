@@ -101,14 +101,14 @@ case ${ACTION} in
         CWD=${PWD}
         cd ${ROOT}/..
         if [ "${PROXY}" = "beeline" ]; then
-            BEELINE_BIN=${ROOT}/../target/release/${PROXY}
+            BEELINE_BIN=${ROOT}/../target/release/beeline
             BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
             CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
 
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "*l4fp" ]; then
-            PROXY_BIN=${ROOT}/../target/release/${PROXY}
+            PROXY_BIN=${ROOT}/../target/release/l4fp
             cargo b -r -p l4fp
 
             sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
