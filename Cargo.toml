@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
 
-members = ["baseline", "beeline", "common", "echo", "naive", "frontend"]
+members = ["l4fp", "beeline", "common", "echo", "naive", "frontend"]

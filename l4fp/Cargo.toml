@@ -1,15 +1,15 @@
 [package]
-name = "baseline"
+name = "l4fp"
 version = "0.1.0"
 edition = "2021"
 description = "An IPC accelerator à la Cilium"
 
 [lib]
-name = "baseline"
+name = "l4fp"
 path = "src/proxy.rs"
 
 [[bin]]
-name = "baseline"
+name = "l4fp"
 path = "src/main.rs"
 
 [dependencies]

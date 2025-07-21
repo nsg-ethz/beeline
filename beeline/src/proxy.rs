@@ -178,7 +178,7 @@ impl<'obj> Proxy<'obj> {
         if let Some(network) = &config.network {
             let addr_raw = network.addr.try_into_ne_octets()?;
             open_skel.maps.rodata_data.ip4_start = addr_raw;
-            open_skel.maps.rodata_data.ip4_end = addr_raw + network.len;
+            open_skel.maps.rodata_data.ip4_end = addr_raw + network.len();
 
             let gw_raw = get_gw_ip(network.addr).try_into_ne_octets()?;
             open_skel.maps.rodata_data.gw = gw_raw;

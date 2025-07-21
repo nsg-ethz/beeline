@@ -31,6 +31,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p0-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p0-c1 -p l4fp -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -40,6 +41,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p0-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p0-c2 -p l4fp -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -49,6 +51,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
         FRONTEND_ARGS=$(echo \'-Hasdf:${PAYLOAD},qwer:${PAYLOAD},zxcv:${PAYLOAD}\')
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p0-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p0-c3 -p l4fp -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 fi
 

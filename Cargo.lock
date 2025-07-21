@@ -181,23 +181,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "baseline"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "as-bytes",
- "clap",
- "common",
- "env_logger",
- "libbpf-cargo",
- "libbpf-rs 0.24.8 (git+https://github.com/libbpf/libbpf-rs.git?branch=master)",
- "libbpf-sys",
- "libc",
- "log",
- "tokio",
-]
-
-[[package]]
 name = "beeline"
 version = "0.1.0"
 dependencies = [
@@ -997,6 +980,23 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "l4fp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "as-bytes",
+ "clap",
+ "common",
+ "env_logger",
+ "libbpf-cargo",
+ "libbpf-rs 0.24.8 (git+https://github.com/libbpf/libbpf-rs.git?branch=master)",
+ "libbpf-sys",
+ "libc",
+ "log",
+ "tokio",
 ]
 
 [[package]]

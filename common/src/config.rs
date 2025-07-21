@@ -23,7 +23,19 @@ pub struct Config {
 #[derive(Debug, PartialEq, Serialize, Clone)]
 pub struct Cidr {
     pub addr: Ipv4Addr,
-    pub len: u32,
+    pub mask: u32,
+}
+
+impl Cidr {
+    pub fn len(&self) -> u32 {
+        2u32.pow(32 - self.mask)
+    }
+}
+
+impl Display for Cidr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.addr, self.mask)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -51,14 +63,11 @@ impl FromStr for Cidr {
             IpAddr::V4(addr) => addr,
             IpAddr::V6(_) => return Err(CidrParseRangeError),
         };
-        let len = match parts[1].parse::<u32>() {
-            Ok(len) => len,
+        let mask = match parts[1].parse::<u32>() {
+            Ok(mask) => mask,
             Err(_) => return Err(CidrParseRangeError),
         };
-        Ok(Cidr {
-            addr,
-            len: 2u32.pow(32 - len),
-        })
+        Ok(Cidr { addr, mask })
     }
 }
 

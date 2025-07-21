@@ -677,9 +677,6 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
         bool is_proxy = local_is_proxy || remote_is_proxy;
         bool in_network = local_in_network && remote_in_network;
 
-        // bpf_log("%lu %lu %lu %lu %lu", bpf_ntohl(ip4), bpf_ntohl(ip4_start), bpf_ntohl(ip4_end), bpf_ntohl(skey.local.ip4), bpf_ntohl(skey.remote.ip4));
-        // bpf_log("%d %d %d %d %d %d", local_in_network, local_is_proxy, remote_in_network, remote_is_proxy, is_proxy, in_network);
-
         if (is_proxy || in_network) {
             if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);

@@ -5,17 +5,6 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-#ifndef bpf_clamp_uminmax
-#define bpf_clamp_uminmax(VAR, UMIN, UMAX)                                                         \
-    asm volatile("if %0 >= %[min] goto +2\n"                                                       \
-                 "%0 = %[min]\n"                                                                   \
-                 "goto +2\n"                                                                       \
-                 "if %0 <= %[max] goto +1\n"                                                       \
-                 "%0 = %[max]\n"                                                                   \
-                 : "+r"(VAR)                                                                       \
-                 : [min] "i"(UMIN), [max] "i"(UMAX))
-#endif
-
 #ifdef LOG_LEVEL
     #if LOG_LEVEL == 0
         #define bpf_log(...) (0)
@@ -49,14 +38,9 @@ struct {
     __type(value, int);
 } sock_map SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 32768);
-    __type(key, struct sock_key);
-    __type(value, int);
-} contains_sock SEC(".maps");
-
-volatile const u32 ip4;
+volatile const u32 ip4_start;
+volatile const u32 ip4_end;
+volatile const u32 gw;
 
 static __always_inline struct sock_key _invert_sock_key(const struct sock_key *key) {
     struct sock_key inv = {
@@ -68,7 +52,7 @@ static __always_inline struct sock_key _invert_sock_key(const struct sock_key *k
 
 SEC("sk_msg")
 int msg_verdict(struct sk_msg_md *msg) {
-    // socket identifeir of the ingress connection
+    // socket identifier of the ingress connection
     struct sock_key ikey = {
         .local = {
             .ip4 = msg->local_ip4,
@@ -82,21 +66,14 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u]", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
 
+    if (ikey.remote.ip4 == gw) return SK_PASS;
     struct sock_key ekey = _invert_sock_key(&ikey);
-    int *flag = bpf_map_lookup_elem(&contains_sock, &ekey);
-    if (flag != NULL) {
-        // if (*flag > 1) {
-            if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-                // It's possible that this fails because we haven't added the egress socket to the sockmap yet
-                // In this case we will have to traverse the network stack
-                bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            }
-            else {
-                bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            }
-        // }
 
-        // *flag += 1;
+    if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+        bpf_err("ERROR: Failed to accelerate msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+    }
+    else {
+        bpf_log("Transport acceleration for [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
     }
 
     return SK_PASS;
@@ -121,14 +98,15 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 
         bpf_log("Established socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
 
-        if (skey.remote.ip4 == ip4 || skey.local.ip4 == ip4) {
+        bool local_in_network = bpf_ntohl(skey.local.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(skey.local.ip4) <= bpf_ntohl(ip4_end);
+        bool remote_in_network = bpf_ntohl(skey.remote.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(skey.remote.ip4) <= bpf_ntohl(ip4_end);
+        bool in_network = local_in_network && remote_in_network;
+
+        if (in_network) {
             if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
-
-            int flag = 1;
-            bpf_map_update_elem(&contains_sock, &skey, &flag, BPF_ANY);
 
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
         }

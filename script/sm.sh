@@ -97,17 +97,20 @@ case ${ACTION} in
         fi
 
         CWD=${PWD}
+        cd ${ROOT}/..
         if [ "${PROXY}" = "beeline" ]; then
             BEELINE_BIN=${ROOT}/../target/release/${PROXY}
             BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
-            cd ${ROOT}/..
             CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
+
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
-        elif [ "${PROXY}" = "baseline" ]; then
+        elif [ "${PROXY}" = "l4fp" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
-            sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1
-            echo -e "${COLOR_GREEN}Launched baseline${COLOR_OFF}"
+            cargo b -r -p l4fp
+
+            sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
+            echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
         fi
 
         sleep 5
@@ -126,7 +129,7 @@ case ${ACTION} in
         if [[ "${MONITOR}" = 1 ]]; then
             if [[ "${PROXY}" = "beeline" ]]; then
                 sudo -b -E systemd-run -q --scope -u sm-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
-            elif [[ "${PROXY}" = "baseline" || "${PROXY}" = "envoy" ]]; then
+            elif [[ "${PROXY}" = "l4fp" || "${PROXY}" = "envoy" ]]; then
                 ENVOY_PID=$(pidof envoy-static)
 
                 echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
