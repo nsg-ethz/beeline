@@ -5,7 +5,7 @@ use crate::{
 use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
 use common::{
-    net::{SocketBinder, TryIntoRawOctets},
+    net::{get_gw_ip, SocketBinder, TryIntoRawOctets},
     Compiler, Config,
 };
 use libbpf_rs::{
@@ -59,28 +59,28 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(
-    map: &M,
-    addr: &A,
-    act: pr_sock_action,
-    flags: MapFlags,
-) -> Result<()> {
-    let addr = addr
-        .to_socket_addrs()?
-        .next()
-        .expect("Failed to resolve address");
+// fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(
+//     map: &M,
+//     addr: &A,
+//     act: pr_sock_action,
+//     flags: MapFlags,
+// ) -> Result<()> {
+//     let addr = addr
+//         .to_socket_addrs()?
+//         .next()
+//         .expect("Failed to resolve address");
 
-    let akey = addr_key {
-        ip4: addr.try_into_ne_octets()?,
-        port: addr.port() as u32,
-    };
-    let akey = unsafe { akey.as_bytes() };
-    let val = unsafe { act.as_bytes() };
+//     let akey = addr_key {
+//         ip4: addr.try_into_ne_octets()?,
+//         port: addr.port() as u32,
+//     };
+//     let akey = unsafe { akey.as_bytes() };
+//     let val = unsafe { act.as_bytes() };
 
-    map.update(akey, &val, flags)?;
+//     map.update(akey, &val, flags)?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 fn add_pqueue_to_fib<M: MapCore>(map: &M, addr: addr_key) -> Result<()> {
     let key = unsafe { addr.as_bytes() };
@@ -198,6 +198,15 @@ impl<'obj> Proxy<'obj> {
         info!("Injecting HTTP parser with {} states", parser.num_states());
         inject_parser(parser, &mut open_skel)?;
 
+        if let Some(network) = &config.network {
+            let addr_raw = network.addr.try_into_ne_octets()?;
+            open_skel.maps.rodata_data.ip4_start = addr_raw;
+            open_skel.maps.rodata_data.ip4_end = addr_raw + network.len;
+
+            let gw_raw = get_gw_ip(network.addr).try_into_ne_octets()?;
+            open_skel.maps.rodata_data.gw = gw_raw;
+        }
+
         open_skel.maps.rodata_data.ip4 = address.try_into_ne_octets()?;
         open_skel.maps.rodata_data.port = address.port() as u32;
 
@@ -269,14 +278,6 @@ impl<'obj> Proxy<'obj> {
             let proxy_addr = addr_key::try_from(&proxy)?;
             add_pqueue_to_fib(&fib, proxy_addr)?;
         }
-
-        let sock_wait_list = self.get_sock_wait_list()?;
-        add_socket_to_wait_list(
-            &sock_wait_list,
-            &self.address,
-            pr_sock_action::PR_ADD_REMOTE,
-            MapFlags::ANY,
-        )?;
 
         info!("Listening on {}", self.address);
 
@@ -379,7 +380,6 @@ impl<'obj> Proxy<'obj> {
 
     fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
         let addr = self.address.clone();
-        let sock_wait_list = self.get_sock_wait_list()?;
         let utrn_wait_list = self.get_utrn_wait_list()?;
         let fib_downstream = self.get_downstream_fib()?;
         let binder = self.binder.clone();
@@ -465,19 +465,6 @@ impl<'obj> Proxy<'obj> {
                 )
                 .expect("Failed to insert into FIB");
 
-                if let Err(e) = add_socket_to_wait_list(
-                    &sock_wait_list,
-                    &us_local_addr,
-                    pr_sock_action::PR_ADD_REMOTE,
-                    MapFlags::NO_EXIST,
-                ) {
-                    error!(
-                        "Failed to add socket [{:?}->{:?}] to wait list: {:?}",
-                        us_local_addr, us_remote_addr, e
-                    );
-                    break Err(e);
-                }
-
                 debug!(
                     "Opening upstream connection [{}->{}] for port {}",
                     us_local_addr,
@@ -504,11 +491,6 @@ impl<'obj> Proxy<'obj> {
         });
 
         Ok(())
-    }
-
-    fn get_sock_wait_list(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.sock_wait_list.info()?.info.id;
-        Ok(MapHandle::from_map_id(id)?)
     }
 
     fn get_utrn_wait_list(&self) -> Result<MapHandle> {

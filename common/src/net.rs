@@ -6,7 +6,7 @@ use std::{
 };
 use tokio::net::TcpSocket;
 
-fn get_gw_ip(ip: Ipv4Addr) -> Ipv4Addr {
+pub fn get_gw_ip(ip: Ipv4Addr) -> Ipv4Addr {
     if ip.is_loopback() {
         ip
     } else {
@@ -78,6 +78,12 @@ impl TryIntoRawOctets for IpAddr {
             IpAddr::V4(ip) => Ok(u32::from_ne_bytes(ip.octets())),
             _ => bail!("TryIntoRawOctets only supports IPv4 addresses"),
         }
+    }
+}
+
+impl TryIntoRawOctets for Ipv4Addr {
+    fn try_into_ne_octets(&self) -> Result<u32> {
+        Ok(u32::from_ne_bytes(self.octets()))
     }
 }
 

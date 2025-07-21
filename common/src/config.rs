@@ -1,8 +1,10 @@
 use rand::{self, seq::SliceRandom};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use std::{
     collections::HashMap,
-    net::{IpAddr, SocketAddr},
+    fmt::Display,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
 };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
@@ -12,9 +14,63 @@ pub struct Config {
     #[serde(default)]
     pub stats: bool,
     pub hosts: Vec<Host>,
+    #[serde(default, rename = "accelerate")]
+    pub network: Option<Cidr>,
     #[serde(default)]
     pub policies: Vec<Policy>,
     pub routes: Vec<Route>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Clone)]
+pub struct Cidr {
+    pub addr: Ipv4Addr,
+    pub len: u32,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct CidrParseRangeError;
+
+impl Display for CidrParseRangeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid CIDR range")
+    }
+}
+
+impl FromStr for Cidr {
+    type Err = CidrParseRangeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('/').collect();
+        if parts.len() != 2 {
+            return Err(CidrParseRangeError);
+        }
+        let addr = match parts[0].parse::<IpAddr>() {
+            Ok(addr) => addr,
+            Err(_) => return Err(CidrParseRangeError),
+        };
+        let addr = match addr {
+            IpAddr::V4(addr) => addr,
+            IpAddr::V6(_) => return Err(CidrParseRangeError),
+        };
+        let len = match parts[1].parse::<u32>() {
+            Ok(len) => len,
+            Err(_) => return Err(CidrParseRangeError),
+        };
+        Ok(Cidr {
+            addr,
+            len: 2u32.pow(len),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Cidr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        FromStr::from_str(&s).map_err(de::Error::custom)
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
