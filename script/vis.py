@@ -1260,43 +1260,43 @@ def load_dissect_df(name):
 
     avg_req_latency = lambda df, proxy: df[(df["proxy"] == proxy) & (df["metric_name"] == "http_req_duration")]["avg"].mean()
 
-    # envoy_fp does not have much network stack overhead because its sockets
+    # l4fp does not have much network stack overhead because its sockets
     # are connected using the eBPF program
-    envoy_fp = avg_req_latency(k6, "envoy_fp")
+    l4fp = avg_req_latency(k6, "envoy_l4fp")
     envoy = avg_req_latency(k6, "envoy")
     beeline = avg_req_latency(k6, "beeline")
-    ideal = avg_req_latency(k6, "ideal")
+    ideal = avg_req_latency(k6, "none_l4fp")
     direct = avg_req_latency(k6, "none")
     print("application latency:", direct)
 
-    envoy_fp -= direct
-    envoy -= direct
+    l4fp -= ideal
+    envoy -= ideal
     beeline -= ideal
 
     print("network stack direct:", direct - ideal)
     print("overhead from using beeline:", beeline)
 
-    ns_envoy = envoy - envoy_fp
+    ns_envoy = envoy - l4fp
     print("overhead from using envoy:", envoy)
     print("envoy's network stack overhead:", ns_envoy)
 
-    print("overhead from using envoy + L4 FP:", envoy_fp)
+    print("overhead from using envoy + L4 FP:", l4fp)
 
     paths = _get_file_paths(f"{name}_nobpf", "*k6*.json")
     k6_nobpf = _load_k6_summaries(paths)
     envoy_nobpf = avg_req_latency(k6_nobpf, "envoy")
-    envoy_fp_nobpf = avg_req_latency(k6_nobpf, "envoy_fp")
+    l4fp_nobpf = avg_req_latency(k6_nobpf, "l4fp")
 
     envoy_nobpf -= direct
-    envoy_fp_nobpf -= direct
+    l4fp_nobpf -= direct
 
     print("overhead from monitoring envoy:", envoy - envoy_nobpf)
     assert envoy > envoy_nobpf
     # envoy = envoy_nobpf
 
-    print("overhead from monitoring envoy_fp:", envoy_fp - envoy_fp_nobpf)
-    assert envoy_fp > envoy_fp_nobpf
-    # envoy_fp = envoy_fp_nobpf
+    print("overhead from monitoring l4fp:", l4fp - l4fp_nobpf)
+    assert l4fp > l4fp_nobpf
+    # l4fp = l4fp_nobpf
 
     iters = k6[k6["metric_name"] == "iterations"]["count"].mean()
 
@@ -1317,16 +1317,16 @@ def load_dissect_df(name):
     # the L4 fast path executes this twice as often as beeline
     sk_msg = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
     df.loc[("beeline", "eBPF"), "mean"] = sk_msg
-    df.loc[("envoy_fp", "eBPF"), "mean"] = 2*sk_msg
+    df.loc[("l4fp", "eBPF"), "mean"] = 2*sk_msg
 
     # the remainder of the request duration is unaccounted for
     df.loc[("envoy", "unaccounted"), "mean"] = envoy - df.loc[("envoy", slice(None)), "mean"].sum()
-    df.loc[("envoy_fp", "unaccounted"), "mean"] = envoy_fp - df.loc[("envoy_fp", slice(None)), "mean"].sum()
+    df.loc[("l4fp", "unaccounted"), "mean"] = l4fp - df.loc[("l4fp", slice(None)), "mean"].sum()
     df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
 
     # sanity check that we're not misssing anything
     assert df.loc[("envoy", slice(None)), "mean"].sum().round(5) == envoy.round(5)
-    assert df.loc[("envoy_fp", slice(None)), "mean"].sum().round(5) == envoy_fp.round(5)
+    assert df.loc[("l4fp", slice(None)), "mean"].sum().round(5) == l4fp.round(5)
     assert df.loc[("beeline", slice(None)), "mean"].sum().round(5) == beeline.round(5)
 
     # unaccounted goes into processing
@@ -1351,7 +1351,7 @@ def dissect_graph(name, dst):
 def dissect_graph_tikz(name):
     df = load_dissect_df(name)
 
-    order = ["envoy", "envoy_fp", "beeline"]
+    order = ["envoy", "l4fp", "beeline"]
 
     plots = []
     funcs = ["eBPF", "Processing", "Parsing", "IPC"]
