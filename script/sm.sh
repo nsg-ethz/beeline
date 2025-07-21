@@ -85,19 +85,24 @@ case ${ACTION} in
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
 
+        if [[ "${DOCKER_CONFIG}" == *ssm* ]]; then
+            SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
+        fi
+
         # envoy is not loaded by docker
         # this is because uprobes do not work well in docker
         SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
         SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
-        sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${ROOT}/../${ENVOY_CONFIG} > /dev/null 2>&1
+        sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
         echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
 
         CWD=${PWD}
         if [ "${PROXY}" = "beeline" ]; then
-            PROXY_BIN=${ROOT}/../target/release/${PROXY}
+            BEELINE_BIN=${ROOT}/../target/release/${PROXY}
+            BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
             cd ${ROOT}/..
-            CONFIG=${ROOT}/../${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
-            BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c ${ROOT}/../${BEELINE_CONFIG}
+            CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
+            BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
