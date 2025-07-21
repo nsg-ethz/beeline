@@ -1,11 +1,11 @@
 #!/bin/bash
 
 SCRIPT=k6/tput.js
-
 MONITOR=false
+REPLICAS=3
 
 # Parse arguments
-while getopts "f:t:n:p:c:s:m" opt; do
+while getopts "f:t:n:p:c:s:mr:" opt; do
     case $opt in
         f ) FROM=${OPTARG} ;;
         t ) TO=${OPTARG} ;;
@@ -14,6 +14,7 @@ while getopts "f:t:n:p:c:s:m" opt; do
         c ) COMPLEXITY=${OPTARG} ;;
         s ) SCRIPT=${OPTARG} ;;
         m ) MONITOR=true ;;
+        m ) REPLICAS=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
             ;;
@@ -28,7 +29,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        # script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p0-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -36,7 +38,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -44,7 +46,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-Hasdf:${PAYLOAD},qwer:${PAYLOAD},zxcv:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p0-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 fi
 
@@ -56,8 +58,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -65,8 +67,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -74,8 +76,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-Hasdf:${PAYLOAD},qwer:${PAYLOAD},zxcv:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
@@ -83,8 +85,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..2000})
         FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c4 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c4 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c4 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c4 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "5" ]]; then
@@ -92,8 +94,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..2000})
         FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD},i:${PAYLOAD},j:${PAYLOAD},k:${PAYLOAD},l:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c5 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c5 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c5 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c5 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 fi
 
@@ -105,8 +107,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -114,8 +116,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -123,8 +125,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
 
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-Hasdf:${PAYLOAD},qwer:${PAYLOAD},zxcv:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
 fi
@@ -138,8 +140,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "echo"}')
         PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -148,8 +150,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -158,8 +160,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-Hasdf:${PAYLOAD},qwer:${PAYLOAD},zxcv:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 fi
 
@@ -172,8 +174,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "echo"}')
         PAYLOAD=$(printf 'a%.0s' {1..64})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c1 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -182,8 +184,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c2 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -192,8 +194,8 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
         JWT=$(jwt encode --secret testtest12345678 '{"iss":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
         PAYLOAD=$(printf 'a%.0s' {1..1000})
         FRONTEND_ARGS=$(echo \'-Hasdf:${PAYLOAD},qwer:${PAYLOAD},zxcv:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c3 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
     fi
 fi
 
