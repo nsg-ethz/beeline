@@ -87,14 +87,14 @@ case ${ACTION} in
 
         if [[ "${DOCKER_CONFIG}" == *ssm* ]]; then
             SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
-        fi
 
-        # envoy is not loaded by docker
-        # this is because uprobes do not work well in docker
-        SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
-        SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
-        sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
-        echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+            # envoy is not loaded by docker
+            # this is because uprobes do not work well in docker
+            SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
+            SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
+            echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+        fi
 
         CWD=${PWD}
         if [ "${PROXY}" = "beeline" ]; then
