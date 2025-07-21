@@ -1,4 +1,3 @@
-use rand::{self, seq::SliceRandom};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use std::{
     collections::HashMap,
@@ -58,7 +57,7 @@ impl FromStr for Cidr {
         };
         Ok(Cidr {
             addr,
-            len: 2u32.pow(len),
+            len: 2u32.pow(32 - len),
         })
     }
 }
@@ -168,13 +167,18 @@ pub struct RingLoadBalancer {
 }
 
 impl Config {
-    pub fn resolve_host(&self, name: &str) -> Option<&Host> {
-        self.hosts.iter().find(|host| host.name == *name)
-    }
+    pub fn resolve_host(&self, name: &str) -> Option<Host> {
+        if name.eq_ignore_ascii_case("proxy") {
+            if let Some(addr) = self.proxy {
+                return Some(Host {
+                    name: "proxy".to_string(),
+                    load_balancer: None,
+                    instances: vec![addr],
+                });
+            }
+        }
 
-    pub fn select_backend_instance(&self, backend: &str) -> Option<&SocketAddr> {
-        self.all_backend_instances(backend)?
-            .choose(&mut rand::thread_rng())
+        self.hosts.iter().find(|host| host.name == *name).cloned()
     }
 
     pub fn all_backend_instances(&self, backend: &str) -> Option<&Vec<SocketAddr>> {

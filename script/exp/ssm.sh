@@ -20,6 +20,34 @@ while getopts "f:t:n:p:c:s:m" opt; do
     esac
 done
 
+### POLICY 0 ###
+
+if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
+    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "1" ]]; then
+        echo Running policy 0 complexity 1
+
+        PAYLOAD=$(printf 'a%.0s' {1..64})
+        FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
+        script/bench.sh sm -e "BEELINE_CONFIG=config/beeline/ssm-p0-c1.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c1 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+    fi
+
+    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
+        echo Running policy 0 complexity 2
+
+        PAYLOAD=$(printf 'a%.0s' {1..1000})
+        FRONTEND_ARGS=$(echo \'-H asdf:${PAYLOAD}\')
+        script/bench.sh sm -e "BEELINE_CONFIG=config/beeline/ssm-p0-c2.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c2 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+    fi
+
+    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
+        echo Running policy 0 complexity 3
+
+        PAYLOAD=$(printf 'a%.0s' {1..1000})
+        FRONTEND_ARGS=$(echo \'-Hasdf:${PAYLOAD},qwer:${PAYLOAD},zxcv:${PAYLOAD}\')
+        script/bench.sh sm -e "BEELINE_CONFIG=config/beeline/ssm-p0-c3.yaml REPLICAS=3 FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p0-c3 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+    fi
+fi
+
 ### POLICY 1 ###
 
 if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then

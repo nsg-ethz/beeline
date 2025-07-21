@@ -59,29 +59,6 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-// fn add_socket_to_wait_list<A: ToSocketAddrs, M: MapCore>(
-//     map: &M,
-//     addr: &A,
-//     act: pr_sock_action,
-//     flags: MapFlags,
-// ) -> Result<()> {
-//     let addr = addr
-//         .to_socket_addrs()?
-//         .next()
-//         .expect("Failed to resolve address");
-
-//     let akey = addr_key {
-//         ip4: addr.try_into_ne_octets()?,
-//         port: addr.port() as u32,
-//     };
-//     let akey = unsafe { akey.as_bytes() };
-//     let val = unsafe { act.as_bytes() };
-
-//     map.update(akey, &val, flags)?;
-
-//     Ok(())
-// }
-
 fn add_pqueue_to_fib<M: MapCore>(map: &M, addr: addr_key) -> Result<()> {
     let key = unsafe { addr.as_bytes() };
     if map.lookup(&key, MapFlags::empty())?.is_some() {
@@ -452,7 +429,6 @@ impl<'obj> Proxy<'obj> {
                 }
 
                 let us_remote_addr: SocketAddr = us_remote_addr.into();
-                debug!("Connecting to {}", us_remote_addr);
                 let us_sock = binder.bind(us_remote_addr.ip()).unwrap();
                 let us_local_addr = us_sock.local_addr().unwrap();
 

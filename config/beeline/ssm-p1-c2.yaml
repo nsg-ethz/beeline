@@ -1,5 +1,6 @@
 socket: 172.17.0.1:9999
-accelerate: 172.18.0.0/16
+proxy: 172.18.0.254:9999
+accelerate: 172.18.0.0/24
 stats: true
 hosts:
     - name: service-1

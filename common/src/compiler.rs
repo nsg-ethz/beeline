@@ -404,10 +404,10 @@ impl Compiler {
                     .collect::<(Vec<Filter>, Vec<String>)>();
 
                 let host = self.config.resolve_host(&route.dest).unwrap();
-                let route_code = match (host.instances.len(), &host.load_balancer) {
+                let route_code = match (host.instances.len(), host.load_balancer) {
                     (0, _) => unreachable!(),
                     (1, _) => {
-                        let addr = self.config.select_backend_instance(&route.dest).unwrap();
+                        let addr = host.instances[0];
                         let ip4: u32 = addr.ip().try_into_ne_octets().unwrap();
                         format!(
                             "ctx->dest.ip4 = {};
@@ -417,7 +417,8 @@ impl Compiler {
                         )
                     }
                     (_, Some(lb)) => {
-                        let (filter, call) = self.generate_load_balancing(idx, lb, &host.instances);
+                        let (filter, call) =
+                            self.generate_load_balancing(idx, &lb, &host.instances);
                         filters.push(filter);
                         call
                     }

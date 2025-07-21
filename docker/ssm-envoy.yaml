@@ -21,7 +21,7 @@ services:
                 "-a",
                 "0.0.0.0:8080",
                 "-p",
-                "172.18.0.13:9999",
+                "172.18.2.1:9999",
                 "-s",
                 "service-",
                 "-n",
@@ -56,4 +56,4 @@ services:
         hostname: sidecar
         networks:
             default:
-                ipv4_address: 172.18.0.13
+                ipv4_address: 172.18.0.254

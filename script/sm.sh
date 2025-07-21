@@ -85,6 +85,13 @@ case ${ACTION} in
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
 
+        # envoy is not loaded by docker
+        # this is because uprobes do not work well in docker
+        SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
+        SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
+        sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${ROOT}/../${ENVOY_CONFIG} > /dev/null 2>&1
+        echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+
         CWD=${PWD}
         if [ "${PROXY}" = "beeline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
@@ -92,11 +99,6 @@ case ${ACTION} in
             CONFIG=${ROOT}/../${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c ${ROOT}/../${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
-        elif [ "${PROXY}" = "envoy" ]; then
-            SIDECAR_NS=$(docker inspect synthetic-service-mesh-sidecar-1 -f '{{.NetworkSettings.SandboxKey}}')
-
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${ROOT}/../${ENVOY_CONFIG} > /dev/null 2>&1
-            echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
         elif [ "${PROXY}" = "baseline" ]; then
             PROXY_BIN=${ROOT}/../target/release/${PROXY}
             sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -a 172.17.0.1

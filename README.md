@@ -12,7 +12,7 @@ cargo test
 
 It's likely that your firwall does not allow any traffic to reach host OS. Explicitely enable this using the following rule:
 ```
-sudo ufw allow from 172.18.0.0/16
+sudo ufw allow from 172.18.0.0/24
 ```
 
 Also, you might have to increase the limit of open files in `/etc/security/limits.conf`
