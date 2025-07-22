@@ -100,14 +100,14 @@ case ${ACTION} in
 
         CWD=${PWD}
         cd ${ROOT}/..
-        if [ "${PROXY}" = "beeline" ]; then
+        if [[ "${PROXY}" == "beeline" ]]; then
             BEELINE_BIN=${ROOT}/../target/release/beeline
             BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
             CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
 
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
-        elif [ "${PROXY}" = "*l4fp" ]; then
+        elif [[ "${PROXY}" == *l4fp ]]; then
             PROXY_BIN=${ROOT}/../target/release/l4fp
             cargo b -r -p l4fp
 
@@ -131,7 +131,7 @@ case ${ACTION} in
         if [[ "${MONITOR}" = 1 ]]; then
             if [[ "${PROXY}" = "beeline" ]]; then
                 sudo -b -E systemd-run -q --scope -u sm-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
-            elif [[ "${PROXY}" = "l4fp" || "${PROXY}" = "envoy" ]]; then
+            elif [[ "${PROXY}" == *envoy* ]]; then
                 ENVOY_PID=$(pidof envoy-static)
 
                 echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
@@ -163,7 +163,7 @@ case ${ACTION} in
                 grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.user-e${EPOCH}.log
                 grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.parse-e${EPOCH}.log
                 rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
-            elif [ "${PROXY}" = "naive" ] || [ "${PROXY}" = "naive_fp" ]; then
+            elif [[ "${PROXY}" = "naive" ]] || [[ "${PROXY}" = "naive_fp" ]]; then
                 grep "other total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.user-e${EPOCH}.log
                 grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.parse-e${EPOCH}.log
                 rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
