@@ -138,7 +138,7 @@ case ${ACTION} in
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.parse-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} -r ${ENVOY_BIN}:"^.*onFileEvent.*$" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.user-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.ipc-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.epoll-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "do_epoll_wait" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.epoll-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.write-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "do_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.read-e${EPOCH}.log 2>/dev/null
 
