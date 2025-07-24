@@ -375,7 +375,8 @@ def _tex_display_name(proxy):
         "beeline": "Envoy + \\proj",
         "envoy": "Envoy",
         "envoy_iouring": "Envoy + \\iouring",
-        "envoy_l4fp": "Envoy + L4 Fast Path"
+        "envoy_l4fp": "Envoy + L4 Fast Path",
+        "none": "Vanilla"
     }
 
     return names[proxy]
