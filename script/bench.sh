@@ -55,7 +55,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
             elif [[ "${CONFIG}" == *ms* ]]; then
                 K6_SCRIPT=${ROOT}/../k6/ms-compose-review.js
             elif [[ "${CONFIG}" == *ssm* ]]; then
-                K6_SCRIPT="${ROOT}/../${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=5000 -e URL=http://moonshine:8080"
+                K6_SCRIPT="${ROOT}/../${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=1000 -e URL=http://moonshine:8080"
             fi
 
             if [ "${WRITE_REPORT}" = true ]; then
