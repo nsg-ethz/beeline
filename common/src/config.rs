@@ -7,6 +7,7 @@ use std::{
 };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub socket: Option<SocketAddr>,
     pub proxy: Option<SocketAddr>,
@@ -21,6 +22,7 @@ pub struct Config {
 }
 
 #[derive(Debug, PartialEq, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Cidr {
     pub addr: Ipv4Addr,
     pub mask: u32,
@@ -82,6 +84,7 @@ impl<'de> Deserialize<'de> for Cidr {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Policy {
     pub name: String,
     pub method: Option<String>,
@@ -101,6 +104,7 @@ pub struct Policy {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Route {
     #[serde(alias = "match")]
     pub pattern: Pattern,
@@ -137,6 +141,7 @@ impl Filter {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct JwtFilter {
     pub secret: String,
     pub audience: Option<String>,
@@ -144,18 +149,21 @@ pub struct JwtFilter {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct MutateFilter {
     pub add: Option<HashMap<String, String>>,
     pub remove: Option<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Pattern {
     pub path: Option<String>,
     pub headers: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Host {
     pub name: String,
     #[serde(default)]
@@ -171,6 +179,7 @@ pub enum LoadBalancer {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct RingLoadBalancer {
     pub size: usize,
 }

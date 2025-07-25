@@ -653,8 +653,8 @@ impl Compiler {
         let mut auth = false;
         for route in &self.config.routes {
             if let Some(headers) = &route.pattern.headers {
-                for (key, _) in headers {
-                    insert(Variable::buffer(key, "char", Some(2048)));
+                for (key, val) in headers {
+                    insert(Variable::buffer(key, "char", Some(val.len())));
                 }
             }
 
