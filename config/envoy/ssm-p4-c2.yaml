@@ -155,64 +155,118 @@ static_resources:
                                     rules:
                                         action: ALLOW
                                         policies:
-                                            "allow-get-to-service-1":
+                                            "service-1-post-policy-v1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
                                                               - header:
                                                                     name: ":method"
                                                                     string_match:
-                                                                        exact: "GET"
+                                                                        exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/debug/service-1"
-                                                              - destination_port: 8888
+                                                                        prefix: "/service-1"
+                                                              - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "allow-get-to-service-2":
+                                            "service-2-post-policy-v1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
                                                               - header:
                                                                     name: ":method"
                                                                     string_match:
-                                                                        exact: "GET"
+                                                                        exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/debug/service-2"
-                                                              - destination_port: 8888
+                                                                        prefix: "/service-2"
+                                                              - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "allow-get-to-service-3":
+                                            "service-3-post-policy-v1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
                                                               - header:
                                                                     name: ":method"
                                                                     string_match:
-                                                                        exact: "GET"
+                                                                        exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/debug/service-2"
-                                                              - destination_port: 8888
+                                                                        prefix: "/service-3"
+                                                              - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "allow-admin":
+                                            "stats-1-v1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
                                                               - header:
                                                                     name: ":method"
                                                                     string_match:
-                                                                        exact: "GET"
+                                                                        exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/admin"
-                                                              - destination_port: 7777
+                                                                        prefix: "/stats"
+                                                              - destination_port: 9999
                                                 principals:
-                                                    - source_ip:
-                                                          address_prefix: 172.18.0.1
-                                                          prefix_len: 32
+                                                    - any: true
+                                            "service-1-post-policy-v2":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/v2"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-2-post-policy-v2":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/v2"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-3-post-policy-v2":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/v2"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "stats-1-v2":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats/v2"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
                               - name: envoy.filters.http.JwtAuthentication
                                 typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication

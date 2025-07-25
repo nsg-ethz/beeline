@@ -13,76 +13,6 @@ hosts:
       instances:
           - 172.18.0.5:9999
 policies:
-    - name: allow-get-to-service-1
-      path: "/debug/service-1"
-      method: GET
-      destination_port: 8888
-      allow: true
-    - name: allow-get-v2-to-service-1
-      path: "/v2/service-1"
-      method: POST
-      destination_port: 9998
-      allow: true
-    - name: allow-get-to-service-2
-      path: "/debug/service-2"
-      method: GET
-      destination_port: 8888
-      allow: true
-    - name: allow-get-v2-to-service-2
-      path: "/v2/service-2"
-      method: POST
-      destination_port: 9998
-      allow: true
-    - name: allow-get-to-service-3
-      path: "/debug/service-3"
-      method: GET
-      destination_port: 8888
-      allow: true
-    - name: allow-get-v2-to-service-3
-      path: "/v2/service-3"
-      method: POST
-      destination_port: 9998
-      allow: true
-    - name: allow-admin
-      path: "/admin"
-      method: GET
-      source_ip: 172.18.0.1
-      destination_port: 7777
-      allow: true
-    - name: allow-dev
-      path: "/dev"
-      method: GET
-      source_ip: 172.18.0.1
-      destination_port: 7777
-      allow: true
-    - name: allow-stats
-      path: "/stats"
-      method: GET
-      source_ip: 172.18.0.1
-      destination_port: 3333
-      allow: true
-    - name: deny-post-to-service-1
-      path: "/service-1"
-      method: POST
-      source_ip: 172.18.0.3
-      destination_port: 9999
-      allow: false
-    - name: deny-post-to-service-2
-      path: "/service-2"
-      method: POST
-      source_ip: 172.18.0.4
-      destination_port: 9999
-      allow: false
-    - name: allow-post-to-service-2
-      path: "/service-2"
-      method: POST
-      destination_port: 9999
-      allow: true
-    - name: allow-post-to-service-3
-      path: "/service-3"
-      method: POST
-      destination_port: 9999
-      allow: true
     - name: allow-post-to-service-1
       path: "/service-1"
       method: POST
@@ -97,6 +27,159 @@ policies:
       path: "/service-3"
       method: POST
       destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v2"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v3"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v3"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v3"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v3"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v4"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v4"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v4"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v4"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v5"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v5"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v5"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v5"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v6"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v6"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v6"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v6"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v7"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v7"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v7"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v7"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v8"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v8"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v8"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v8"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
       allow: true
 routes:
     - match:

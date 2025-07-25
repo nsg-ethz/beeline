@@ -38,6 +38,17 @@ policies:
       method: POST
       destination_port: 9999
       allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
 routes:
     - match:
           path: "/service-1"

@@ -191,21 +191,7 @@ static_resources:
                                     rules:
                                         action: ALLOW
                                         policies:
-                                            "allow-get-to-service-1":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "GET"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/debug/service-1"
-                                                              - destination_port: 8888
-                                                principals:
-                                                    - any: true
-                                            "allow-get-v2-to-service-1":
+                                            "service-1-post-policy-v1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
@@ -215,25 +201,11 @@ static_resources:
                                                                         exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/v2/service-1"
-                                                              - destination_port: 9998
+                                                                        prefix: "/service-1"
+                                                              - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "allow-get-to-service-2":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "GET"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/debug/service-2"
-                                                              - destination_port: 8888
-                                                principals:
-                                                    - any: true
-                                            "allow-get-v2-to-service-2":
+                                            "service-2-post-policy-v1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
@@ -243,25 +215,11 @@ static_resources:
                                                                         exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/v2/service-2"
-                                                              - destination_port: 9998
+                                                                        prefix: "/service-2"
+                                                              - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "allow-get-to-service-3":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "GET"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/debug/service-3"
-                                                              - destination_port: 8888
-                                                principals:
-                                                    - any: true
-                                            "allow-get-v2-to-service-3":
+                                            "service-3-post-policy-v1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
@@ -271,105 +229,25 @@ static_resources:
                                                                         exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/v2/service-3"
-                                                              - destination_port: 9998
+                                                                        prefix: "/service-3"
+                                                              - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "allow-admin":
+                                            "stats-1-v1":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
                                                               - header:
                                                                     name: ":method"
                                                                     string_match:
-                                                                        exact: "GET"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/admin"
-                                                              - destination_port: 7777
-                                                principals:
-                                                    - source_ip:
-                                                          address_prefix: 172.18.0.1
-                                                          prefix_len: 32
-                                            "allow-stats":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "GET"
+                                                                        exact: "POST"
                                                               - url_path:
                                                                     path:
                                                                         prefix: "/stats"
-                                                              - destination_port: 3333
-                                                principals:
-                                                    - source_ip:
-                                                          address_prefix: 172.18.0.1
-                                                          prefix_len: 32
-                                            "deny-post-to-service-1":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "POST"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/service-1"
-                                                              - destination_port: 9999
-                                                principals:
-                                                    - source_ip:
-                                                          address_prefix: 172.18.0.4
-                                                          prefix_len: 32
-                                            "deny-post-to-service-2":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "POST"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/service-2"
-                                                              - destination_port: 9999
-                                                principals:
-                                                    - source_ip:
-                                                          address_prefix: 172.18.0.5
-                                                          prefix_len: 32
-                                            "deny-post-to-service-3":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "POST"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/service-3"
-                                                              - destination_port: 9999
-                                                principals:
-                                                    - source_ip:
-                                                          address_prefix: 172.18.0.6
-                                                          prefix_len: 32
-                                            "allow-post-to-service-1":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "POST"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/service-1"
                                                               - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "allow-post-to-service-2":
+                                            "service-1-post-policy-v2":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
@@ -379,11 +257,11 @@ static_resources:
                                                                         exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/service-2"
+                                                                        prefix: "/service-1/v2"
                                                               - destination_port: 9999
                                                 principals:
                                                     - any: true
-                                            "allow-post-to-service-3":
+                                            "service-2-post-policy-v2":
                                                 permissions:
                                                     - and_rules:
                                                           rules:
@@ -393,7 +271,371 @@ static_resources:
                                                                         exact: "POST"
                                                               - url_path:
                                                                     path:
-                                                                        prefix: "/service-3"
+                                                                        prefix: "/service-2/v2"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-3-post-policy-v2":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/v2"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "stats-1-v2":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats/v2"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-1-post-policy-v3":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/v3"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-2-post-policy-v3":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/v3"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-3-post-policy-v3":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/v3"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "stats-1-v3":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats/v3"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-1-post-policy-v4":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/v4"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-2-post-policy-v4":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/v4"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-3-post-policy-v4":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/v4"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "stats-1-v4":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats/v4"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-1-post-policy-v5":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/v5"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-2-post-policy-v5":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/v5"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-3-post-policy-v5":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/v5"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "stats-1-v5":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats/v5"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-1-post-policy-v6":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/v6"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-2-post-policy-v6":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/v6"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-3-post-policy-v6":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/v6"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "stats-1-v6":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats/v6"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-1-post-policy-v7":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/v7"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-2-post-policy-v7":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/v7"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-3-post-policy-v7":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/v7"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "stats-1-v7":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats/v7"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-1-post-policy-v8":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/v8"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-2-post-policy-v8":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/v8"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "service-3-post-policy-v8":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/v8"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
+                                            "stats-1-v8":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats/v8"
                                                               - destination_port: 9999
                                                 principals:
                                                     - any: true

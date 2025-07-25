@@ -13,26 +13,47 @@ hosts:
       instances:
           - 172.18.0.5:9999
 policies:
-    - name: allow-get-to-service-1
-      path: "/debug/service-1"
-      method: GET
-      destination_port: 8888
+    - name: allow-post-to-service-1
+      path: "/service-1"
+      method: POST
+      destination_port: 9999
       allow: true
-    - name: allow-get-to-service-2
-      path: "/debug/service-2"
-      method: GET
-      destination_port: 8888
+    - name: allow-post-to-service-2
+      path: "/service-2"
+      method: POST
+      destination_port: 9999
       allow: true
-    - name: allow-get-to-service-3
-      path: "/debug/service-2"
-      method: GET
-      destination_port: 8888
+    - name: allow-post-to-service-3
+      path: "/service-3"
+      method: POST
+      destination_port: 9999
       allow: true
-    - name: allow-admin
-      path: "/admin"
+    - name: allow-stats
+      path: "/stats-1"
       method: GET
       source_ip: 172.18.0.1
-      destination_port: 7777
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v2"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
       allow: true
 routes:
     - match:
