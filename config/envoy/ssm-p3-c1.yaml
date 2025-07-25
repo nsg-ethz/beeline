@@ -101,6 +101,20 @@ static_resources:
                                     rules:
                                         action: ALLOW
                                         policies:
+                                            "stats-1-v1":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/stats"
+                                                              - destination_port: 9999
+                                                principals:
+                                                    - any: true
                                             "service-1-post-policy-v1":
                                                 permissions:
                                                     - and_rules:
@@ -140,20 +154,6 @@ static_resources:
                                                               - url_path:
                                                                     path:
                                                                         prefix: "/service-3"
-                                                              - destination_port: 9999
-                                                principals:
-                                                    - any: true
-                                            "stats-1-v1":
-                                                permissions:
-                                                    - and_rules:
-                                                          rules:
-                                                              - header:
-                                                                    name: ":method"
-                                                                    string_match:
-                                                                        exact: "POST"
-                                                              - url_path:
-                                                                    path:
-                                                                        prefix: "/stats"
                                                               - destination_port: 9999
                                                 principals:
                                                     - any: true

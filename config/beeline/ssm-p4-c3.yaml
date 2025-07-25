@@ -28,21 +28,6 @@ hosts:
           - 172.18.0.8:9999
           - 172.18.0.11:9999
 policies:
-    - name: allow-post-to-service-1
-      path: "/service-1"
-      method: POST
-      destination_port: 9999
-      allow: true
-    - name: allow-post-to-service-2
-      path: "/service-2"
-      method: POST
-      destination_port: 9999
-      allow: true
-    - name: allow-post-to-service-3
-      path: "/service-3"
-      method: POST
-      destination_port: 9999
-      allow: true
     - name: allow-stats
       path: "/stats-1"
       method: GET
@@ -111,6 +96,21 @@ policies:
       method: GET
       source_ip: 172.18.0.1
       destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3"
+      method: POST
+      destination_port: 9999
       allow: true
 routes:
     - match:
