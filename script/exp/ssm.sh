@@ -23,7 +23,7 @@ done
 
 ### POLICY 0 ###
 
-if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
+if [[ ${POLICY} == "0" ]]; then
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "1" ]]; then
         echo Running policy 0 complexity 1
 
