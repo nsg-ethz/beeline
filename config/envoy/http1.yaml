@@ -35,7 +35,8 @@ static_resources:
                                     routes:
                                         - match:
                                               prefix: "/"
-                                          route: { cluster: backend1 }
+                                          route:
+                                              cluster: backend1
                           http_filters:
                               - name: envoy.filters.http.router
                                 typed_config:

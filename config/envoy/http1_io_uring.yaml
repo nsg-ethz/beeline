@@ -36,10 +36,6 @@ static_resources:
                                     routes:
                                         - match:
                                               prefix: "/"
-                                              headers:
-                                                  - name: "backend"
-                                                    string_match:
-                                                        exact: "server1"
                                           route:
                                               cluster: backend1
                           http_filters:
