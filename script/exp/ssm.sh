@@ -2,7 +2,7 @@
 
 SCRIPT=k6/tput.js
 MONITOR=false
-REPLICAS=3
+REPLICAS=1
 
 # Parse arguments
 while getopts "f:t:n:p:c:s:mr:" opt; do
