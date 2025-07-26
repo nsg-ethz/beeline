@@ -646,7 +646,7 @@ def cdf_graph_tikz(name, time_range):
     def _percentiles(proxy):
         vals = df[df["proxy"] == proxy]["metric_value"]
 
-        ys = np.arange(1, 101)
+        ys = np.arange(0, 100)
         xs = np.percentile(vals, ys)
         return (xs, ys)
 
