@@ -21,12 +21,12 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: 172.18.0.6
+                                      address: 172.18.0.4
                                       port_value: 9999
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: 172.18.0.9
+                                      address: 172.18.0.5
                                       port_value: 9999
         - name: service-2
           connect_timeout: 3s
@@ -39,7 +39,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: 172.18.0.4
+                                      address: 172.18.0.6
                                       port_value: 9999
                         - endpoint:
                               address:
@@ -49,7 +49,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: 172.18.0.10
+                                      address: 172.18.0.8
                                       port_value: 9999
         - name: service-3
           connect_timeout: 3s
@@ -62,12 +62,12 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: 172.18.0.5
+                                      address: 172.18.0.9
                                       port_value: 9999
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: 172.18.0.8
+                                      address: 172.18.0.10
                                       port_value: 9999
                         - endpoint:
                               address:
