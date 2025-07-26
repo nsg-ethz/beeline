@@ -270,6 +270,10 @@ impl Dfa {
         }
     }
 
+    pub fn num_captures(&self) -> u8 {
+        self.cid
+    }
+
     pub fn num_states(&self) -> usize {
         self.states.len()
     }

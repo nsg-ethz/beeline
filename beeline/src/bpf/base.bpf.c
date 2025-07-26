@@ -226,7 +226,7 @@ bpf_profile_def(auth);
 static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 claims_len, char *sig, u32 sig_len, char *tmp) {
     bpf_profile_start(auth);
 
-    if (claims_len == 0 || claims_len > 2048 || sig_len == 0 || sig_len > 2048) {
+    if (claims_len == 0 || claims_len > 4096 || sig_len == 0 || sig_len > 64) {
         bpf_err("ERROR: Invalid JWT claims or signature length (%d, %d)", claims_len, sig_len);
         return PR_DROP;
     }
@@ -245,13 +245,13 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
 
     bpf_log("Verifying JWT claims: %s with signature: %s", claims, sig);
 
-    if (bpf_crypto_digest(cctx, (const u8*)claims, claims_len & 0x7ff, (u8 *)tmp, 2048) < 0) {
+    if (bpf_crypto_digest(cctx, (const u8*)claims, claims_len & 0xFFF, (u8 *)tmp, 3072) < 0) {
         bpf_err("ERROR: Failed to digest msg");
         return PR_DROP;
     }
 
     u32 dig_len = 32;
-    sig_len = bpf_base64url_encode((const u8 *)tmp, dig_len, (char *)(tmp+dig_len), 2048-dig_len);
+    sig_len = bpf_base64url_encode((const u8 *)tmp, dig_len, (char *)(tmp+dig_len), 3072-dig_len);
     if (sig_len < 0) {
         bpf_err("ERROR: Failed to encode signature: %d", sig_len);
         return PR_DROP;

@@ -136,14 +136,20 @@ impl Compiler {
                 match &var {
                     &Variable::Buffer(name, ty, _) => {
                         let name = sanitize_var_name(name);
+                        let mask = if name.eq_ignore_ascii_case("jwt_claims") {
+                            0xfff
+                        }
+                        else {
+                            0x7ff
+                        };
                         let code = if ty == "char" {
                             format!(
                                 "r = pranges[{idx}];
-                            r.len &= 0x7ff;
+                            r.len &= {mask};
                             bpf_probe_read_kernel(ctx->{name}, r.len, data + r.idx);
                             ctx->{name}_range = r;
                             bpf_log(\"{name} inited to %s\", ctx->{name});",
-                            idx=i, name=name
+                            idx=i, name=name, mask=mask
                             )
                         } else if ty == "u32" {
                             format!(
@@ -195,7 +201,7 @@ impl Compiler {
             admitted = false;
 
             bpf_for(i, 0, claims_len-adm_len) {
-                bpf_clamp_uminmax(i, 0, 2048-{adm_len});
+                bpf_clamp_uminmax(i, 0, 3072-{adm_len});
                 if (bpf_strncmp(ctx->tmp + i, adm_len, adm) == 0) {
                     admitted = true;
                     break;
@@ -645,13 +651,13 @@ impl Compiler {
             ctx.push(var.clone());
         };
 
-        insert(Variable::buffer("method", "char", Some(7)));
-        insert(Variable::buffer("path", "char", Some(2048)));
-        insert(Variable::buffer("status_code", "u32", None));
-        insert(Variable::buffer("content-length", "u32", None));
-
+        let mut max_path_len = 16;
         let mut auth = false;
         for route in &self.config.routes {
+            if let Some(path) = &route.pattern.path {
+                max_path_len = max_path_len.max(path.len())
+            }
+
             if let Some(headers) = &route.pattern.headers {
                 for (key, val) in headers {
                     insert(Variable::buffer(key, "char", Some(val.len())));
@@ -674,9 +680,14 @@ impl Compiler {
             }
         }
 
+        insert(Variable::buffer("method", "char", Some(7)));
+        insert(Variable::buffer("path", "char", Some(max_path_len)));
+        insert(Variable::buffer("status_code", "u32", None));
+        insert(Variable::buffer("content-length", "u32", None));
+
         if auth {
-            insert(Variable::buffer("jwt_claims", "char", Some(2048)));
-            insert(Variable::buffer("jwt_sig", "char", Some(2048)));
+            insert(Variable::buffer("jwt_claims", "char", Some(4096)));
+            insert(Variable::buffer("jwt_sig", "char", Some(64)));
         }
 
         ctx

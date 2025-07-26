@@ -172,6 +172,10 @@ impl<'obj> Proxy<'obj> {
         // parse beyond the HTTP header
         parser.done_on_http_hdr_end()?;
 
+        if parser.num_captures() >= 31 {
+            bail!("Parsing too many patterns.")
+        }
+
         info!("Injecting HTTP parser with {} states", parser.num_states());
         inject_parser(parser, &mut open_skel)?;
 

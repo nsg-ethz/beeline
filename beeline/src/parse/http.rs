@@ -96,6 +96,10 @@ impl HttpParser {
         Ok(())
     }
 
+    pub fn num_captures(&self) -> u8 {
+        self.dfa.num_captures()
+    }
+
     pub fn num_states(&self) -> usize {
         self.dfa.num_states()
     }
