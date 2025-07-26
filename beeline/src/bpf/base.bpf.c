@@ -174,8 +174,8 @@ struct trans {
 
 // these restrictions are needed to make the verifier happy
 #define MAX_BYTES 0xFFFE
-#define MAX_MATCHES 16
-#define MAX_MATCH_MASK 15
+#define MAX_MATCHES 32
+#define MAX_MATCH_MASK 31
 #define MAX_STATES 512
 #define MAX_TRANS 128
 
