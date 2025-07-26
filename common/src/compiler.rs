@@ -249,6 +249,23 @@ impl Compiler {
             return (filter, String::new());
         }
 
+        let ctx = self.get_ctx_vars();
+        let offset = |idx: &str, off: &str| {
+            ctx.iter()
+                .map(|v| {
+                    format!(
+                        "if (ctx->{name}_range.idx >= {idx}) {{
+                ctx->{name}_range.idx += {off};
+            }}",
+                        name = sanitize_var_name(v.name()),
+                        idx = idx,
+                        off = off
+                    )
+                })
+                .collect::<Vec<String>>()
+                .join("\n")
+        };
+
         let mut mutation = String::new();
         if let Some(remove) = mutate.remove {
             for key in remove.iter() {
@@ -258,15 +275,17 @@ impl Compiler {
                         "if (ctx->jwt_claims_range.len > 0) {{
                             remove_range.idx = ctx->jwt_claims_range.idx-7-{key_len};
                             remove_range.len = ctx->jwt_claims_range.len+ctx->jwt_sig_range.len+8+{key_len_crlf};
-                                if (_mutate(msg, remove_range, NULL, 0) < 0) {{
-                                    bpf_err(\"ERROR: Failed to remove {key}\");
-                                    return PR_DROP;
-                                }}
-                                ctx->done_idx -= remove_range.len;
+                            if (_mutate(msg, remove_range, NULL, 0) < 0) {{
+                                bpf_err(\"ERROR: Failed to remove {key}\");
+                                return PR_DROP;
+                            }}
+                            ctx->done_idx -= remove_range.len;
+                            {offset}
                         }}",
                         key = key,
                         key_len = key.len() + 2,
                         key_len_crlf = key.len() + 3,
+                        offset=offset("remove_range.idx", "-remove_range.len")
                     )
                 } else {
                     String::new()
@@ -277,16 +296,18 @@ impl Compiler {
                     if (ctx->{key}_range.len > 0) {{
                         remove_range.idx = ctx->{key}_range.idx-{key_len};
                         remove_range.len = ctx->{key}_range.len+{key_len_crlf};
-                            if (_mutate(msg, remove_range, NULL, 0) < 0) {{
-                                bpf_err(\"ERROR: Failed to remove {key}\");
-                                return PR_DROP;
-                            }}
-                            ctx->done_idx -= remove_range.len;
+                        if (_mutate(msg, remove_range, NULL, 0) < 0) {{
+                            bpf_err(\"ERROR: Failed to remove {key}\");
+                            return PR_DROP;
+                        }}
+                        ctx->done_idx -= remove_range.len;
+                        {offset}
                     }}",
                     rmv_auth = rmv_auth,
                     key = key,
                     key_len = key.len() + 2,
                     key_len_crlf = key.len() + 3,
+                    offset = offset("remove_range.idx", "-remove_range.len")
                 );
 
                 mutation.push_str(&rmv_hdr);
@@ -524,7 +545,7 @@ impl Compiler {
                     format!(
                         "bpf_log(\"RBAC: {}\");
                     bpf_stats_add(http_rbac_allowed, 1);
-                    return SK_PASS;",
+                    return PR_PASS;",
                         p.name
                     )
                 } else {
@@ -553,11 +574,11 @@ impl Compiler {
             .join("\n");
 
         let no_match_action = if policies.is_empty() {
-            String::from("return SK_PASS;")
+            String::from("return PR_PASS;")
         } else {
             format!(
                 "bpf_stats_add(http_rbac_denied, 1);
-                return SK_DROP;"
+                return PR_DROP;"
             )
         };
 
@@ -641,10 +662,9 @@ impl Compiler {
     pub fn get_ctx_vars(&self) -> Vec<Variable> {
         let mut ctx: Vec<Variable> = Vec::new();
         let mut insert = |var: Variable| {
-            if ctx
-                .iter()
-                .any(|v| v.name() == var.name() && v.is_buffer() == var.is_buffer())
-            {
+            if ctx.iter().any(|v| {
+                v.name() == var.name() && (v.is_buffer() || v.is_buffer() == var.is_buffer())
+            }) {
                 return;
             }
 

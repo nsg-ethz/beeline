@@ -290,8 +290,8 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
     if (len > 0x7FF) return -1;
     len &= 0x7FF;
 
-    if (idx > 0xFFF) return -1;
-    idx &= 0xFFF;
+    if (idx > 0xFFFF) return -1;
+    idx &= 0xFFFF;
 
     s16 delta = str_len - len;
 

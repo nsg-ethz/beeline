@@ -61,8 +61,7 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            remove:
-                - authorization
+            remove: ["a", "b"]
       dest: service-1
     - match:
           path: "/service-2"
@@ -75,8 +74,7 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            remove:
-                - authorization
+            remove: ["a", "b"]
       dest: service-2
     - match:
           path: "/service-3"
@@ -89,6 +87,5 @@ routes:
             audience: echo
             issuer: beeline
           - type: mutate
-            remove:
-                - authorization
+            remove: ["a", "b"]
       dest: service-3
