@@ -137,6 +137,21 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
             script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c4 -p none_l4fp -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
         fi
     fi
+
+    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "5" ]]; then
+        echo Running policy 1 complexity 5
+
+        PAYLOAD=$(printf 'a%.0s' {1..2000})
+        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD},i:${PAYLOAD},j:${PAYLOAD},k:${PAYLOAD},l:${PAYLOAD},m:${PAYLOAD},n:${PAYLOAD},o:${PAYLOAD},p:${PAYLOAD}\')
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c5 -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c5 -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c5 -p envoy_l4fp -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+
+        if [[ ${MONITOR} == true ]]; then
+            script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c5 -p none -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+            script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c5.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c5 -p none_l4fp -s ${SCRIPT} -f ${FROM} -t ${TO} -m ${MONITOR}
+        fi
+    fi
 fi
 
 ### POLICY 2 ###

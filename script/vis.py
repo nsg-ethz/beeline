@@ -1725,10 +1725,10 @@ def complexity_graph_tikz(name, policy, metric, agg):
             grid style=dashed,
         }},
         xtick=data,
-        enlarge x limits = 0.4,
+        enlarge x limits = 0.2,
         xlabel style={{anchor=north}},
         height=2.5cm,
-        bar width=20pt,
+        bar width=5pt,
         width=\\linewidth]
 
         {plots}
