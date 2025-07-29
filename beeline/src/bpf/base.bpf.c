@@ -40,7 +40,7 @@ unsigned long bpf_xxhash(const u8 *src, u32 src__sz, u64 seed) __ksym;
 #if BPF_PROFILE == 1
     #define bpf_profile_def(NAME) u64 __profile_##NAME##_cnt = 0; u64 __profile_##NAME##_sum = 0
     #define bpf_profile_start(NAME) u64 __profile_##NAME##_ts = bpf_ktime_get_ns()
-    #define bpf_profile_end(NAME) __profile_##NAME##_cnt++; __profile_##NAME##_sum += (bpf_ktime_get_ns() - __profile_##NAME##_ts)
+    #define bpf_profile_end(NAME) __sync_fetch_and_add(&__profile_##NAME##_cnt, 1); __sync_fetch_and_add(&__profile_##NAME##_sum, (bpf_ktime_get_ns() - __profile_##NAME##_ts))
     #define bpf_profile_print(NAME) bpf_printk("%s total: %llu nsecs, count: %llu", #NAME, __profile_##NAME##_sum, __profile_##NAME##_cnt)
 #else
     #define bpf_profile_def(...)

@@ -255,8 +255,8 @@ impl Compiler {
                 .map(|v| {
                     format!(
                         "if (ctx->{name}_range.idx >= {idx}) {{
-                ctx->{name}_range.idx += {off};
-            }}",
+                            ctx->{name}_range.idx += {off};
+                        }}",
                         name = sanitize_var_name(v.name()),
                         idx = idx,
                         off = off
