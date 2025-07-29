@@ -85,15 +85,6 @@ case ${ACTION} in
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
 
-        if [[ "${DOCKER_CONFIG}" == *ssm* ]]; then
-            SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
-
-            # envoy is not loaded by docker
-            # this is because uprobes do not work well in docker
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
-            echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
-        fi
-
         CWD=${PWD}
         cd ${ROOT}/..
         if [[ "${PROXY}" == "beeline" ]]; then
@@ -109,6 +100,15 @@ case ${ACTION} in
 
             sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
             echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
+        fi
+
+        if [[ "${PROXY}" == envoy* && "${DOCKER_CONFIG}" == *ssm* ]]; then
+            SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
+
+            # envoy is not loaded by docker
+            # this is because uprobes do not work well in docker
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
+            echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
         fi
 
         sleep 5
@@ -134,7 +134,7 @@ case ${ACTION} in
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.parse-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} -r ${ENVOY_BIN}:"^.*onFileEvent.*$" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.user-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.ipc-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "do_epoll_wait" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.epoll-e${EPOCH}.log 2>/dev/null
+                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.epoll-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.write-e${EPOCH}.log 2>/dev/null
                 sudo -b funclatency-bpfcc -p ${ENVOY_PID} "do_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.read-e${EPOCH}.log 2>/dev/null
 
