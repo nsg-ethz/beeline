@@ -646,15 +646,26 @@ def cdf_graph_tikz(name, time_range):
     def _percentiles(proxy):
         vals = df[df["proxy"] == proxy]["metric_value"]
 
-        ys = np.arange(1, 100)
+        ys = np.arange(0, 100)
         xs = np.percentile(vals, ys)
         return (xs, ys)
 
-    print("beeline vs envoy_l4fp:", (_percentiles("beeline")[0] / _percentiles("envoy_l4fp")[0]).mean())
-    print("beeline vs envoy:", (_percentiles("beeline")[0] / _percentiles("envoy")[0]).mean())
-    if "vanilla" in order:
-        print("beeline vs vanilla:", (_percentiles("beeline")[0] / _percentiles("vanilla")[0]).mean())
-    print("envoy_l4fp vs envoy:", (_percentiles("envoy_l4fp")[0] / _percentiles("envoy")[0]).mean())
+    avg_beeline = df[df["proxy"] == "beeline"]["metric_value"].mean()
+    avg_envoy = df[df["proxy"] == "envoy"]["metric_value"].mean()
+    avg_l4fp = df[df["proxy"] == "envoy_l4fp"]["metric_value"].mean()
+    avg_iouring = df[df["proxy"] == "envoy_iouring"]["metric_value"].mean()
+
+    ps_beeline = _percentiles("beeline")[0]
+    ps_envoy = _percentiles("envoy")[0]
+    ps_l4fp = _percentiles("envoy_l4fp")[0]
+    ps_iouring = _percentiles("envoy_iouring")[0]
+
+    print(f"avg beeline: {avg_beeline} envoy: {avg_envoy} l4fp: {avg_l4fp} io_uring: {avg_iouring}")
+    print(f"p50 beeline: {ps_beeline[50]} envoy: {ps_envoy[50]} l4fp: {ps_l4fp[50]} io_uring: {ps_iouring[50]}")
+    print(f"p75 beeline: {ps_beeline[75]} envoy: {ps_envoy[75]} l4fp: {ps_l4fp[75]} io_uring: {ps_iouring[75]}")
+    print(f"p90 beeline: {ps_beeline[90]} envoy: {ps_envoy[90]} l4fp: {ps_l4fp[90]} io_uring: {ps_iouring[90]}")
+    print(f"p95 beeline: {ps_beeline[95]} envoy: {ps_envoy[95]} l4fp: {ps_l4fp[95]} io_uring: {ps_iouring[95]}")
+    print(f"p99 beeline: {ps_beeline[99]} envoy: {ps_envoy[99]} l4fp: {ps_l4fp[99]} io_uring: {ps_iouring[99]}")
 
     for i, proxy in enumerate(order):
         color = _tex_color_name(proxy) # predefined in latex
