@@ -43,14 +43,3 @@ services:
             replicas: ${REPLICAS}
         depends_on:
             - frontend
-
-    sidecar:
-        image: envoyproxy/envoy:v1.34-latest
-        hostname: sidecar
-        cgroup_parent: beeline.slice
-        networks:
-            default:
-                ipv4_address: 172.18.0.254
-        restart: always
-        volumes:
-            - ../config/envoy/${PROXY_CONFIG}:/etc/envoy/envoy.yaml

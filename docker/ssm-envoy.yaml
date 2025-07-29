@@ -14,14 +14,14 @@ services:
         ports:
             - 8080:8080
         extra_hosts:
-            - "beeline:host-gateway"
+            - "proxy:host-gateway"
         entrypoint:
             [
                 "frontend",
                 "-a",
                 "0.0.0.0:8080",
                 "-p",
-                "172.18.0.254:9999",
+                "proxy:9999",
                 "-s",
                 "service-",
                 "-n",
@@ -43,15 +43,3 @@ services:
             replicas: ${REPLICAS}
         depends_on:
             - frontend
-            - sidecar
-
-    sidecar:
-        image: envoyproxy/envoy:v1.34-latest
-        hostname: sidecar
-        cgroup_parent: beeline.slice
-        networks:
-            default:
-                ipv4_address: 172.18.0.254
-        restart: always
-        volumes:
-            - ../config/envoy/${PROXY_CONFIG}:/etc/envoy/envoy.yaml
