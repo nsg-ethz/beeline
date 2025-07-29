@@ -90,7 +90,7 @@ case ${ACTION} in
 
             # envoy is not loaded by docker
             # this is because uprobes do not work well in docker
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice -c ${SIDECAR_CONFIG} > /dev/null 2>&1
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
             echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
         fi
 
