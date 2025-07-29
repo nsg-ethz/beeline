@@ -119,6 +119,19 @@ static_resources:
         - name: compose-post-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: compose-post-service
               endpoints:
@@ -132,6 +145,19 @@ static_resources:
         - name: compose-post-redis
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: compose-post-redis
               endpoints:
@@ -145,6 +171,19 @@ static_resources:
         - name: write-home-timeline-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: write-home-timeline-service
               endpoints:
@@ -158,6 +197,19 @@ static_resources:
         - name: media-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: media-service
               endpoints:
@@ -171,6 +223,19 @@ static_resources:
         - name: post-storage-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: post-storage-service
               endpoints:
@@ -184,6 +249,19 @@ static_resources:
         - name: social-graph-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: social-graph-service
               endpoints:
@@ -196,6 +274,19 @@ static_resources:
         - name: social-graph-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: social-graph-mongodb
               endpoints:
@@ -209,6 +300,19 @@ static_resources:
         - name: social-graph-redis
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: social-graph-redis
               endpoints:
@@ -222,6 +326,19 @@ static_resources:
         - name: text-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: text-service
               endpoints:
@@ -235,6 +352,19 @@ static_resources:
         - name: unique-id-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: unique-id-service
               endpoints:
@@ -248,6 +378,19 @@ static_resources:
         - name: url-shorten-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: url-shorten-service
               endpoints:
@@ -261,6 +404,19 @@ static_resources:
         - name: url-shorten-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: url-shorten-memcached
               endpoints:
@@ -274,6 +430,19 @@ static_resources:
         - name: user-mention-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: user-mention-service
               endpoints:
@@ -287,6 +456,19 @@ static_resources:
         - name: user-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: user-service
               endpoints:
@@ -300,6 +482,19 @@ static_resources:
         - name: user-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: user-mongodb
               endpoints:
@@ -313,6 +508,19 @@ static_resources:
         - name: user-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: user-memcached
               endpoints:
@@ -326,6 +534,19 @@ static_resources:
         - name: user-timeline-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: user-timeline-service
               endpoints:
@@ -339,6 +560,19 @@ static_resources:
         - name: user-timeline-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: user-timeline-mongodb
               endpoints:
@@ -352,6 +586,19 @@ static_resources:
         - name: user-timeline-redis
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: user-timeline-redis
               endpoints:
@@ -365,6 +612,19 @@ static_resources:
         - name: home-timeline-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+              - priority: HIGH
+                max_connections: 1000000000
+                max_pending_requests: 1000000000
+                max_requests: 1000000000
+                max_retries: 1000000000
+          
           load_assignment:
               cluster_name: home-timeline-service
               endpoints:

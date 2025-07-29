@@ -1,9 +1,0 @@
-hosts:
-    - name: server1
-      instances:
-          - 127.0.0.1:8001
-
-routes:
-    - match:
-          path: "*"
-      dest: server1

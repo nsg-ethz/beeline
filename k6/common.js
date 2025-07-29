@@ -79,11 +79,11 @@ export function requestTo(url, headers = {}) {
         "body is the same": (r) => r.body === payload,
     });
 
-    if (!passed && res.body != null) {
-        console.log(
-            `Failed request to ${url}:\nreq = ${payload},\nres = ${res.body},\nheaders = ${JSON.stringify(res.headers)}`,
-        );
-    }
+    // if (!passed && res.body != null) {
+    //     console.log(
+    //         `Failed request to ${url}:\nreq = ${payload},\nres = ${res.body},\nheaders = ${JSON.stringify(res.headers)}`,
+    //     );
+    // }
 
     return passed;
 }

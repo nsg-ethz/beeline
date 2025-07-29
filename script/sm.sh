@@ -51,8 +51,8 @@ case ${ACTION} in
             exit 1
         fi
 
-        CPU_SYSTEM=0,1,20,21
-        CPU_BEELINE=2-19,22-39
+        CPU_SYSTEM=0,6,20,26
+        CPU_BEELINE=7-19,27-39
 
         # clean up just to be safe
         CONTAINERS=$(docker ps -a -q)
@@ -85,19 +85,6 @@ case ${ACTION} in
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
 
-        if [[ "${DOCKER_CONFIG}" == *ssm* ]]; then
-            SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
-
-            # envoy is not loaded by docker
-            # this is because uprobes do not work well in docker
-            SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
-            if [[ -n "${SIDECAR_NAME}" ]]; then
-                SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
-                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
-                echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
-            fi
-        fi
-
         CWD=${PWD}
         cd ${ROOT}/..
         if [[ "${PROXY}" == "beeline" ]]; then
@@ -113,6 +100,10 @@ case ${ACTION} in
 
             sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
             echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
+        # elif [[ "${PROXY}" == envoy* ]]; then
+        #     SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
+        #     sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice ${ENVOY_BIN} -c ${SIDECAR_CONFIG} --concurrency 1 > /dev/null 2>&1
+        #     echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
         fi
 
         sleep 5

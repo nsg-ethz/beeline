@@ -420,6 +420,19 @@ static_resources:
         - name: unique-id-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: unique-id-service
               endpoints:
@@ -433,6 +446,19 @@ static_resources:
         - name: movie-id-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-id-service
               endpoints:
@@ -446,6 +472,19 @@ static_resources:
         - name: movie-id-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-id-mongodb
               endpoints:
@@ -459,6 +498,19 @@ static_resources:
         - name: movie-id-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-id-memcached
               endpoints:
@@ -472,6 +524,19 @@ static_resources:
         - name: user-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: user-mongodb
               endpoints:
@@ -485,6 +550,19 @@ static_resources:
         - name: user-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: user-memcached
               endpoints:
@@ -498,6 +576,19 @@ static_resources:
         - name: text-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: text-service
               endpoints:
@@ -511,6 +602,19 @@ static_resources:
         - name: rating-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: rating-service
               endpoints:
@@ -524,6 +628,19 @@ static_resources:
         - name: rating-redis
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: rating-redis
               endpoints:
@@ -537,6 +654,19 @@ static_resources:
         - name: compose-review-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: compose-review-service
               endpoints:
@@ -549,6 +679,19 @@ static_resources:
         - name: user-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: user-service
               endpoints:
@@ -561,6 +704,19 @@ static_resources:
         - name: compose-review-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: compose-review-memcached
               endpoints:
@@ -574,6 +730,19 @@ static_resources:
         - name: review-storage-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: review-storage-service
               endpoints:
@@ -587,6 +756,19 @@ static_resources:
         - name: review-storage-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: review-storage-mongodb
               endpoints:
@@ -600,6 +782,19 @@ static_resources:
         - name: review-storage-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: review-storage-memcached
               endpoints:
@@ -613,6 +808,19 @@ static_resources:
         - name: user-review-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: user-review-service
               endpoints:
@@ -626,6 +834,19 @@ static_resources:
         - name: user-review-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: user-review-mongodb
               endpoints:
@@ -639,6 +860,19 @@ static_resources:
         - name: user-review-redis
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: user-review-redis
               endpoints:
@@ -652,6 +886,19 @@ static_resources:
         - name: movie-review-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-review-service
               endpoints:
@@ -665,6 +912,19 @@ static_resources:
         - name: movie-review-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-review-mongodb
               endpoints:
@@ -678,6 +938,19 @@ static_resources:
         - name: movie-review-redis
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-review-redis
               endpoints:
@@ -691,6 +964,19 @@ static_resources:
         - name: cast-info-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: cast-info-service
               endpoints:
@@ -704,6 +990,19 @@ static_resources:
         - name: cast-info-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: cast-info-mongodb
               endpoints:
@@ -717,6 +1016,19 @@ static_resources:
         - name: cast-info-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: cast-info-memcached
               endpoints:
@@ -730,6 +1042,19 @@ static_resources:
         - name: plot-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: plot-service
               endpoints:
@@ -743,6 +1068,19 @@ static_resources:
         - name: plot-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: plot-mongodb
               endpoints:
@@ -756,6 +1094,19 @@ static_resources:
         - name: plot-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: plot-memcached
               endpoints:
@@ -769,6 +1120,19 @@ static_resources:
         - name: movie-info-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-info-service
               endpoints:
@@ -782,6 +1146,19 @@ static_resources:
         - name: movie-info-mongodb
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-info-mongodb
               endpoints:
@@ -795,6 +1172,19 @@ static_resources:
         - name: movie-info-memcached
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: movie-info-memcached
               endpoints:
@@ -808,6 +1198,19 @@ static_resources:
         - name: page-service
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
           load_assignment:
               cluster_name: page-service
               endpoints:
