@@ -85,8 +85,6 @@ case ${ACTION} in
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
 
-        CWD=${PWD}
-        cd ${ROOT}/..
         if [[ "${PROXY}" == "beeline" ]]; then
             BEELINE_BIN=${ROOT}/../target/release/beeline
             BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
@@ -116,10 +114,13 @@ case ${ACTION} in
         sleep 5
 
         # populate dbs with data
+        CWD=${PWD}
         if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
+            echo -e "${COLOR_YELLOW}Preparing social network...${COLOR_OFF}"
             cd ${ROOT}/../test/social_network
             python3 scripts/init_social_graph.py
         elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
+            echo -e "${COLOR_YELLOW}Preparing media service...${COLOR_OFF}"
             cd ${ROOT}/../test/media_service/scripts
             ./register_users.sh
             ./register_movies.sh
