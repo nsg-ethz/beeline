@@ -1244,11 +1244,13 @@ def _load_dissect_df(name):
     def _load_df(complexity):
         avg_req_latency = lambda df, proxy: df[(df["proxy"] == proxy) & (df["metric_name"] == "http_req_duration{expected_response:true}")]["avg"].mean()
 
-        paths = _get_file_paths(f"{name}-c{complexity}_nobpf", "*k6*.json")
+        suffix = f"-c{complexity}" if complexity else ""
+        paths = _get_file_paths(f"{name}{suffix}", "*k6*.json")
         if len(paths) == 0:
             return None
 
-        print("Load complexity", complexity)
+        if complexity:
+            print("Load complexity", complexity)
 
         k6 = _load_k6_summaries(paths)
 
@@ -1257,8 +1259,17 @@ def _load_dissect_df(name):
         l4fp = avg_req_latency(k6, "envoy_l4fp")
         envoy = avg_req_latency(k6, "envoy")
         beeline = avg_req_latency(k6, "beeline")
-        ideal = avg_req_latency(k6, "none_l4fp")
         direct = avg_req_latency(k6, "none")
+
+        iters = k6[k6["metric_name"] == "iterations"]["count"].mean()
+
+        # we get the IPC, parsing etc overhead for every single request
+        paths = _get_file_paths(f"{name}{suffix}-bpf", "*bpf*.log")
+        df = _load_bpf_data(paths)
+        df["mean"] = (df["total"] / iters) / 1e6
+
+        df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
+        ideal = beeline - df.loc[("beeline", "user"), "mean"]
 
         print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}, direct: {direct}, ideal: {ideal}")
 
@@ -1274,19 +1285,10 @@ def _load_dissect_df(name):
         print("envoy's network stack overhead:", ns_envoy)
         print("overhead from using envoy + L4 FP:", l4fp)
 
-        iters = k6[k6["metric_name"] == "iterations"]["count"].mean()
-
-        # we get the IPC, parsing etc overhead for every single request
-        paths = _get_file_paths(f"{name}-c{complexity}", "*bpf*.log")
-        df = _load_bpf_data(paths)
-        df["mean"] = (df["total"] / iters) / 1e6
-
-        df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
-
         # add the overhead from traversing the network stack
         df.loc[("envoy", "ipc"), "mean"] += ns_envoy
 
-        # userspace processing contains parsing and I/O -> subtract parsing from processing so it's not represented twice
+        # userspace processing contains parsing -> subtract parsing from processing so it's not represented twice
         df.loc[(slice(None), "user"), "mean"] -= df.loc[(slice(None), "parse"), "mean"].values
 
         # this is the overhead from running an eBPF program at the sk_msg level
@@ -1300,9 +1302,9 @@ def _load_dissect_df(name):
         df.loc[("envoy_l4fp", "unaccounted"), "mean"] = l4fp - df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
         df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
 
-        # assert df.loc[("envoy", "unaccounted"), "mean"] < 0.5, f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
-        # assert df.loc[("envoy_l4fp", "unaccounted"), "mean"] < 0.5, f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
-        # assert df.loc[("beeline", "unaccounted"), "mean"] < 0.5, f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
+        assert df.loc[("envoy", "unaccounted"), "mean"] < 0.5, f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
+        assert df.loc[("envoy_l4fp", "unaccounted"), "mean"] < 0.5, f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
+        assert df.loc[("beeline", "unaccounted"), "mean"] < 0.5, f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
 
         # sanity check that we're not misssing anything
         assert df.loc[("envoy", slice(None)), "mean"].sum().round(5) == envoy.round(5)
@@ -1312,8 +1314,12 @@ def _load_dissect_df(name):
         # unaccounted goes into processing
         rename = {"user": "Processing", "unaccounted": "Processing", "ebpf": "eBPF", "parse": "Parsing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
         df = df.rename(index=rename, level="func").reset_index()
-        df["complexity"] = complexity
-        df = df.groupby(by=["proxy", "func", "complexity"]).agg({"mean": "sum"})
+
+        if complexity:
+            df["complexity"] = complexity
+            df = df.groupby(by=["proxy", "func", "complexity"]).agg({"mean": "sum"})
+        else:
+            df = df.groupby(by=["proxy", "func"]).agg({"mean": "sum"})
 
         return df
 
@@ -1322,6 +1328,9 @@ def _load_dissect_df(name):
         df = _load_df(c)
         if df is not None:
             dfs.append(df)
+
+    if len(dfs) == 0:
+        return _load_df(None)
 
     return pd.concat(dfs)
 
@@ -1337,8 +1346,9 @@ def dissect_graph(name, dst):
 
 def dissect_graph_tikz(name):
     df = _load_dissect_df(name)
+    print(df)
 
-    order = ["envoy", "l4fp", "beeline"]
+    order = ["envoy", "envoy_l4fp", "beeline"]
 
     plots = []
     funcs = ["eBPF", "Processing", "Parsing", "IPC"]
