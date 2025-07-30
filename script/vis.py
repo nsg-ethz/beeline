@@ -1300,9 +1300,9 @@ def _load_dissect_df(name):
         df.loc[("envoy_l4fp", "unaccounted"), "mean"] = l4fp - df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
         df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
 
-        # assert df.loc[("envoy", "unaccounted"), "mean"] < 0.5, f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
-        # assert df.loc[("envoy_l4fp", "unaccounted"), "mean"] < 0.5, f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
-        # assert df.loc[("beeline", "unaccounted"), "mean"] < 0.5, f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
+        assert df.loc[("envoy", "unaccounted"), "mean"] < 0.5, f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
+        assert df.loc[("envoy_l4fp", "unaccounted"), "mean"] < 0.5, f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
+        assert df.loc[("beeline", "unaccounted"), "mean"] < 0.5, f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
 
         # sanity check that we're not misssing anything
         assert df.loc[("envoy", slice(None)), "mean"].sum().round(5) == envoy.round(5)
@@ -1318,7 +1318,7 @@ def _load_dissect_df(name):
         return df
 
     dfs = []
-    for c in range(0, 20):
+    for c in range(0, 4):
         df = _load_df(c)
         if df is not None:
             dfs.append(df)
@@ -1336,7 +1336,7 @@ def dissect_graph(name, dst):
 
 
 def dissect_graph_tikz(name):
-    df = load_dissect_df(name)
+    df = _load_dissect_df(name)
 
     order = ["envoy", "l4fp", "beeline"]
 
@@ -1390,7 +1390,6 @@ def dissect_complexity_graph_tikz(name):
 
     order = ["envoy", "envoy_l4fp", "beeline"]
     complexities = sorted(df.index.get_level_values("complexity").unique())
-    symbolic_coords = [f"c{c}" for c in complexities]
 
     axes = []
     funcs = ["eBPF", "Processing", "Parsing", "IPC"]
@@ -1404,9 +1403,9 @@ def dissect_complexity_graph_tikz(name):
             for c in complexities:
                 if (p, f, c) in df.index:
                     v = df.loc[(p, f, c), "mean"]
-                    coords.append(f"(c{c}, {v})")
+                    coords.append(f"({c}, {v})")
                 else:
-                    coords.append(f"(c{c}, 0)")
+                    coords.append(f"({c}, 0)")
 
             coords = " ".join(coords)
             plots.append(f"\\addplot+ coordinates {{{coords}}};")
@@ -1426,7 +1425,6 @@ def dissect_complexity_graph_tikz(name):
         axes.append(axis)
 
     axes = "\n".join(axes)
-    symbolic_coords = ",".join(symbolic_coords)
 
     tikz = f"""\\begin{{tikzpicture}}[
     every axis/.style={{
@@ -1436,9 +1434,9 @@ def dissect_complexity_graph_tikz(name):
         every axis plot/.style={{fill}},
         bar width=10pt,
         ylabel={{latency [ms]}},
-        symbolic x coords={{{symbolic_coords}}},
         legend columns = 4,
         legend style={{at={{(0,1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
+        xticklabels={{easy, medium, hard, extreme}},
         xticklabel style={{align=center}},
         xtick=data,
         enlarge x limits={{abs=1.5cm}},
@@ -1727,6 +1725,8 @@ def complexity_graph_tikz(name, policy, metric, agg):
             /pgf/number format/1000 sep={{}},
         }},
         yticklabel={{\\pgfkeys{{/pgf/fpu=true}}\\pgfmathparse{{\\tick/1000}}\\pgfmathprintnumber{{\\pgfmathresult}}K}},
+        ytick={{0, 50000, 100000}},
+        xticklabels={{easy, medium, hard, extreme}},
         scaled y ticks=false,
         scaled x ticks=false,
         grid=major,
