@@ -349,6 +349,27 @@ def _aggregate_fn(name):
         raise KeyError(f"Unknown aggregation function: {name}")
 
 
+def _order_proxies(proxies):
+    res = []
+
+    if "beeline" in proxies:
+        res.append("beeline")
+
+    if "envoy_l4fp" in proxies:
+        res.append("envoy_l4fp")
+
+    if "envoy_iouring" in proxies:
+        res.append("envoy_iouring")
+
+    if "envoy" in proxies:
+        res.append("envoy")
+
+    if "none" in proxies:
+        res.append("none")
+
+    return res
+
+
 def _parse_time_range(time_range, min=0, max=2**100):
     if time_range is None:
         return (min, max)
@@ -603,7 +624,7 @@ def cdf_graph(name, time_range, dst):
     print("Number of epochs per proxy:")
     print(num_epochs.to_string())
 
-    order = df["proxy"].unique()
+    order = _order_proxies(df["proxy"].unique())
 
     g = sns.ecdfplot(data=df, x="metric_value", hue="proxy", hue_order=order)
     g.set_xlabel("Latency [ms]")
@@ -634,12 +655,7 @@ def cdf_graph_tikz(name, time_range):
     print("Number of epochs per proxy:")
     print(num_epochs.to_string())
 
-    order = df["proxy"].unique()
-    order = sorted(order)
-
-    if "beeline" in order:
-        order.remove("beeline")
-        order.insert(0, "beeline")
+    order = _order_proxies(df["proxy"].unique())
 
     legend = ",".join([_tex_display_name(p) for p in order])
 
@@ -1002,12 +1018,7 @@ def cpu_graph(name, dst):
     min_ts = df.groupby(by=["proxy"]).agg({"timestamp": "min"})
     df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
 
-    order = df["proxy"].unique()
-    order = sorted(order)
-
-    if "beeline" in order:
-        order.remove("beeline")
-        order.insert(0, "beeline")
+    order = _order_proxies(df["proxy"].unique())
 
     for p in order:
         df.loc[df["proxy"] == p, "timestamp"] -= min_ts.loc[p, "timestamp"]
@@ -1045,15 +1056,10 @@ def cpu_graph_tikz(name):
     min_ts = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
     df = df.groupby(by=["proxy", "epoch", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
 
-    order = df["proxy"].unique()
-    order = sorted(order)
-
-    if "beeline" in order:
-        order.remove("beeline")
-        order.insert(0, "beeline")
+    order = _order_proxies(df["proxy"].unique())
 
     # Subtract the corresponding minimum timestamp
-    for proxy in df["proxy"].unique():
+    for proxy in order:
         for epoch in df[df["proxy"] == proxy]["epoch"].unique():
             mask = (df["proxy"] == proxy) & (df["epoch"] == epoch)
             df.loc[mask, "timestamp"] -= min_ts.loc[(proxy, epoch), "timestamp"]
@@ -1136,8 +1142,7 @@ def rate_graph(name, dst):
     df = df.merge(num_epochs, on="proxy")
     df["rate"] = df["rate"] / df["num_epochs"]
 
-    order = df["proxy"].unique()
-    order = sorted(order)
+    order = _order_proxies(df["proxy"].unique())
 
     g = sns.lineplot(data=df, x="timestamp", y="rate", hue="proxy", marker="o", hue_order=order)
     # g.set(xlim=(200, 1100))
@@ -1168,12 +1173,7 @@ def rate_graph_tikz(name):
     df = df.merge(num_epochs, on="proxy")
     df["rate"] = df["rate"] / df["num_epochs"]
 
-    order = df["proxy"].unique()
-    order = sorted(order)
-
-    if "beeline" in order:
-        order.remove("beeline")
-        order.insert(0, "beeline")
+    order = _order_proxies(df["proxy"].unique())
 
     def _rate(proxy, start=None, end=None):
         mask = df["proxy"] == proxy
@@ -1499,12 +1499,7 @@ def percentile_graph_tikz(name, time_range):
                  var_name="percentile",
                  value_name="metric_value")
 
-    order = df["proxy"].unique()
-    order = sorted(order)
-
-    if "beeline" in order:
-        order.remove("beeline")
-        order.insert(0, "beeline")
+    order = _order_proxies(df["proxy"].unique())
 
     legend = ",".join(order)
 
@@ -1678,12 +1673,7 @@ def complexity_graph_tikz(name, policy, metric, agg):
     for idx, policy in enumerate(policies):
         print(f"policy: {policy}")
         plots = []
-        order = df["proxy"].unique()
-        order = sorted(order)
-
-        if "beeline" in order:
-            order.remove("beeline")
-            order.insert(0, "beeline")
+        order = _order_proxies(df["proxy"].unique())
 
         legend = ",".join([_tex_display_name(p) for p in order])
 
