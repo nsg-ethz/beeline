@@ -50,12 +50,10 @@ for i in $(seq ${FROM} ${TO} ) ; do
             ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} ${MONITOR_FLAG}"
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
-            if [[ "${CONFIG}" == *sn* ]]; then
-                K6_SCRIPT=${ROOT}/../k6/sn-compose-post.js
-            elif [[ "${CONFIG}" == *ms* ]]; then
-                K6_SCRIPT=${ROOT}/../k6/ms-compose-review.js
-            elif [[ "${CONFIG}" == *ssm* ]]; then
+            if [[ "${CONFIG}" == *ssm* ]]; then
                 K6_SCRIPT="${ROOT}/../${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=5000 -e URL=http://moonshine:8080"
+            else
+                K6_SCRIPT="${ROOT}/../${SCRIPT}"
             fi
 
             if [ "${WRITE_REPORT}" = true ]; then
