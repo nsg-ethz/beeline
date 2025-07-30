@@ -134,15 +134,18 @@ impl Compiler {
             .map(|(i, var)| {
                 // TODO: let the initialization fail if len < size
                 match &var {
-                    &Variable::Buffer(name, ty, _) => {
+                    &Variable::Buffer(name, ty, len) => {
                         let name = sanitize_var_name(name);
-                        let mask = if name.eq_ignore_ascii_case("jwt_claims") {
-                            0xfff
-                        }
-                        else {
-                            0x7ff
-                        };
                         let code = if ty == "char" {
+                            let mut mask = 1;
+                            loop {
+                                mask = mask << 1;
+                                if (mask - 1) >= len.unwrap() {
+                                    break;
+                                }
+                            }
+                            let mask = mask - 1;
+
                             format!(
                                 "r = pranges[{idx}];
                             r.len &= {mask};
@@ -706,8 +709,8 @@ impl Compiler {
         insert(Variable::buffer("content-length", "u32", None));
 
         if auth {
-            insert(Variable::buffer("jwt_claims", "char", Some(4096)));
-            insert(Variable::buffer("jwt_sig", "char", Some(64)));
+            insert(Variable::buffer("jwt_claims", "char", Some(4095)));
+            insert(Variable::buffer("jwt_sig", "char", Some(63)));
         }
 
         ctx
