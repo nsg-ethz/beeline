@@ -13,15 +13,13 @@ services:
             dockerfile: docker/Dockerfile.frontend
         ports:
             - 8080:8080
-        extra_hosts:
-            - "proxy:host-gateway"
         entrypoint:
             [
                 "frontend",
                 "-a",
                 "0.0.0.0:8080",
                 "-p",
-                "proxy:9999",
+                "sidecar:9999",
                 "-s",
                 "service-",
                 "-n",
@@ -43,3 +41,14 @@ services:
             replicas: ${REPLICAS}
         depends_on:
             - frontend
+
+    sidecar:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.echo
+        entrypoint: "echo -a 0.0.0.0:8080"
+        hostname: sidecar
+        cgroup_parent: beeline.slice
+        networks:
+            default:
+                ipv4_address: 172.18.0.254

@@ -488,6 +488,8 @@ services:
         environment:
             - COLLECTOR_ZIPKIN_HTTP_PORT=9411
 
+    # this will not be used, really
+    # it's here to make CPU measurements fair
     sidecar:
         image: envoyproxy/envoy:v1.34-latest
         hostname: sidecar

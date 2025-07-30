@@ -43,3 +43,15 @@ services:
             replicas: ${REPLICAS}
         depends_on:
             - frontend
+
+    # this container is setup only to simplify network
+    # an envoy proxy will be loaded into the network namespace of this container
+    sidecar:
+        image: envoyproxy/envoy:v1.34-latest
+        hostname: sidecar
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.254

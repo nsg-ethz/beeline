@@ -244,7 +244,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: compose-post-service
+                                      address: 172.18.0.9
                                       port_value: 9999
 
         - name: compose-post-redis
@@ -270,7 +270,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: compose-post-redis
+                                      address: 172.18.0.8
                                       port_value: 6379
 
         - name: write-home-timeline-service
@@ -296,7 +296,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: write-home-timeline-service
+                                      address: 172.18.0.6
                                       port_value: 9999
 
         - name: media-service
@@ -322,7 +322,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: media-service
+                                      address: 172.18.0.27
                                       port_value: 9999
 
         - name: post-storage-service
@@ -348,7 +348,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: post-storage-service
+                                      address: 172.18.0.11
                                       port_value: 9999
 
         - name: social-graph-service
@@ -374,7 +374,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: social-graph-service
+                                      address: 172.18.0.2
                                       port_value: 9999
         - name: social-graph-mongodb
           type: STRICT_DNS
@@ -399,7 +399,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: social-graph-mongodb
+                                      address: 172.18.0.4
                                       port_value: 27017
 
         - name: social-graph-redis
@@ -425,7 +425,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: social-graph-redis
+                                      address: 172.18.0.5
                                       port_value: 6379
 
         - name: text-service
@@ -451,7 +451,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: text-service
+                                      address: 172.18.0.31
                                       port_value: 9999
 
         - name: unique-id-service
@@ -477,7 +477,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: unique-id-service
+                                      address: 172.18.0.33
                                       port_value: 9999
 
         - name: url-shorten-service
@@ -503,7 +503,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: url-shorten-service
+                                      address: 172.18.0.19
                                       port_value: 9999
 
         - name: url-shorten-memcached
@@ -529,7 +529,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: url-shorten-memcached
+                                      address: 172.18.0.21
                                       port_value: 11211
 
         - name: user-mention-service
@@ -555,7 +555,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-mention-service
+                                      address: 172.18.0.35
                                       port_value: 9999
 
         - name: user-service
@@ -581,7 +581,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-service
+                                      address: 172.18.0.23
                                       port_value: 9999
 
         - name: user-mongodb
@@ -607,7 +607,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-mongodb
+                                      address: 172.18.0.26
                                       port_value: 27017
 
         - name: user-memcached
@@ -633,7 +633,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-memcached
+                                      address: 172.18.0.25
                                       port_value: 11211
 
         - name: user-timeline-service
@@ -659,7 +659,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-timeline-service
+                                      address: 172.18.0.15
                                       port_value: 9999
 
         - name: user-timeline-mongodb
@@ -685,7 +685,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-timeline-mongodb
+                                      address: 172.18.0.18
                                       port_value: 27017
 
         - name: user-timeline-redis
@@ -711,7 +711,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-timeline-redis
+                                      address: 172.18.0.17
                                       port_value: 6379
 
         - name: home-timeline-service
@@ -737,5 +737,5 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: home-timeline-service
+                                      address: 172.18.0.6
                                       port_value: 9999

@@ -1,9 +1,3 @@
-bootstrap_extensions:
-    - name: envoy.extensions.network.socket_interface.default_socket_interface
-      typed_config:
-          "@type": type.googleapis.com/envoy.extensions.network.socket_interface.v3.DefaultSocketInterface
-          io_uring_options: {}
-default_socket_interface: "envoy.extensions.network.socket_interface.default_socket_interface"
 static_resources:
     listeners:
         - name: listener_0
@@ -408,10 +402,6 @@ static_resources:
                                           route:
                                               cluster: movie-info-memcached
                                         - match:
-                                              prefix: "/page-service"
-                                          route:
-                                              cluster: page-service
-                                        - match:
                                               prefix: "/user-service"
                                           route:
                                               cluster: user-service
@@ -440,7 +430,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: unique-id-service
+                                      address: 172.18.0.3
                                       port_value: 9999
 
         - name: movie-id-service
@@ -466,7 +456,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-id-service
+                                      address: 172.18.0.4
                                       port_value: 9999
 
         - name: movie-id-mongodb
@@ -492,7 +482,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-id-mongodb
+                                      address: 172.18.0.5
                                       port_value: 27017
 
         - name: movie-id-memcached
@@ -518,7 +508,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-id-memcached
+                                      address: 172.18.0.6
                                       port_value: 11211
 
         - name: user-mongodb
@@ -544,7 +534,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-mongodb
+                                      address: 172.18.0.11
                                       port_value: 27017
 
         - name: user-memcached
@@ -570,7 +560,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-memcached
+                                      address: 172.18.0.12
                                       port_value: 11211
 
         - name: text-service
@@ -596,7 +586,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: text-service
+                                      address: 172.18.0.7
                                       port_value: 9999
 
         - name: rating-service
@@ -622,7 +612,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: rating-service
+                                      address: 172.18.0.8
                                       port_value: 9999
 
         - name: rating-redis
@@ -648,7 +638,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: rating-redis
+                                      address: 172.18.0.9
                                       port_value: 6379
 
         - name: compose-review-service
@@ -674,7 +664,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: compose-review-service
+                                      address: 172.18.0.13
                                       port_value: 9999
         - name: user-service
           type: STRICT_DNS
@@ -699,7 +689,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-service
+                                      address: 172.18.0.10
                                       port_value: 9999
         - name: compose-review-memcached
           type: STRICT_DNS
@@ -724,7 +714,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: compose-review-memcached
+                                      address: 172.18.0.14
                                       port_value: 11211
 
         - name: review-storage-service
@@ -750,7 +740,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: review-storage-service
+                                      address: 172.18.0.15
                                       port_value: 9999
 
         - name: review-storage-mongodb
@@ -776,7 +766,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: review-storage-mongodb
+                                      address: 172.18.0.16
                                       port_value: 27017
 
         - name: review-storage-memcached
@@ -802,7 +792,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: review-storage-memcached
+                                      address: 172.18.0.17
                                       port_value: 11211
 
         - name: user-review-service
@@ -828,7 +818,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-review-service
+                                      address: 172.18.0.18
                                       port_value: 9999
 
         - name: user-review-mongodb
@@ -854,7 +844,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-review-mongodb
+                                      address: 172.18.0.19
                                       port_value: 27017
 
         - name: user-review-redis
@@ -880,7 +870,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: user-review-redis
+                                      address: 172.18.0.20
                                       port_value: 6379
 
         - name: movie-review-service
@@ -906,7 +896,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-review-service
+                                      address: 172.18.0.21
                                       port_value: 9999
 
         - name: movie-review-mongodb
@@ -932,7 +922,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-review-mongodb
+                                      address: 172.18.0.22
                                       port_value: 27017
 
         - name: movie-review-redis
@@ -958,7 +948,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-review-redis
+                                      address: 172.18.0.23
                                       port_value: 6379
 
         - name: cast-info-service
@@ -984,7 +974,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: cast-info-service
+                                      address: 172.18.0.25
                                       port_value: 9999
 
         - name: cast-info-mongodb
@@ -1010,7 +1000,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: cast-info-mongodb
+                                      address: 172.18.0.26
                                       port_value: 27017
 
         - name: cast-info-memcached
@@ -1036,7 +1026,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: cast-info-memcached
+                                      address: 172.18.0.27
                                       port_value: 11211
 
         - name: plot-service
@@ -1062,7 +1052,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: plot-service
+                                      address: 172.18.0.28
                                       port_value: 9999
 
         - name: plot-mongodb
@@ -1088,7 +1078,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: plot-mongodb
+                                      address: 172.18.0.29
                                       port_value: 27017
 
         - name: plot-memcached
@@ -1114,7 +1104,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: plot-memcached
+                                      address: 172.18.0.30
                                       port_value: 11211
 
         - name: movie-info-service
@@ -1140,7 +1130,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-info-service
+                                      address: 172.18.0.31
                                       port_value: 9999
 
         - name: movie-info-mongodb
@@ -1166,7 +1156,7 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-info-mongodb
+                                      address: 172.18.0.32
                                       port_value: 27017
 
         - name: movie-info-memcached
@@ -1192,31 +1182,5 @@ static_resources:
                         - endpoint:
                               address:
                                   socket_address:
-                                      address: movie-info-memcached
+                                      address: 172.18.0.33
                                       port_value: 11211
-
-        - name: page-service
-          type: STRICT_DNS
-          lb_policy: ROUND_ROBIN
-          circuit_breakers:
-              thresholds:
-                  - priority: DEFAULT
-                    max_connections: 1000000000
-                    max_pending_requests: 1000000000
-                    max_requests: 1000000000
-                    max_retries: 1000000000
-                  - priority: HIGH
-                    max_connections: 1000000000
-                    max_pending_requests: 1000000000
-                    max_requests: 1000000000
-                    max_retries: 1000000000
-
-          load_assignment:
-              cluster_name: page-service
-              endpoints:
-                  - lb_endpoints:
-                        - endpoint:
-                              address:
-                                  socket_address:
-                                      address: page-service
-                                      port_value: 9999
