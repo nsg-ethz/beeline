@@ -38,6 +38,13 @@ struct {
     __type(value, int);
 } sock_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 32768);
+    __type(key, struct sock_key);
+    __type(value, int);
+} contains_map SEC(".maps");
+
 volatile const u32 ip4_start;
 volatile const u32 ip4_end;
 volatile const u32 gw;
@@ -68,6 +75,8 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     if (ikey.remote.ip4 == gw) return SK_PASS;
     struct sock_key ekey = _invert_sock_key(&ikey);
+
+    if (bpf_map_lookup_elem(&contains_map, &ekey) == NULL) return SK_PASS;
 
     if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
         bpf_err("ERROR: Failed to accelerate msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
@@ -107,6 +116,9 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
+
+            int flag = 1;
+            bpf_map_update_elem(&contains_map, &skey, &flag, BPF_ANY);
 
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
         }
