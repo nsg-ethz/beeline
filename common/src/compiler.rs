@@ -678,7 +678,8 @@ impl Compiler {
         let mut auth = false;
         for route in &self.config.routes {
             if let Some(path) = &route.pattern.path {
-                max_path_len = max_path_len.max(path.len())
+                // +9 because we're also matching HTTP/1.1 in the path
+                max_path_len = max_path_len.max(path.len() + 9)
             }
 
             if let Some(headers) = &route.pattern.headers {
