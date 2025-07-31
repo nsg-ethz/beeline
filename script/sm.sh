@@ -86,6 +86,7 @@ case ${ACTION} in
         if [[ "${PROXY}" == "beeline" ]]; then
             BEELINE_BIN=${ROOT}/../target/release/beeline
             BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
+            cd ${ROOT}/..
             CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
 
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
@@ -93,6 +94,7 @@ case ${ACTION} in
         else
             if [[ "${PROXY}" == *l4fp ]]; then
                 PROXY_BIN=${ROOT}/../target/release/l4fp
+                cd ${ROOT}/..
                 cargo b -r -p l4fp
 
                 sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
@@ -115,12 +117,12 @@ case ${ACTION} in
                 fi
             fi
         fi
+        cd ${PWD}
         sleep 5
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d
 
         # populate dbs with data
-        CWD=${PWD}
         if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
             echo -e "${COLOR_YELLOW}Preparing social network...${COLOR_OFF}"
             cd ${ROOT}/../test/social_network
@@ -131,7 +133,7 @@ case ${ACTION} in
             ./register_users.sh
             ./register_movies.sh
         fi
-        cd ${CWD}
+        cd ${PWD}
 
         if [[ "${MONITOR}" = 1 ]]; then
             if [[ "${PROXY}" = "beeline" ]]; then
