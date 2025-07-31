@@ -50,16 +50,10 @@ for i in $(seq ${FROM} ${TO} ) ; do
             ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} ${MONITOR_FLAG}"
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
-            if [[ "${CONFIG}" == *ssm* ]]; then
-                K6_SCRIPT="${ROOT}/../${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=5000 -e URL=http://moonshine:8080"
-            else
-                K6_SCRIPT="${ROOT}/../${SCRIPT}"
-            fi
-
             if [ "${WRITE_REPORT}" = true ]; then
-                k6 run ${K6_SCRIPT} --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
+                k6 run ${SCRIPT} --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
             else
-                k6 run ${K6_SCRIPT} --no-thresholds --summary-export ${SUMMARY}
+                k6 run ${SCRIPT} --no-thresholds --summary-export ${SUMMARY}
             fi
 
             ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} ${MONITOR_FLAG}"
@@ -70,9 +64,9 @@ for i in $(seq ${FROM} ${TO} ) ; do
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
             if [ "${WRITE_REPORT}" = true ]; then
-                k6 run ${K6_SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
+                k6 run ${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds --out csv=>(grep -e metric_name,timestamp -e http_req_duration > ${REPORT}) --summary-export ${SUMMARY}
             else
-                k6 run ${K6_SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds --summary-export ${SUMMARY}
+                k6 run ${SCRIPT} -e PAYLOAD_SIZE=100 -e RATE=10000 -e URL=http://localhost:8080 --no-thresholds --summary-export ${SUMMARY}
             fi
 
             ${ROOT}/mb.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} -m
