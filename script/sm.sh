@@ -106,7 +106,7 @@ case ${ACTION} in
                 # this is because uprobes do not work well in docker
                 SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
                 SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
-                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
+                sudo -b -E systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
                 echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
             fi
         fi
