@@ -106,8 +106,13 @@ case ${ACTION} in
                 # this is because uprobes do not work well in docker
                 SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
                 SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
-                sudo -b -E systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
-                echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+                if [[ -z ${SIDECAR_NS} ]]; then
+                    sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
+                    echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+                else
+                    sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} --concurrency=${ENVOY_CONCURRENCY} > /dev/null 2>&1
+                    echo -e "${COLOR_GREEN}Launched envoy with ${ENVOY_CONCURRENCY} workers${COLOR_OFF}"
+                fi
             fi
         fi
         sleep 5
