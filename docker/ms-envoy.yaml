@@ -11,6 +11,8 @@ services:
     dns-media:
         image: defreitas/dns-proxy-server
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.2
@@ -23,6 +25,8 @@ services:
         build: ../test/media_service
         hostname: unique-id-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.3
@@ -37,6 +41,8 @@ services:
         build: ../test/media_service
         hostname: movie-id-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.4
@@ -51,6 +57,8 @@ services:
         image: mongo:4.4.6
         hostname: movie-id-mongodb
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.5
@@ -62,6 +70,8 @@ services:
         image: memcached
         hostname: movie-id-memcached
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.6
@@ -73,6 +83,8 @@ services:
         build: ../test/media_service
         hostname: text-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.7
@@ -87,6 +99,8 @@ services:
         build: ../test/media_service
         hostname: rating-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.8
@@ -101,6 +115,8 @@ services:
         image: redis
         hostname: rating-redis
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.9
@@ -112,6 +128,8 @@ services:
         build: ../test/media_service
         hostname: user-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.10
@@ -126,6 +144,8 @@ services:
         image: mongo:4.4.6
         hostname: user-mongodb
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.11
@@ -137,6 +157,8 @@ services:
         image: memcached
         hostname: user-memcached
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.12
@@ -148,6 +170,8 @@ services:
         build: ../test/media_service
         hostname: compose-review-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.13
@@ -162,6 +186,8 @@ services:
         image: memcached
         hostname: compose-review-memcached
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.14
@@ -175,6 +201,8 @@ services:
         build: ../test/media_service
         hostname: review-storage-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.15
@@ -189,6 +217,8 @@ services:
         image: mongo:4.4.6
         hostname: review-storage-mongodb
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.16
@@ -200,6 +230,8 @@ services:
         image: memcached
         hostname: review-storage-memcached
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.17
@@ -211,6 +243,8 @@ services:
         build: ../test/media_service
         hostname: user-review-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.18
@@ -225,6 +259,8 @@ services:
         image: mongo:4.4.6
         hostname: user-review-mongodb
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.19
@@ -236,6 +272,8 @@ services:
         image: redis
         hostname: user-review-redis
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.20
@@ -247,6 +285,8 @@ services:
         build: ../test/media_service
         hostname: movie-review-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.21
@@ -261,6 +301,8 @@ services:
         image: mongo:4.4.6
         hostname: movie-review-mongodb
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.22
@@ -272,6 +314,8 @@ services:
         image: redis
         hostname: movie-review-redis
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.23
@@ -283,6 +327,8 @@ services:
         image: yg397/openresty-thrift:xenial
         hostname: nginx-thrift
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.24
@@ -300,6 +346,8 @@ services:
         build: ../test/media_service
         hostname: cast-info-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.25
@@ -314,6 +362,8 @@ services:
         image: mongo:4.4.6
         hostname: cast-info-mongodb
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.26
@@ -325,6 +375,8 @@ services:
         image: memcached
         hostname: cast-info-memcached
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.27
@@ -336,6 +388,8 @@ services:
         build: ../test/media_service
         hostname: plot-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.28
@@ -350,6 +404,8 @@ services:
         image: mongo:4.4.6
         hostname: plot-mongodb
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.29
@@ -361,6 +417,8 @@ services:
         image: memcached
         hostname: plot-memcached
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.30
@@ -372,6 +430,8 @@ services:
         build: ../test/media_service
         hostname: movie-info-service
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.31
@@ -386,6 +446,8 @@ services:
         image: mongo:4.4.6
         hostname: movie-info-mongodb
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.32
@@ -397,6 +459,8 @@ services:
         image: memcached
         hostname: movie-info-memcached
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.33
@@ -408,6 +472,8 @@ services:
         image: jaegertracing/all-in-one:latest
         hostname: jaeger
         cgroup_parent: beeline.slice
+        depends_on:
+            - sidecar
         networks:
             default:
                 ipv4_address: 172.18.0.34

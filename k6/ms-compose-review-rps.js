@@ -11,10 +11,12 @@ const randomText = randomString(256);
 export const options = {
     scenarios: {
         compose_review: {
-            executor: "constant-arrival-rate",
+            executor: "ramping-arrival-rate",
             preAllocatedVUs: 300,
-            rate: 500,
-            duration: "300s",
+            stages: [
+                { target: 500, duration: "10s" },
+                { target: 500, duration: "300s" },
+            ],
             gracefulStop: "3s",
         },
     },

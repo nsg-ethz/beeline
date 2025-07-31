@@ -83,8 +83,6 @@ case ${ACTION} in
         sudo chmod -R o+r ${ROOT}/../test/media_service/config-*
         sudo chmod -R o+r ${ROOT}/../config/envoy/*.yaml
 
-        docker compose -f ${DOCKER_CONFIG} up --wait -d --force-recreate
-
         if [[ "${PROXY}" == "beeline" ]]; then
             BEELINE_BIN=${ROOT}/../target/release/beeline
             BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
@@ -101,6 +99,7 @@ case ${ACTION} in
                 echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
             fi
             if [[ "${PROXY}" == envoy* ]]; then
+                docker compose -f ${DOCKER_CONFIG} up sidecar --wait -d
                 SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
 
                 # envoy is not loaded by docker
@@ -112,6 +111,8 @@ case ${ACTION} in
             fi
         fi
         sleep 5
+
+        docker compose -f ${DOCKER_CONFIG} up --wait -d
 
         # populate dbs with data
         CWD=${PWD}
