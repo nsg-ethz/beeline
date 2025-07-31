@@ -114,7 +114,7 @@ static_resources:
         - name: listener0
           address:
               socket_address:
-                  address: 172.17.0.1
+                  address: 0.0.0.0
                   port_value: 9999
 
           filter_chains:
