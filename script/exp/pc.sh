@@ -29,7 +29,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c1 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c1 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c1 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c1 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -41,7 +40,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c2 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c2 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c2 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c2 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -53,7 +51,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c3 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c3 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c3 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c3 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
@@ -65,7 +62,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c4 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c4 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c4 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c4 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 fi
 
@@ -81,7 +77,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c1 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c1 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c1 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c1 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -93,7 +88,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c2 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c2 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c2 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c2 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -105,7 +99,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c3 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c3 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c3 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c3 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
@@ -117,7 +110,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c4 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c4 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c4 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c4 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
 fi
@@ -135,7 +127,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c1 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c1 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c1 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c1 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -148,7 +139,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c2 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c2 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c2 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c2 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -161,7 +151,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c3 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c3 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c3 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c3 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
@@ -174,7 +163,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c4 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c4 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c4 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c4 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 fi
 
@@ -194,7 +182,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c1 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c1 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c1 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c1 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
@@ -207,7 +194,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c2 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c2 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c2 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c2 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
@@ -220,7 +206,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c3 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c3 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c3 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c3 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
     fi
 
     if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
@@ -233,7 +218,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c4 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c4 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c4 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c4 -p none_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
 
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c4-bpf -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
         script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c4-bpf -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
