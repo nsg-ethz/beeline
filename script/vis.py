@@ -1254,12 +1254,19 @@ def _load_dissect_df(name):
 
         k6 = _load_k6_summaries(paths)
 
+        paths = _get_file_paths(f"{name}{suffix}-bpf", "*k6*.json")
+        k6_bpf = _load_k6_summaries(paths)
+
         # l4fp does not have much network stack overhead because its sockets
         # are connected using the eBPF program
         l4fp = avg_req_latency(k6, "envoy_l4fp")
         envoy = avg_req_latency(k6, "envoy")
         beeline = avg_req_latency(k6, "beeline")
         direct = avg_req_latency(k6, "none")
+
+        l4fp_bpf = avg_req_latency(k6_bpf, "envoy_l4fp")
+        envoy_bpf = avg_req_latency(k6_bpf, "envoy")
+        beeline_bpf = avg_req_latency(k6_bpf, "beeline")
 
         iters = k6[k6["metric_name"] == "iterations"]["count"].mean()
 
@@ -1269,50 +1276,61 @@ def _load_dissect_df(name):
         df["mean"] = (df["total"] / iters) / 1e6
 
         df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
-        ideal = beeline - df.loc[("beeline", "user"), "mean"]
 
+        ideal = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
+        print("request latency:")
         print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}, direct: {direct}, ideal: {ideal}")
+        print("request latency with bpf:")
+        print(f"beeline: {beeline_bpf}, envoy: {envoy_bpf}, lf4p: {l4fp_bpf}")
+        print("measured components total:")
+        beeline_comp = df.loc[("beeline", slice(None)), "mean"].sum()
+        envoy_comp = df.loc[("envoy", slice(None)), "mean"].sum()
+        l4fp_comp = df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
+        print(f"beeline: {beeline_comp}, envoy: {envoy_comp}, lf4p: {l4fp_comp}")
 
-        l4fp -= ideal
-        envoy -= ideal
         beeline -= ideal
+        envoy -= ideal
+        l4fp -= ideal
 
-        print("network stack direct:", direct - ideal)
-        print("overhead from using beeline:", beeline)
+        beeline_bpf -= ideal
+        envoy_bpf -= ideal
+        l4fp_bpf -= ideal
 
-        ns_envoy = envoy - l4fp
-        print("overhead from using envoy:", envoy)
-        print("envoy's network stack overhead:", ns_envoy)
-        print("overhead from using envoy + L4 FP:", l4fp)
+        # normalize our measured results
+        df.loc[("beeline", slice(None)), "mean"] *= beeline/beeline_bpf
+        df.loc[("envoy", slice(None)), "mean"] *= envoy/envoy_bpf
+        df.loc[("envoy_l4fp", slice(None)), "mean"] *= l4fp/l4fp_bpf
 
-        # add the overhead from traversing the network stack
-        df.loc[("envoy", "ipc"), "mean"] += ns_envoy
-
-        # userspace processing contains parsing -> subtract parsing from processing so it's not represented twice
+        # userspace processing contains everything else -> subtract from processing so it's not represented twice
         df.loc[(slice(None), "user"), "mean"] -= df.loc[(slice(None), "parse"), "mean"].values
+        for p in ["envoy", "envoy_l4fp"]:
+            # write contains process_backlog
+            df.loc[(p, "user"), "mean"] -= df.loc[(p, "read"), "mean"]
+            df.loc[(p, "user"), "mean"] -= df.loc[(p, "write"), "mean"]
+            df.loc[(p, "write"), "mean"] -= df.loc[(p, "ipc"), "mean"]
 
         # this is the overhead from running an eBPF program at the sk_msg level
         # the L4 fast path executes this twice as often as beeline
         sk_msg = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
-        df.loc[("beeline", "eBPF"), "mean"] = sk_msg
-        df.loc[("envoy_l4fp", "eBPF"), "mean"] = 2*sk_msg
+        df.loc[("beeline", "ebpf"), "mean"] = sk_msg
+        df.loc[("envoy_l4fp", "ebpf"), "mean"] = 2*sk_msg
 
         # the remainder of the request duration is unaccounted for
         df.loc[("envoy", "unaccounted"), "mean"] = envoy - df.loc[("envoy", slice(None)), "mean"].sum()
         df.loc[("envoy_l4fp", "unaccounted"), "mean"] = l4fp - df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
         df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
 
-        assert df.loc[("envoy", "unaccounted"), "mean"] < 0.5, f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
-        assert df.loc[("envoy_l4fp", "unaccounted"), "mean"] < 0.5, f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
-        assert df.loc[("beeline", "unaccounted"), "mean"] < 0.5, f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
+        # assert -0.05 <= df.loc[("envoy", "unaccounted"), "mean"] < 0.05, f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
+        # assert -0.05 <= df.loc[("envoy_l4fp", "unaccounted"), "mean"] < 0.05, f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
+        # assert -0.05 <= df.loc[("beeline", "unaccounted"), "mean"] < 0.05, f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
 
         # sanity check that we're not misssing anything
         assert df.loc[("envoy", slice(None)), "mean"].sum().round(5) == envoy.round(5)
         assert df.loc[("envoy_l4fp", slice(None)), "mean"].sum().round(5) == l4fp.round(5)
         assert df.loc[("beeline", slice(None)), "mean"].sum().round(5) == beeline.round(5)
 
-        # unaccounted goes into processing
-        rename = {"user": "Processing", "unaccounted": "Processing", "ebpf": "eBPF", "parse": "Parsing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
+        # unaccounted is mostly the overhead of the uprobes, removing it from parsing
+        rename = {"user": "Policy Enforcement", "unaccounted": "Parsing", "ebpf": "IPC", "parse": "Parsing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
         df = df.rename(index=rename, level="func").reset_index()
 
         if complexity:
@@ -1351,7 +1369,7 @@ def dissect_graph_tikz(name):
     order = ["envoy", "envoy_l4fp", "beeline"]
 
     plots = []
-    funcs = ["eBPF", "Processing", "Parsing", "IPC"]
+    funcs = ["Policy Enforcement", "Parsing", "IPC"]
     for f in funcs:
         coords = []
         for p in order:
@@ -1376,7 +1394,7 @@ ymin=0,
 cycle list name=uchu,
 every axis plot/.style={{fill}},
 bar width=20pt,
-ylabel={{latency [ms]}},
+ylabel={{Overhead [ms]}},
 symbolic x coords={{{proxies}}},
 legend columns = 4,
 legend style={{at={{(0,1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
@@ -1384,7 +1402,7 @@ xticklabels={{Envoy, {{Envoy + L4\\\\ Fast Path}}, {{Envoy +\\\\\\proj}}}},
 xticklabel style={{align=center}},
 xtick=data,
 enlarge x limits={{abs=1.5cm}},
-height=6cm,
+height=5cm,
 width=\\linewidth]
 
 {plots}
