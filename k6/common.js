@@ -4,9 +4,9 @@ import http from "k6/http";
 import encoding from "k6/encoding";
 import exec from "k6/execution";
 
-export const url = __ENV.URL || "http://127.0.0.1:8080";
+export const url = __ENV.URL || "http://moonshine:8080";
 
-export const payloadSize = __ENV.PAYLOAD_SIZE || 1024;
+export const payloadSize = __ENV.PAYLOAD_SIZE || 100;
 const randomBody = "b".repeat(payloadSize);
 
 export const headers = new Object();
