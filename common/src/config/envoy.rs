@@ -70,11 +70,17 @@ pub struct FilterChain {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Filter {
     pub name: String,
+    #[serde(rename = "@type")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
     pub typed_config: TypedFilterConfig,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct TypedFilterConfig {
+    #[serde(rename = "@type")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
     pub stat_prefix: String,
     pub codec_type: String,
     pub route_config: RouteConfig,
