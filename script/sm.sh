@@ -37,6 +37,7 @@ SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 ENVOY_BIN="${HOME}/envoy/bazel-out/k8-opt/bin/source/exe/envoy-static"
 mkdir -p ${SUMMARY_DIR}
 
+cd ${ROOT}
 source ${ROOT}/../venv/bin/activate
 
 case ${ACTION} in
@@ -86,29 +87,23 @@ case ${ACTION} in
         if [[ "${PROXY}" == "beeline" ]]; then
             BEELINE_BIN=${ROOT}/../target/release/beeline
             BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
-            cd ${ROOT}/..
             CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
 
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
-            echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
-
+            sleep 5
             if [[ -z $(pidof beeline) ]]; then
                 echo -e "${COLOR_RED}Beeline crashed${COLOR_OFF}"
                 exit 1
+            else
+                echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
             fi
         else
             if [[ "${PROXY}" == *l4fp ]]; then
                 PROXY_BIN=${ROOT}/../target/release/l4fp
-                cd ${ROOT}/..
                 cargo b -r -p l4fp
 
                 sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
                 echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
-
-                if [[ -z $(pidof l4fp) ]]; then
-                    echo -e "${COLOR_RED}L4 fast path crashed${COLOR_OFF}"
-                    exit 1
-                fi
             fi
             if [[ "${PROXY}" == envoy* ]]; then
                 docker compose -f ${DOCKER_CONFIG} up sidecar --wait -d
@@ -126,14 +121,15 @@ case ${ACTION} in
                     echo -e "${COLOR_GREEN}Launched envoy with ${ENVOY_CONCURRENCY} workers${COLOR_OFF}"
                 fi
 
+                sleep 5
                 if [[ -z $(pidof envoy-static) ]]; then
                     echo -e "${COLOR_RED}Envoy crashed${COLOR_OFF}"
                     exit 1
                 fi
+            else
+                sleep 3
             fi
         fi
-        cd ${PWD}
-        sleep 5
 
         docker compose -f ${DOCKER_CONFIG} up --wait -d
 
@@ -148,7 +144,6 @@ case ${ACTION} in
             ./register_users.sh
             ./register_movies.sh
         fi
-        cd ${PWD}
 
         if [[ "${MONITOR}" = 1 ]]; then
             if [[ "${PROXY}" = "beeline" ]]; then
