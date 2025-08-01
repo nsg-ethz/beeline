@@ -1,4 +1,4 @@
-use common::{Compiler, Config};
+use common::{config::beeline::Config, Compiler};
 use libbpf_cargo::SkeletonBuilder;
 use std::{env, ffi::OsStr, fs, path::PathBuf};
 

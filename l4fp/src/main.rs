@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use common::config::Cidr;
+use common::config::beeline::Cidr;
 use l4fp::Proxy;
 use log::info;
 use std::{mem::MaybeUninit, time::Duration};

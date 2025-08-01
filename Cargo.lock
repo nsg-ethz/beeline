@@ -339,6 +339,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "env_logger",
  "hmac",
  "httparse",

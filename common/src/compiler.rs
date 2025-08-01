@@ -1,7 +1,6 @@
 use crate::{
-    config::{self, JwtFilter, LoadBalancer, MutateFilter, Policy},
+    config::beeline::{Config, Filter as CFilter, JwtFilter, LoadBalancer, MutateFilter, Policy},
     net::TryIntoRawOctets,
-    Config,
 };
 use std::{
     fs::{self, File},
@@ -426,8 +425,8 @@ impl Compiler {
                     .clone()
                     .into_iter()
                     .map(|f| match f {
-                        config::Filter::Jwt(f) => Some(self.generate_jwt_filter(idx, f)),
-                        config::Filter::Mutate(f) => Some(self.generate_mutate_filter(idx, f)),
+                        CFilter::Jwt(f) => Some(self.generate_jwt_filter(idx, f)),
+                        CFilter::Mutate(f) => Some(self.generate_mutate_filter(idx, f)),
                     })
                     .filter(|f| f.is_some())
                     .map(|f| f.unwrap())
@@ -690,10 +689,10 @@ impl Compiler {
 
             for filter in &route.filters {
                 match filter {
-                    config::Filter::Jwt(_) => {
+                    CFilter::Jwt(_) => {
                         auth = true;
                     }
-                    config::Filter::Mutate(mutate) => {
+                    CFilter::Mutate(mutate) => {
                         if let Some(remove) = mutate.remove.as_ref() {
                             for key in remove {
                                 insert(Variable::range(key));

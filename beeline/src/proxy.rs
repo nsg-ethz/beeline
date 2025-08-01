@@ -5,8 +5,9 @@ use crate::{
 use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
 use common::{
+    config::beeline::Config,
     net::{get_gw_ip, SocketBinder, TryIntoRawOctets},
-    Compiler, Config,
+    Compiler,
 };
 use libbpf_rs::{
     set_print,

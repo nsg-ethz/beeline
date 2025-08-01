@@ -1,0 +1,208 @@
+socket: 172.17.0.1:9999
+proxy: 172.18.0.254:9999
+accelerate: 172.18.0.0/24
+stats: true
+hosts:
+    - name: service-1
+      load_balancer:
+          type: ring
+          size: 50
+      instances:
+          - 172.18.0.3:9999
+          - 172.18.0.4:9999
+          - 172.18.0.5:9999
+    - name: service-2
+      load_balancer:
+          type: ring
+          size: 50
+      instances:
+          - 172.18.0.6:9999
+          - 172.18.0.7:9999
+          - 172.18.0.8:9999
+    - name: service-3
+      load_balancer:
+          type: ring
+          size: 50
+      instances:
+          - 172.18.0.9:9999
+          - 172.18.0.10:9999
+          - 172.18.0.11:9999
+policies:
+    - name: allow-stats
+      path: "/stats-1"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v2"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v3"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v3"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v3"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v3"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v4"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v4"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v4"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v4"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v5"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v5"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v5"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v5"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v6"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v6"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v6"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v6"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v7"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v7"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v7"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v7"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1/v8"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2/v8"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3/v8"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-stats
+      path: "/stats-1/v8"
+      method: GET
+      source_ip: 172.18.0.1
+      destination_port: 3333
+      allow: true
+    - name: allow-post-to-service-1
+      path: "/service-1"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-2
+      path: "/service-2"
+      method: POST
+      destination_port: 9999
+      allow: true
+    - name: allow-post-to-service-3
+      path: "/service-3"
+      method: POST
+      destination_port: 9999
+      allow: true
+routes:
+    - match:
+          path: "/service-1"
+      dest: service-1
+    - match:
+          path: "/service-2"
+      dest: service-2
+    - match:
+          path: "/service-3"
+      dest: service-3

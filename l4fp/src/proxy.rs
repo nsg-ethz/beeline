@@ -1,7 +1,7 @@
 use crate::bpf::*;
 use anyhow::Result;
 use common::{
-    config::Cidr,
+    config::beeline::Cidr,
     net::{get_gw_ip, TryIntoRawOctets},
 };
 use libbpf_rs::{

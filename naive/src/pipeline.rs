@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use common::Config;
+use common::config::beeline::Config;
 use hmac::{Hmac, Mac};
 use httparse::Status;
 use jwt::VerifyWithKey;

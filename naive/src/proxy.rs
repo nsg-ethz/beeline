@@ -1,6 +1,6 @@
 use crate::pipeline::{Destination, Pipeline};
 use anyhow::{anyhow, Result};
-use common::Config;
+use common::config::beeline::Config;
 use futures::{
     stream::{FuturesUnordered, StreamExt},
     TryFutureExt,

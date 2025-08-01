@@ -1,7 +1,7 @@
 use anyhow::Result;
 use beeline::Proxy;
 use clap::Parser;
-use common::Config;
+use common::config::beeline::Config;
 use std::{env, mem::MaybeUninit, net::SocketAddr};
 
 #[derive(Parser)]

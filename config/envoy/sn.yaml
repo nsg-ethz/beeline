@@ -41,7 +41,7 @@ static_resources:
                                         - "*"
                                     routes:
                                         - match:
-                                              prefix: "/compose-post-service"
+                                              path: "/compose-post-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -50,7 +50,7 @@ static_resources:
                                           route:
                                               cluster: compose-post-service
                                         - match:
-                                              prefix: "/compose-post-redis"
+                                              path: "/compose-post-redis"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -59,7 +59,7 @@ static_resources:
                                           route:
                                               cluster: compose-post-redis
                                         - match:
-                                              prefix: "/write-home-timeline-service"
+                                              path: "/write-home-timeline-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -68,7 +68,7 @@ static_resources:
                                           route:
                                               cluster: write-home-timeline-service
                                         - match:
-                                              prefix: "/media-service"
+                                              path: "/media-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -77,7 +77,7 @@ static_resources:
                                           route:
                                               cluster: media-service
                                         - match:
-                                              prefix: "/post-storage-service"
+                                              path: "/post-storage-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -86,7 +86,7 @@ static_resources:
                                           route:
                                               cluster: post-storage-service
                                         - match:
-                                              prefix: "/social-graph-service"
+                                              path: "/social-graph-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -95,7 +95,7 @@ static_resources:
                                           route:
                                               cluster: social-graph-service
                                         - match:
-                                              prefix: "/social-graph-mongodb"
+                                              path: "/social-graph-mongodb"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -104,7 +104,7 @@ static_resources:
                                           route:
                                               cluster: social-graph-mongodb
                                         - match:
-                                              prefix: "/social-graph-redis"
+                                              path: "/social-graph-redis"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -113,7 +113,7 @@ static_resources:
                                           route:
                                               cluster: social-graph-redis
                                         - match:
-                                              prefix: "/text-service"
+                                              path: "/text-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -122,7 +122,7 @@ static_resources:
                                           route:
                                               cluster: text-service
                                         - match:
-                                              prefix: "/unique-id-service"
+                                              path: "/unique-id-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -131,7 +131,7 @@ static_resources:
                                           route:
                                               cluster: unique-id-service
                                         - match:
-                                              prefix: "/url-shorten-service"
+                                              path: "/url-shorten-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -140,7 +140,7 @@ static_resources:
                                           route:
                                               cluster: url-shorten-service
                                         - match:
-                                              prefix: "/url-shorten-memcached"
+                                              path: "/url-shorten-memcached"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -149,7 +149,7 @@ static_resources:
                                           route:
                                               cluster: url-shorten-memcached
                                         - match:
-                                              prefix: "/user-mention-service"
+                                              path: "/user-mention-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -158,7 +158,7 @@ static_resources:
                                           route:
                                               cluster: user-mention-service
                                         - match:
-                                              prefix: "/user-service"
+                                              path: "/user-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -167,7 +167,7 @@ static_resources:
                                           route:
                                               cluster: user-service
                                         - match:
-                                              prefix: "/user-mongodb"
+                                              path: "/user-mongodb"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -176,7 +176,7 @@ static_resources:
                                           route:
                                               cluster: user-mongodb
                                         - match:
-                                              prefix: "/user-memcached"
+                                              path: "/user-memcached"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -185,7 +185,7 @@ static_resources:
                                           route:
                                               cluster: user-memcached
                                         - match:
-                                              prefix: "/user-timeline-service"
+                                              path: "/user-timeline-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -194,7 +194,7 @@ static_resources:
                                           route:
                                               cluster: user-timeline-service
                                         - match:
-                                              prefix: "/user-timeline-mongodb"
+                                              path: "/user-timeline-mongodb"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -203,7 +203,7 @@ static_resources:
                                           route:
                                               cluster: user-timeline-mongodb
                                         - match:
-                                              prefix: "/user-timeline-redis"
+                                              path: "/user-timeline-redis"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"
@@ -212,7 +212,7 @@ static_resources:
                                           route:
                                               cluster: user-timeline-redis
                                         - match:
-                                              prefix: "/home-timeline-service"
+                                              path: "/home-timeline-service"
                                           request_headers_to_add:
                                               - header:
                                                     key: "X-Processed-By"

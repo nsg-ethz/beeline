@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use common::Config;
+use common::config::beeline::Config;
 use naive::Proxy;
 
 #[derive(Parser)]

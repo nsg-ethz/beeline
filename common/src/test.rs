@@ -1,4 +1,4 @@
-use crate::{config::Host, Config};
+use crate::config::beeline::{Config, Host};
 use anyhow::{anyhow, Result};
 use core::str;
 use hmac::{Hmac, Mac};

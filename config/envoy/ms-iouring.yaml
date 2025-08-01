@@ -293,123 +293,273 @@ static_resources:
                                         - "*"
                                     routes:
                                         - match:
-                                              prefix: "/unique-id-service"
+                                              path: "/unique-id-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: unique-id-service
                                         - match:
-                                              prefix: "/movie-id-service"
+                                              path: "/movie-id-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-id-service
                                         - match:
-                                              prefix: "/movie-id-mongodb"
+                                              path: "/movie-id-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-id-mongodb
                                         - match:
-                                              prefix: "/movie-id-memcached"
+                                              path: "/movie-id-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-id-memcached
                                         - match:
-                                              prefix: "/user-mongodb"
+                                              path: "/user-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-mongodb
                                         - match:
-                                              prefix: "/user-memcached"
+                                              path: "/user-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-memcached
                                         - match:
-                                              prefix: "/text-service"
+                                              path: "/text-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: text-service
                                         - match:
-                                              prefix: "/rating-service"
+                                              path: "/rating-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: rating-service
                                         - match:
-                                              prefix: "/rating-redis"
+                                              path: "/rating-redis"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: rating-redis
                                         - match:
-                                              prefix: "/compose-review-service"
+                                              path: "/compose-review-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: compose-review-service
                                         - match:
-                                              prefix: "/compose-review-memcached"
+                                              path: "/compose-review-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: compose-review-memcached
                                         - match:
-                                              prefix: "/review-storage-service"
+                                              path: "/review-storage-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: review-storage-service
                                         - match:
-                                              prefix: "/review-storage-mongodb"
+                                              path: "/review-storage-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: review-storage-mongodb
                                         - match:
-                                              prefix: "/review-storage-memcached"
+                                              path: "/review-storage-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: review-storage-memcached
                                         - match:
-                                              prefix: "/user-review-service"
+                                              path: "/user-review-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-review-service
                                         - match:
-                                              prefix: "/user-review-mongodb"
+                                              path: "/user-review-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-review-mongodb
                                         - match:
-                                              prefix: "/user-review-redis"
+                                              path: "/user-review-redis"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-review-redis
                                         - match:
-                                              prefix: "/movie-review-service"
+                                              path: "/movie-review-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-review-service
                                         - match:
-                                              prefix: "/movie-review-mongodb"
+                                              path: "/movie-review-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-review-mongodb
                                         - match:
-                                              prefix: "/movie-review-redis"
+                                              path: "/movie-review-redis"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-review-redis
                                         - match:
-                                              prefix: "/cast-info-service"
+                                              path: "/cast-info-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: cast-info-service
                                         - match:
-                                              prefix: "/cast-info-mongodb"
+                                              path: "/cast-info-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: cast-info-mongodb
                                         - match:
-                                              prefix: "/cast-info-memcached"
+                                              path: "/cast-info-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: cast-info-memcached
                                         - match:
-                                              prefix: "/plot-service"
+                                              path: "/plot-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: plot-service
                                         - match:
-                                              prefix: "/plot-mongodb"
+                                              path: "/plot-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: plot-mongodb
                                         - match:
-                                              prefix: "/plot-memcached"
+                                              path: "/plot-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: plot-memcached
                                         - match:
-                                              prefix: "/movie-info-service"
+                                              path: "/movie-info-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-info-service
                                         - match:
-                                              prefix: "/movie-info-mongodb"
+                                              path: "/movie-info-mongodb"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-info-mongodb
                                         - match:
-                                              prefix: "/movie-info-memcached"
+                                              path: "/movie-info-memcached"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: movie-info-memcached
                                         - match:
-                                              prefix: "/user-service"
+                                              path: "/user-service"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
                                           route:
                                               cluster: user-service
 

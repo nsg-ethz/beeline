@@ -1,4 +1,4 @@
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -21,8 +21,7 @@ pub struct Config {
     pub routes: Vec<Route>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Cidr {
     pub addr: Ipv4Addr,
     pub mask: u32,
@@ -80,6 +79,16 @@ impl<'de> Deserialize<'de> for Cidr {
     {
         let s = String::deserialize(deserializer)?;
         FromStr::from_str(&s).map_err(de::Error::custom)
+    }
+}
+
+impl Serialize for Cidr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let v = format!("{}/{}", self.addr, self.mask);
+        serializer.serialize_str(&v)
     }
 }
 
