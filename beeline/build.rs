@@ -15,7 +15,9 @@ fn main() {
     let log_level: u32 = match log_level.to_lowercase().as_str() {
         "debug" => 2,
         "trace" => 2,
-        _ => 1,
+        "warn" => 1,
+        "error" => 1,
+        _ => 0,
     };
     println!("cargo:rerun-if-env-changed=RUST_LOG");
 

@@ -359,7 +359,7 @@ impl<'obj> Proxy<'obj> {
         Ok(())
     }
 
-    fn handle_downstream(&self, downstream: TcpStream) -> Result<()> {
+    fn handle_downstream(&self, mut downstream: TcpStream) -> Result<()> {
         let addr = self.address.clone();
         let utrn_wait_list = self.get_utrn_wait_list()?;
         let fib_downstream = self.get_downstream_fib()?;
@@ -367,9 +367,17 @@ impl<'obj> Proxy<'obj> {
         let upstream_pool = self.upstream_pool.clone();
 
         tokio::spawn(async move {
-            let dkey = sock_key::try_from((&downstream.peer_addr().unwrap(), &addr)).unwrap();
+            let ds_remote_addr = downstream.peer_addr().unwrap();
+            let dkey = sock_key::try_from((&ds_remote_addr, &addr)).unwrap();
             let mut buf = Vec::with_capacity(8192);
             let mut upstreams = Vec::new();
+
+            let send_error = async |stream: &mut TcpStream| {
+                stream
+                    .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
+                    .await
+                    .ok();
+            };
 
             let res = loop {
                 // wait until the downstream connection is readable
@@ -422,13 +430,15 @@ impl<'obj> Proxy<'obj> {
                 let Some(us_remote_addr) = us_remote_addr else {
                     warn!(
                         "No address found in wait list for downstream connection: {:?}",
-                        &downstream.peer_addr().unwrap(),
+                        &ds_remote_addr,
                     );
+                    send_error(&mut downstream).await;
                     continue;
                 };
 
                 if us_remote_addr.ip4 == 0 && us_remote_addr.port == 0 {
                     error!("Unknown upstream address {:?}", us_remote_addr);
+                    send_error(&mut downstream).await;
                     continue;
                 }
 
@@ -449,13 +459,19 @@ impl<'obj> Proxy<'obj> {
                     "Opening upstream connection [{}->{}] for port {}",
                     us_local_addr,
                     us_remote_addr,
-                    downstream.peer_addr().unwrap().port()
+                    ds_remote_addr.port()
                 );
-                let mut upstream = us_sock.connect(us_remote_addr).await.unwrap();
+                let Ok(mut upstream) = us_sock.connect(us_remote_addr).await else {
+                    send_error(&mut downstream).await;
+                    continue;
+                };
 
                 let msg = buf.drain(..req_len).collect::<Vec<u8>>();
                 let mut req_buf = Cursor::new(&msg);
-                upstream.write_all_buf(&mut req_buf).await.unwrap();
+                if upstream.write_all_buf(&mut req_buf).await.is_err() {
+                    send_error(&mut downstream).await;
+                    continue;
+                }
 
                 // upstream connections are automatically reused by the eBPF program
                 // adding them to this shared vector allows us to keep them alive
