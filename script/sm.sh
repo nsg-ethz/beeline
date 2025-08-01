@@ -91,6 +91,11 @@ case ${ACTION} in
 
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+
+            if [[ -z $(pidof beeline) ]]; then
+                echo -e "${COLOR_RED}Beeline crashed${COLOR_OFF}"
+                exit 1
+            fi
         else
             if [[ "${PROXY}" == *l4fp ]]; then
                 PROXY_BIN=${ROOT}/../target/release/l4fp
@@ -99,6 +104,11 @@ case ${ACTION} in
 
                 sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
                 echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
+
+                if [[ -z $(pidof l4fp) ]]; then
+                    echo -e "${COLOR_RED}L4 fast path crashed${COLOR_OFF}"
+                    exit 1
+                fi
             fi
             if [[ "${PROXY}" == envoy* ]]; then
                 docker compose -f ${DOCKER_CONFIG} up sidecar --wait -d
@@ -114,6 +124,11 @@ case ${ACTION} in
                 else
                     sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} --concurrency ${ENVOY_CONCURRENCY} > /dev/null 2>&1
                     echo -e "${COLOR_GREEN}Launched envoy with ${ENVOY_CONCURRENCY} workers${COLOR_OFF}"
+                fi
+
+                if [[ -z $(pidof envoy-static) ]]; then
+                    echo -e "${COLOR_RED}Envoy crashed${COLOR_OFF}"
+                    exit 1
                 fi
             fi
         fi
