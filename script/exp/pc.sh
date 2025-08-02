@@ -1,5 +1,10 @@
 #!/bin/bash
 
+COLOR_RED='\033[0;31m'
+COLOR_GREEN='\033[0;32m'
+COLOR_YELLOW='\033[0;33m'
+COLOR_OFF='\033[0m' # No Color
+
 REPLICAS=1
 
 # Parse arguments
@@ -9,7 +14,6 @@ while getopts "f:t:n:p:c:s:mr:" opt; do
         t ) TO=${OPTARG} ;;
         n ) NAME=${OPTARG} ;;
         p ) POLICY=${OPTARG} ;;
-        c ) COMPLEXITY=${OPTARG} ;;
         r ) REPLICAS=${OPTARG} ;;
         \?)
             echo "Invalid option: -$OPTARG"
@@ -17,210 +21,207 @@ while getopts "f:t:n:p:c:s:mr:" opt; do
     esac
 done
 
-### POLICY 1 ###
+ROOT=$(dirname "$(readlink -f "$0")")
+NUM_ARGS=(1 3 6 8 9 10)
+CONFIG=${ROOT}/../../res/pol/pc.yaml
+BEELINE_BIN=${ROOT}/../../target/release/beeline
+POLGEN_BIN=${ROOT}/../../target/release/polgen
+cargo b -r --bin polgen
+
+function validate_policy {
+    ssh -t moonshine "source ~/.profile && cd ${PWD} && CONFIG=${ROOT}/../../config/beeline/pc.yaml cargo r -r -p beeline -- --validate"
+}
+
+function frontend_args {
+    alphabet=({a..z})
+    args="-H"
+
+    for i in "${!alphabet[@]}"; do
+        index=$((i + 1))
+        letter="${alphabet[$i]}"
+        args+="${letter}:${PAYLOAD},"
+
+        if [[ $index -eq $1 ]]; then
+            break
+        fi
+    done
+
+    echo "${args::-1}"
+}
+
+function compute_complexity {
+    PROG=$(echo "scale=5; $1 / 27000" | bc)
+    n2=$(echo "$PROG * 100" | bc)
+    n2=$(printf "%.0f" $n2)
+    n2=$(( $n2 < 1 ? 1 : $n2 ))
+    n3=$(echo "$PROG * 1000" | bc)
+    n3=$(printf "%.0f" $n3)
+    m3=$n3
+    n4=$n1
+}
+
+if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
+    echo Running policy 0
+
+    n1=1
+    for m1 in $(seq 1000 1000 16000); do
+        LEN=$(echo "${n1} * ${m1}" | bc)
+
+        compute_complexity $LEN
+
+        ${POLGEN_BIN} -t beeline --template ${ROOT}/../../config/beeline/ssm-p0.yaml --n1 ${n1} --m1 ${m1} -o ${CONFIG}
+        scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
+
+        # check if beeline can compile this policy
+        validate_policy
+        if [[ $? -ne 0 ]]; then
+            echo -e "${COLOR_YELLOW}Beeline failed to compile policy. Skipping${COLOR_OFF}"
+            continue
+        fi
+
+        ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} -o ${CONFIG}
+        scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
+
+        PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
+        FRONTEND_ARGS=$(frontend_args $n1)
+
+        script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
+        script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
+        script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
+    done
+fi
 
 if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "1" ]]; then
-        echo Running policy 1 complexity 1
+    echo Running policy 1
 
-        PAYLOAD=$(printf 'a%.0s' {1..1000})
-        FRONTEND_ARGS=$(echo \'-H a:${PAYLOAD},b:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c1 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c1 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c1 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c1 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+    for n1 in "${NUM_ARGS[@]}"; do
+        for m1 in $(seq 1000 1000 4000); do
+            LEN=$(echo "${n1} * ${m1}" | bc)
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
-        echo Running policy 1 complexity 2
+            compute_complexity $LEN
 
-        PAYLOAD=$(printf 'a%.0s' {1..2000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c2 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c2 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c2 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c2 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
-        echo Running policy 1 complexity 3
+            # check if beeline can compile this policy
+            validate_policy
+            if [[ $? -ne 0 ]]; then
+                echo -e "${COLOR_YELLOW}Beeline failed to compile policy. Skipping${COLOR_OFF}"
+                continue
+            fi
 
-        PAYLOAD=$(printf 'a%.0s' {1..2000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c3 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c3 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c3 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c3 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
-        echo Running policy 1 complexity 4
+            PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
+            FRONTEND_ARGS=$(frontend_args $n1)
 
-        PAYLOAD=$(printf 'a%.0s' {1..3000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p1-c4 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c4 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p1-c4 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p1-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p1-c4 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p1-n1-${n1}-m1-${m1} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p1-n1-${n1}-m1-${m1} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p1-n1-${n1}-m1-${m1} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
+        done
+    done
 fi
-
-### POLICY 2 ###
 
 if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "1" ]]; then
-        echo Running policy 2 complexity 1
+    echo Running policy 2
 
-        PAYLOAD=$(printf 'a%.0s' {1..1000})
-        FRONTEND_ARGS=$(echo \'-H a:${PAYLOAD},b:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c1 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c1 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c1 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c1 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+    for n1 in "${NUM_ARGS[@]}"; do
+        for m1 in $(seq 1000 1000 4000); do
+            LEN=$(echo "${n1} * ${m1}" | bc)
+            compute_complexity $LEN
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
-        echo Running policy 2 complexity 2
+            ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
 
-        PAYLOAD=$(printf 'a%.0s' {1..2000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c2 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c2 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c2 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c2 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            # check if beeline can compile this policy
+            validate_policy
+            if [[ $? -ne 0 ]]; then
+                echo -e "${COLOR_YELLOW}Beeline failed to compile policy. Skipping${COLOR_OFF}"
+                continue
+            fi
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
-        echo Running policy 2 complexity 3
+            ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1}  --n2 ${n2} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
 
-        PAYLOAD=$(printf 'a%.0s' {1..2000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c3 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c3 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c3 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c3 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
+            FRONTEND_ARGS=$(frontend_args $n1)
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
-        echo Running policy 2 complexity 4
-
-        PAYLOAD=$(printf 'a%.0s' {1..3000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD}\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p2-c4 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c4 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p2-c4 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p2-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p2-c4 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
-
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p2-n1-${n1}-m1-${m1}-n2-${n2} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p2-n1-${n1}-m1-${m1}-n2-${n2} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p2-n1-${n1}-m1-${m1}-n2-${n2} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
+        done
+    done
 fi
-
-### POLICY 3 ###
 
 if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "1" ]]; then
-        echo Running policy 3 complexity 1
+    echo Running policy 3
 
-        JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "echo"}')
-        PAYLOAD=$(printf 'a%.0s' {1..1000})
-        FRONTEND_ARGS=$(echo \'-H a:${PAYLOAD},b:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c1 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c1 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c1 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c1.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c1 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+    for n1 in "${NUM_ARGS[@]}"; do
+        for m1 in $(seq 1000 1000 4000); do
+            LEN=$(echo "${n1} * ${m1}" | bc)
+            compute_complexity $LEN
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
-        echo Running policy 3 complexity 2
+            ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
 
-        JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
-        PAYLOAD=$(printf 'a%.0s' {1..2000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c2 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c2 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c2 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c2.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c2 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            # check if beeline can compile this policy
+            validate_policy
+            if [[ $? -ne 0 ]]; then
+                echo -e "${COLOR_YELLOW}Beeline failed to compile policy. Skipping${COLOR_OFF}"
+                continue
+            fi
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
-        echo Running policy 3 complexity 3
+            ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
 
-        JWT=$(jwt encode --secret testtest12345678 '{"iss":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
-        PAYLOAD=$(printf 'a%.0s' {1..2000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c3 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c3 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c3 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c3.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c3 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            AUD=$(eval "printf 'a%.0s' {1..$n3}")
+            ISS=$(eval "printf 'a%.0s' {1..$m3}")
+            CLAIMS='{"iss":"'${ISS}'", "aud":"'${AUD}'"}'
+            JWT=$(jwt encode --secret testtest12345678 "${CLAIMS}")
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
-        echo Running policy 3 complexity 4
+            PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
+            FRONTEND_ARGS=$(echo \'$(frontend_args $n1),Authorization: Bearer ${JWT}\')
 
-        JWT=$(jwt encode --secret testtest12345678 '{"iss":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
-        PAYLOAD=$(printf 'a%.0s' {1..3000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p3-c4 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c4 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p3-c4 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p3-c4.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p3-c4 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p3-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p3-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p3-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
+        done
+    done
 fi
 
-### POLICY 4 ###
-
 if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
-    P4_SERVICES=${REPLICAS}
-    P4_REPLICAS=$(echo "${REPLICAS} * 3" | bc)
+    echo Running policy 4
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "1" ]]; then
-        echo Running policy 4 complexity 1
+    for n1 in "${NUM_ARGS[@]}"; do
+        for m1 in $(seq 1000 1000 4000); do
+            LEN=$(echo "${n1} * ${m1}" | bc)
+            compute_complexity $LEN
 
-        JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "echo"}')
-        PAYLOAD=$(printf 'a%.0s' {1..1000})
-        FRONTEND_ARGS=$(echo \'-H a:${PAYLOAD},b:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c1 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c1 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c1 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c1.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c1 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} --n4 ${n4} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "2" ]]; then
-        echo Running policy 4 complexity 2
+            # check if beeline can compile this policy
+            validate_policy
+            if [[ $? -ne 0 ]]; then
+                echo -e "${COLOR_YELLOW}Beeline failed to compile policy. Skipping${COLOR_OFF}"
+                continue
+            fi
 
-        JWT=$(jwt encode --secret testtest12345678 '{"iss":"beeline", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
-        PAYLOAD=$(printf 'a%.0s' {1..2000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c2 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c2 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c2 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c2.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c2 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} --n4 ${n4} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "3" ]]; then
-        echo Running policy 4 complexity 3
+            AUD=$(eval "printf 'a%.0s' {1..$n3}")
+            ISS=$(eval "printf 'a%.0s' {1..$m3}")
+            CLAIMS='{"iss":"'${ISS}'", "aud":"'${AUD}'"}'
+            JWT=$(jwt encode --secret testtest12345678 "${CLAIMS}")
 
-        JWT=$(jwt encode --secret testtest12345678 '{"iss":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
-        PAYLOAD=$(printf 'a%.0s' {1..2000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c3 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c3 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c3 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c3.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c3 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
+            FRONTEND_ARGS=$(echo \'$(frontend_args $n1),Authorization: Bearer ${JWT}\')
 
-    if [[ -z "${COMPLEXITY}" || ${COMPLEXITY} == "4" ]]; then
-        echo Running policy 4 complexity 4
-
-        JWT=$(jwt encode --secret testtest12345678 '{"iss":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aud": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
-        PAYLOAD=$(printf 'a%.0s' {1..3000})
-        FRONTEND_ARGS=$(echo \'-Ha:${PAYLOAD},b:${PAYLOAD},c:${PAYLOAD},d:${PAYLOAD},e:${PAYLOAD},f:${PAYLOAD},g:${PAYLOAD},h:${PAYLOAD},Authorization: Bearer $(echo ${JWT})\')
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c4 -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c4 -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c4 -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}-p4-c4 -p none -s k6/tput.js -f ${FROM} -t ${TO}
-
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}-p4-c4-bpf -p beeline -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c4-bpf -p envoy -s k6/tput.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=ssm-p4-c4.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}-p4-c4-bpf -p envoy_l4fp -s k6/tput.js -f ${FROM} -t ${TO}
-    fi
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
+        done
+    done
 fi

@@ -15,7 +15,7 @@ export const options = {
             preAllocatedVUs: 300,
             stages: [
                 { target: 100, duration: "10s" },
-                { target: 100, duration: "300s" },
+                { target: 100, duration: "5m" },
             ],
             gracefulStop: "3s",
         },

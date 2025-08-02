@@ -119,6 +119,948 @@ static_resources:
                                     rules:
                                         action: ALLOW
                                         policies:
+                                            "allow-get-service-1-logs":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/logs"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.104"
+                                            "allow-get-service-2-logs":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/logs"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.104"
+                                            "allow-get-service-3-logs":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/logs"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.104"
+                                            "allow-post-service-1-bulk":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/bulk"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.105"
+                                            "allow-post-service-2-bulk":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/bulk"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.105"
+                                            "allow-post-service-3-bulk":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/bulk"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.105"
+                                            "allow-get-service-1-users":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/users"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-2-users":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/users"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-3-users":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/users"
+                                                principals:
+                                                    - any: true
+                                            "allow-put-service-1-user":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/users"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.106"
+                                            "allow-put-service-2-user":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/users"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.106"
+                                            "allow-put-service-3-user":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/users"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.106"
+                                            "allow-delete-service-1-user":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/users"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.107"
+                                            "allow-delete-service-2-user":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/users"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.107"
+                                            "allow-delete-service-3-user":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/users"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.107"
+                                            "allow-get-service-1-admins":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/admins"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-2-admins":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/admins"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-3-admins":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/admins"
+                                                principals:
+                                                    - any: true
+                                            "allow-put-service-1-admin":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/admins"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.108"
+                                            "allow-put-service-2-admin":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/admins"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.108"
+                                            "allow-put-service-3-admin":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/admins"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.108"
+                                            "allow-delete-service-1-admin":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/admins"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.109"
+                                            "allow-delete-service-2-admin":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/admins"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.109"
+                                            "allow-delete-service-3-admin":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/admins"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.109"
+                                            "allow-get-service-1-health":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/health"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-2-health":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/health"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-3-health":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/health"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-1-metrics":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/metrics"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.110"
+                                            "allow-get-service-2-metrics":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/metrics"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.110"
+                                            "allow-get-service-3-metrics":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/metrics"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.110"
+                                            "allow-post-service-1-ops":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/ops"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.111"
+                                            "allow-post-service-2-ops":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/ops"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.111"
+                                            "allow-post-service-3-ops":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/ops"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.111"
+                                            "allow-get-service-1-config":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/config"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-2-config":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/config"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-3-config":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/config"
+                                                principals:
+                                                    - any: true
+                                            "allow-patch-service-1-config":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PATCH"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/config"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.112"
+                                            "allow-patch-service-2-config":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PATCH"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/config"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.112"
+                                            "allow-patch-service-3-config":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PATCH"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/config"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.112"
+                                            "allow-get-service-1-info":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/info"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-2-info":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/info"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-3-info":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/info"
+                                                principals:
+                                                    - any: true
+                                            "allow-post-service-1-info":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/info"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.113"
+                                            "allow-post-service-2-info":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/info"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.113"
+                                            "allow-post-service-3-info":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/info"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.113"
+                                            "allow-get-service-1-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/legacy"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-2-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/legacy"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-3-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/legacy"
+                                                principals:
+                                                    - any: true
+                                            "allow-put-service-1-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/legacy"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.114"
+                                            "allow-put-service-2-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/legacy"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.114"
+                                            "allow-put-service-3-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/legacy"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.114"
+                                            "allow-delete-service-1-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/legacy"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.115"
+                                            "allow-delete-service-2-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/legacy"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.115"
+                                            "allow-delete-service-3-legacy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/legacy"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.115"
+                                            "allow-get-service-1-queue":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/queue"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-2-queue":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/queue"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-3-queue":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/queue"
+                                                principals:
+                                                    - any: true
+                                            "allow-post-service-1-queue":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/queue"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.116"
+                                            "allow-post-service-2-queue":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/queue"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.116"
+                                            "allow-post-service-3-queue":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/queue"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.116"
+                                            "allow-get-service-1-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/cache"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-2-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/cache"
+                                                principals:
+                                                    - any: true
+                                            "allow-get-service-3-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/cache"
+                                                principals:
+                                                    - any: true
+                                            "allow-put-service-1-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/cache"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.117"
+                                            "allow-put-service-2-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/cache"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.117"
+                                            "allow-put-service-3-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/cache"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.117"
+                                            "allow-delete-service-1-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-1/cache"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.118"
+                                            "allow-delete-service-2-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-2/cache"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.118"
+                                            "allow-delete-service-3-cache":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        prefix: "/service-3/cache"
+                                                principals:
+                                                    - remote_ip:
+                                                          address_prefix: "172.18.0.118"
                                             "stats-1-v1":
                                                 permissions:
                                                     - and_rules:

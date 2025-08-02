@@ -7,7 +7,7 @@ export const options = {
     scenarios: {
         rps: {
             executor: "constant-arrival-rate",
-            duration: "1m",
+            duration: "5m",
             rate: rate,
             preAllocatedVUs: vus,
         },

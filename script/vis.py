@@ -26,53 +26,13 @@ parser.add_argument("-o", "--output", default="res/vis", help="Can be an output 
 
 subparsers = parser.add_subparsers(dest="command")
 
-box_plot = subparsers.add_parser("bp")
-box_plot.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-
-line = subparsers.add_parser("line")
-line.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-line.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-
-bar = subparsers.add_parser("bar")
-bar.add_argument("-m", "--metric", default="iterations", help="The recorded metric to visualize")
-bar.add_argument("-a", "--agg", default="rate", help="The aggregation func")
-
-speedup = subparsers.add_parser("speedup")
-speedup.add_argument("-b", "--base", required=False, help="The data that serves as the critical path")
-speedup.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-speedup.add_argument("-a", "--agg",  nargs="+", default=["avg", "p(90)", "p(95)", "max"], help="The aggregation funcs")
-
-duration = subparsers.add_parser("duration")
-duration.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
-duration.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-
-overhead = subparsers.add_parser("overhead")
-overhead.add_argument("-b", "--base", default="none", help="The data that serves as the critical path")
-overhead.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-overhead.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-overhead.add_argument("--absolute", default=False, help="Report the overhead in absolute numbers")
-
 cdf = subparsers.add_parser("cdf")
 cdf.add_argument("-r", "--range", required=False, help="The time range")
 cdf_tikz = subparsers.add_parser("cdf_tikz")
 cdf_tikz.add_argument("-r", "--range", required=False, help="The time range")
 
-scatter = subparsers.add_parser("scatter")
-scatter.add_argument("-p", "--proxy", required=True, help="The recorded proxy to visualize")
-scatter.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
-scatter.add_argument("-d", "--drop", default=0, help="Drop rate of the recorded metric")
-
-time_profile = subparsers.add_parser("time_profile")
-time_profile.add_argument("-m", "--metric", default="http_req_duration", help="The recorded metric to visualize")
-time_profile.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-
 stats = subparsers.add_parser("stats")
 stats = subparsers.add_parser("stats_tikz")
-
-lat = subparsers.add_parser("lat")
-lat.add_argument("-a", "--agg", default="mean", help="The aggregation func")
-lat_tikz = subparsers.add_parser("lat_tikz")
-lat_tikz.add_argument("-r", "--range", required=False, help="The time range")
 
 cpu = subparsers.add_parser("cpu")
 cpu_tikz = subparsers.add_parser("cpu_tikz")
@@ -84,26 +44,17 @@ dissect = subparsers.add_parser("dissect")
 dissect_tikz = subparsers.add_parser("dissect_tikz")
 dissect_complexity_tikz = subparsers.add_parser("dissect_complexity_tikz")
 
-percentile = subparsers.add_parser("percentile")
-percentile.add_argument("-r", "--range", required=False, help="The time range")
-
-percentile_tikz = subparsers.add_parser("percentile_tikz")
-percentile_tikz.add_argument("-r", "--range", required=False, help="The time range")
-
-scaling = subparsers.add_parser("scaling")
-scaling.add_argument("-m", "--metric", default="http_req_duration{expected_response:true}", help="The recorded metric to visualize")
-scaling.add_argument("-a", "--agg", default="p(95)", help="The aggregation func")
-
 complexity = subparsers.add_parser("complexity")
 complexity.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
 complexity.add_argument("-a", "--agg", default="rate", help="The aggregation func")
 
 complexity_tikz = subparsers.add_parser("complexity_tikz")
-complexity_tikz.add_argument("-p", "--policy", help="The policy to visualize")
+complexity_tikz.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
 complexity_tikz.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
 complexity_tikz.add_argument("-a", "--agg", default="rate", help="The aggregation func")
 
 args = parser.parse_args()
+
 
 def thousand_label(x, pos):
     return "%1.0fK" % (x * 1e-3) if x >= 1e3 else "%1.0f" % x
@@ -115,15 +66,6 @@ def _parse_k6_path(path):
     epoch = match.group(2)
 
     return proxy, int(epoch)
-
-
-def _parse_wrk_path(path):
-    match = re.search(r"(\w+)-(?:(\d+)-)?wrk-e(\d+)*.*", path)
-    proxy = match.group(1)
-    timestamp = match.group(2)
-    epoch = match.group(3)
-
-    return proxy, int(timestamp) if timestamp else None, int(epoch)
 
 
 def _parse_cpu_path(path):
@@ -192,54 +134,6 @@ def _load_k6_data(paths, max_epoch=30):
     return pd.concat(dfs)
 
 
-def _load_wrk_data(paths):
-    rows = []
-    for p in paths:
-        proxy, timestamp, epoch = _parse_wrk_path(p)
-        with open(p, "r") as file:
-            text = file.read()
-            ps = [f"p({p})" for p in range(1, 100)]
-
-            aggs = {}
-            for percentile in ps:
-                escaped_percentile = re.escape(percentile)
-                pattern = rf"{escaped_percentile}:\s*(\d+\.\d+)"
-                match = re.search(pattern, text)
-
-                if match is not None:
-                    latency = match.group(1)
-                    aggs[percentile] = float(latency)
-
-            pattern = "Latency\s*(\d+\.\d+)ms"
-            match = re.search(pattern, text)
-
-            if match is not None:
-                latency = match.group(1)
-                aggs["mean"] = float(latency)
-
-            pattern = r"Requests/sec:\s*(\d+\.\d+)"
-            match = re.search(pattern, text)
-            if match is None:
-                print(f"Could not find rate in {p}")
-                continue
-
-            rate = float(match.group(1))
-
-            rows.append({
-                "proxy": proxy,
-                "timestamp": timestamp,
-                "epoch": epoch,
-                "rate": rate,
-                "metric_name": "http_req_duration",
-                "file": os.path.basename(p),
-                **aggs
-            })
-
-    df = pd.DataFrame.from_dict(rows)
-
-    return df
-
-
 def _load_cpu_data(paths):
     dfs = []
     for p in paths:
@@ -276,43 +170,6 @@ def _load_bpf_data(paths):
             dfs.append(df)
 
     return pd.concat(dfs).reset_index(drop=True)
-
-
-def _load_log_data(paths):
-    dfs = []
-
-    for p in paths:
-        proxy, payload_size = _parse_k6_path(p)
-        df = pd.read_csv(p, engine="pyarrow")
-        df["proxy"] = proxy
-        df["payload_size"] = payload_size
-        df["file"] = os.path.basename(p)
-
-        dfs.append(df)
-
-    df = pd.concat(dfs)
-
-    return df
-
-
-def _load_data(paths, aggs):
-    if all("summary" in p for p in paths):
-        df = _load_k6_summaries(paths)
-
-        return df, True
-    else:
-        df = _load_log_data(paths)
-
-        df = df[df["expected_response"].fillna(False)]
-        df = df[df["extra_tags"].str.contains("steady").fillna(False)]
-
-        columns = (c for c in df.columns if c != "metric_value")
-        df = df.drop(columns, axis=1)
-
-        aggs = [(agg, _aggregate_fn(agg)) for agg in aggs]
-        df = df.groupby(level=[0,1,2]).agg(aggs)
-
-        return df, False
 
 
 def _save_to_path(name, dst):
@@ -412,208 +269,6 @@ def _rename_legend_labels(g):
             text.set_text(new_name)
 
 
-def box_plot(name, metric, dst):
-    paths = _get_file_paths(name)
-    df = _load_k6_summaries(paths)
-    df = df.xs(metric, level="metric_name")
-
-    order = df.index.get_level_values("proxy").unique()
-    order = sorted(order)
-
-    plots = []
-    for proxy in order:
-        lw = df.loc[proxy, 1024]["min"]
-        lq = df.loc[proxy, 1024]["p(25)"]
-        uw = df.loc[proxy, 1024]["max"]
-        uq = df.loc[proxy, 1024]["p(75)"]
-        med = df.loc[proxy, 1024]["med"]
-
-        plot = f"""\\addplot+ [
-            boxplot prepared={{
-                lower whisker={lw}, lower quartile={lq},
-                median={med},
-                upper whisker={uw}, upper quartile={uq},
-            }},
-        ] coordinates {{}};"""
-        plots.append(plot)
-
-    tick_labels = ", ".join(order)
-    ticks = ", ".join([str(i) for i in range(1, len(order)+1)])
-    plots = "\n".join(plots)
-
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[
-    ytick={{{ticks}}},
-    yticklabels={{{tick_labels}}},
-]
-
-{plots}
-
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
-
-
-def line_graph(name, metric, agg, dst):
-    paths = _get_file_paths(name)
-    df = _load_k6_summaries(paths)
-    df = df.xs(metric, level="metric_name")
-
-    order = df.index.get_level_values("proxy").unique()
-    order = sorted(order)
-
-    num_samples = df.groupby("proxy").agg({agg: "count"})
-    if len(np.unique(num_samples)) > 1:
-        raise ValueError(f"Incomplete measurements: {num_samples}")
-
-    g = sns.lineplot(data=df, x="payload_size", y=agg, hue="proxy", marker="o", hue_order=order)
-    sizes = set(df.index.get_level_values("payload_size"))
-    sizes = sorted(sizes)
-
-    g.set_xscale("log")
-    g.set_xlabel("payload size [B]")
-    g.set_xticks(sizes)
-    g.set_xticklabels([str(s) for s in sizes])
-    g.xaxis.set_major_formatter(ticker.FuncFormatter(thousand_label))
-    g.set_xbound(lower=sizes[0], upper=sizes[-1])
-
-    g.set_ylabel("time [ms]")
-    min_y = df[agg].min()
-    max_y = df[agg].max()
-
-    g.set_yticks(np.linspace(min_y, max_y, 5))
-    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"line-{metric}-{agg}", os.path.join(dst, name))
-
-
-def bar_graph(name, metric, agg, dst):
-    paths = _get_file_paths(name)
-    df = _load_k6_summaries(paths)
-    df = df.xs(metric, level="metric_name")
-
-    df[agg] = df[agg] / 1e6
-
-    order = df.index.get_level_values("proxy").unique()
-    order = sorted(order)
-
-    g = sns.catplot(data=df, kind="bar", x="proxy", y=agg, errorbar="sd", hue_order=order)
-
-    g.set(xlabel="payload size [B]", ylabel="throughput [MB/s]")
-
-    print(df[agg])
-
-    # max_y = df[agg].max()
-    # g.set(yticks=np.linspace(0, max_y, 5))
-    # for ax in g.axes.flat:
-    #     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
-
-    # sns.move_legend(g, "upper center")
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"bar-{metric}-{agg}", os.path.join(dst, name))
-
-
-def speedup_graph(name, base, metric, aggs, dst):
-    paths = _get_file_paths(name)
-    df = _load_k6_summaries(paths)
-    ebpf = df.xs("ebpf", level="proxy")
-    envoy = df.xs("envoy", level="proxy")
-
-    if base is not None:
-        base = df.xs(base, level="proxy")
-    else:
-        base = pd.DataFrame(0, index=ebpf.index, columns=ebpf.columns)
-
-    speedup = ebpf.copy()
-    for agg in aggs:
-        speedup[agg] = (envoy[agg] - base[agg]) / (ebpf[agg] - base[agg])
-
-    speedup = speedup.xs(metric, level="metric_name")
-    speedup = speedup.drop("value", axis=1).reset_index()
-    speedup = speedup.melt(id_vars=["payload_size"], value_vars=aggs)
-
-    g = sns.catplot(
-        data=speedup, kind="bar",
-        x="payload_size", y="value", hue="variable",
-        errorbar="sd"
-    )
-
-    # plt.title(metric)
-    g.set_axis_labels("payload size [B]", "speedup")
-    g.legend.set_title(None)
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    sns.move_legend(g, "upper right")
-    _save_to_path(f"speedup-{metric}", os.path.join(dst, name))
-
-
-def duration_graph(name, proxy, agg, dst):
-    paths = _get_file_paths(name)
-    df = _load_k6_summaries(paths)
-    df = df.xs(proxy, level="proxy")
-
-    columns = ["http_req_sending", "http_req_waiting", "http_req_receiving"]
-    df = df[df.index.get_level_values("metric_name").isin(columns)]
-    df = df.drop((c for c in df.columns if c != agg), axis=1)
-    df = df.reset_index()
-    df = df.pivot(index="payload_size", columns="metric_name", values=agg)
-
-    g = df.plot(kind="bar", stacked=True)
-    g.set_xlabel("payload size [B]")
-    g.set_ylabel("time [ms]")
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"duration-{proxy}-{agg}", os.path.join(dst, name))
-
-
-def overhead_graph(name, base, metric, agg, absolute, dst):
-    paths = _get_file_paths(name)
-    def _preprocess(df):
-        df = df[df.index.get_level_values("metric_name") == metric]
-        df = df.drop((c for c in df.columns if c != agg), axis=1)
-        df = df.reset_index()
-        df = df.pivot(index="payload_size", columns="proxy", values=agg)
-
-        return df
-
-    df = _preprocess(_load_k6_summaries(paths))
-
-    base = df.drop((c for c in df.columns if c != base), axis=1)
-    df.drop(base, axis=1, inplace=True)
-
-    proxies = df.columns
-    if absolute:
-        for p in proxies:
-            df[p] = df[p] - base["none"]
-    else:
-        for p in proxies:
-            df[p] = (df[p] - base["none"]) / base["none"] * 100
-
-    # df = df.drop("envoy", axis=1)
-    # df = df.drop("splice", axis=1)
-    # assert(np.all(df["ebpf"] >= 0))
-    # assert(np.all(df["envoy"] >= 0))
-
-    g = df.plot(kind="bar")
-    g.set_xlabel("payload size [B]")
-    g.set_ylabel("time [ms]" if absolute else "overhead [%]")
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"overhead-{metric}-{agg}", os.path.join(dst, name))
-
-
 def cdf_graph(name, time_range, dst):
     (start, end) = _parse_time_range(time_range)
     paths = _get_file_paths(name, "*full.csv")
@@ -669,19 +324,17 @@ def cdf_graph_tikz(name, time_range):
     avg_beeline = df[df["proxy"] == "beeline"]["metric_value"].mean()
     avg_envoy = df[df["proxy"] == "envoy"]["metric_value"].mean()
     avg_l4fp = df[df["proxy"] == "envoy_l4fp"]["metric_value"].mean()
-    avg_iouring = df[df["proxy"] == "envoy_iouring"]["metric_value"].mean()
 
     ps_beeline = _percentiles("beeline")[0]
     ps_envoy = _percentiles("envoy")[0]
     ps_l4fp = _percentiles("envoy_l4fp")[0]
-    ps_iouring = _percentiles("envoy_iouring")[0]
 
-    print(f"avg beeline: {avg_beeline} envoy: {avg_envoy} l4fp: {avg_l4fp} io_uring: {avg_iouring}")
-    print(f"p50 beeline: {ps_beeline[50]} envoy: {ps_envoy[50]} l4fp: {ps_l4fp[50]} io_uring: {ps_iouring[50]}")
-    print(f"p75 beeline: {ps_beeline[75]} envoy: {ps_envoy[75]} l4fp: {ps_l4fp[75]} io_uring: {ps_iouring[75]}")
-    print(f"p90 beeline: {ps_beeline[90]} envoy: {ps_envoy[90]} l4fp: {ps_l4fp[90]} io_uring: {ps_iouring[90]}")
-    print(f"p95 beeline: {ps_beeline[95]} envoy: {ps_envoy[95]} l4fp: {ps_l4fp[95]} io_uring: {ps_iouring[95]}")
-    print(f"p99 beeline: {ps_beeline[99]} envoy: {ps_envoy[99]} l4fp: {ps_l4fp[99]} io_uring: {ps_iouring[99]}")
+    print(f"avg beeline: {avg_beeline} envoy: {avg_envoy} l4fp: {avg_l4fp}")
+    print(f"p50 beeline: {ps_beeline[50]} envoy: {ps_envoy[50]} l4fp: {ps_l4fp[50]}")
+    print(f"p75 beeline: {ps_beeline[75]} envoy: {ps_envoy[75]} l4fp: {ps_l4fp[75]}")
+    print(f"p90 beeline: {ps_beeline[90]} envoy: {ps_envoy[90]} l4fp: {ps_l4fp[90]}")
+    print(f"p95 beeline: {ps_beeline[95]} envoy: {ps_envoy[95]} l4fp: {ps_l4fp[95]}")
+    print(f"p99 beeline: {ps_beeline[99]} envoy: {ps_envoy[99]} l4fp: {ps_l4fp[99]}")
 
     for i, proxy in enumerate(order):
         color = _tex_color_name(proxy) # predefined in latex
@@ -714,180 +367,6 @@ scaled x ticks=false,
 xlabel style={{anchor=north}},
 xmajorgrids=true,
 grid style=dashed,
-height=5cm,
-width=\\linewidth]
-
-{plots}
-
-\\legend{{{legend}}}
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
-
-
-def scatter_graph(name, proxy, metric, drop_rate, dst):
-    paths = _get_file_paths(name, "*.csv")
-    df = _load_log_data(paths)
-    df = df[df["metric_name"] == metric]
-
-    df = df[df["proxy"] == proxy]
-    df["timestamp"] -= df["timestamp"].min()
-
-    drop_num = int(drop_rate * len(df))
-    if drop_num > 0:
-        print(f"Dropping {drop_num} samples ({drop_rate*100}%)")
-        df = df.sample(n=len(df)-drop_num).sort_index()
-
-    g = sns.scatterplot(data=df, x="timestamp", y="metric_value", hue="proxy")
-
-    g.set_xlabel("Time [s]")
-
-    min_y = df["metric_value"].min()
-    max_y = df["metric_value"].max()
-    g.set_yticks(np.linspace(min_y, max_y, 5))
-    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
-    g.set_ylabel(f"{metric} [ms]")
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"scatter-{proxy}-{metric}-@{str(round(100*(1-drop_rate)))}%", os.path.join(dst, name))
-
-
-def time_profile_graph_tikz(name, metric, agg):
-    paths = _get_file_paths(name, "*.csv")
-    df = _load_log_data(paths)
-    df = df[df["metric_name"] == metric]
-
-    df = df[["proxy", "timestamp", "metric_value"]]
-    agg_fn = {"metric_value": _aggregate_fn(agg)}
-    df = df.groupby(by=["proxy", "timestamp"]).agg(agg_fn)
-
-    order = df.index.get_level_values("proxy").unique()
-    order = sorted(order)
-    if "beeline" in order:
-        order.remove("beeline")
-        order.insert(0, "beeline")
-    legend = ",".join(order)
-
-    plots = []
-    for i, proxy in enumerate(order):
-        color = f"{proxy}color" # predefined in latex
-        ys = df["metric_value"].xs(proxy, level="proxy")
-        xs = ys.index
-        xs -= xs.min()
-
-        coordinates = list(sorted(zip(xs, ys)))
-        coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
-
-        plot = f"""\\addplot[{color},line width=0.3mm] coordinates {{
-            {coordinates}
-        }};"""
-        plots.append(plot)
-
-    plots = "\n".join(plots)
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[
-    ylabel={{Latency [ms]}},
-    xlabel={{Time [s]}},
-    xmin=0, xmax=30,
-    axis lines=left,
-    xticklabel style={{rotate=-0, yshift=-0.4ex}},
-    xlabel style={{anchor=north}},
-    xmajorgrids=true,
-    grid style=dashed,
-    legend pos=north east,
-    height=5cm,
-    width=\\linewidth
-]
-
-{plots}
-
-\\legend{{{legend}}}
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
-
-
-def lat_graph(name, agg, dst):
-    paths = _get_file_paths(name, "*full.csv")
-    df = _load_k6_data(paths)
-
-    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
-    print("Number of epochs per proxy:")
-    print(num_epochs.to_string())
-
-    df = df.groupby(["proxy", "timestamp"]).agg({"metric_value": "mean"})
-
-    order = df.index.get_level_values("proxy").unique()
-    order = sorted(order)
-
-    g = sns.lineplot(data=df, x="timestamp", y="metric_value", hue="proxy", marker="o", hue_order=order)
-
-    g.set_xlabel("rate [req/s]")
-    g.set_ylabel("latency [ms]")
-    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"sn-latency-{agg}", os.path.join(dst, name))
-
-
-def lat_graph_tikz(name, time_range):
-    paths = _get_file_paths(name, "*full.csv")
-    df = _load_k6_data(paths)
-
-    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
-    print("Number of epochs per proxy:")
-    print(num_epochs.to_string())
-
-    df = df.groupby(["proxy", "timestamp"]).agg({"metric_value": "mean"})
-
-    order = df.index.get_level_values("proxy").unique()
-    order = sorted(order)
-
-    if "beeline" in order:
-        order.remove("beeline")
-        order.insert(0, "beeline")
-
-    legend = ",".join(order)
-
-    plots = []
-    for i, proxy in enumerate(order):
-        color = f"{proxy}color" # predefined in latex
-        xs = df.xs(proxy, level="proxy").index.get_level_values("timestamp")
-        ys = df.xs(proxy, level="proxy")["metric_value"]
-
-        coordinates = [(rate, val) for rate, val in zip(xs, ys)]
-        coordinates = sorted(coordinates)
-        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
-
-        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
-            {coordinates}
-        }};"""
-        plots.append(plot)
-
-    (xmin, xmax) = _parse_time_range(time_range, max=df["rate"].max())
-
-    plots = "\n".join(plots)
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[
-xlabel={{Time [s]}},
-ylabel={{Latency [ms]}},
-ymin=0,
-xmin={xmin}, xmax={xmax},
-axis lines=left,
-x tick label style={{
-    /pgf/number format/fixed,
-    /pgf/number format/precision=1,
-    /pgf/number format/1000 sep={{}},
-}},
-scaled x ticks=false,
-xlabel style={{anchor=north}},
-xmajorgrids=true,
-grid style=dashed,
-legend pos=north west,
 height=5cm,
 width=\\linewidth]
 
@@ -1304,33 +783,23 @@ def _load_dissect_df(name):
         # userspace processing contains everything else -> subtract from processing so it's not represented twice
         df.loc[(slice(None), "user"), "mean"] -= df.loc[(slice(None), "parse"), "mean"].values
         for p in ["envoy", "envoy_l4fp"]:
-            # write contains process_backlog
             df.loc[(p, "user"), "mean"] -= df.loc[(p, "read"), "mean"]
             df.loc[(p, "user"), "mean"] -= df.loc[(p, "write"), "mean"]
+            # write contains process_backlog
             df.loc[(p, "write"), "mean"] -= df.loc[(p, "ipc"), "mean"]
 
         # this is the overhead from running an eBPF program at the sk_msg level
         # the L4 fast path executes this twice as often as beeline
         sk_msg = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
         df.loc[("beeline", "ebpf"), "mean"] = sk_msg
-        df.loc[("envoy_l4fp", "ebpf"), "mean"] = 2*sk_msg
 
         # the remainder of the request duration is unaccounted for
-        df.loc[("envoy", "unaccounted"), "mean"] = envoy - df.loc[("envoy", slice(None)), "mean"].sum()
-        df.loc[("envoy_l4fp", "unaccounted"), "mean"] = l4fp - df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
-        df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
-
-        # assert -0.05 <= df.loc[("envoy", "unaccounted"), "mean"] < 0.05, f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
-        # assert -0.05 <= df.loc[("envoy_l4fp", "unaccounted"), "mean"] < 0.05, f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
-        # assert -0.05 <= df.loc[("beeline", "unaccounted"), "mean"] < 0.05, f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
-
-        # sanity check that we're not misssing anything
-        assert df.loc[("envoy", slice(None)), "mean"].sum().round(5) == envoy.round(5)
-        assert df.loc[("envoy_l4fp", slice(None)), "mean"].sum().round(5) == l4fp.round(5)
-        assert df.loc[("beeline", slice(None)), "mean"].sum().round(5) == beeline.round(5)
+        df.loc[("beeline", slice(None)), "mean"] *= beeline/df.loc[("beeline", slice(None)), "mean"].sum()
+        df.loc[("envoy", slice(None)), "mean"] *= envoy/df.loc[("envoy", slice(None)), "mean"].sum()
+        df.loc[("envoy_l4fp", slice(None)), "mean"] *= l4fp/df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
 
         # unaccounted is mostly the overhead of the uprobes, removing it from parsing
-        rename = {"user": "Policy Enforcement", "unaccounted": "Parsing", "ebpf": "IPC", "parse": "Parsing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
+        rename = {"user": "Policy Enforcement", "ebpf": "IPC", "parse": "Parsing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
         df = df.rename(index=rename, level="func").reset_index()
 
         if complexity:
@@ -1479,202 +948,34 @@ def dissect_complexity_graph_tikz(name):
     print(tikz)
 
 
-def percentile_graph(name, time_range, dst):
-    (start, end) = _parse_time_range(time_range)
-    paths = _get_file_paths(name, "*full.csv")
-    df = _load_k6_data(paths)
-    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
+def _load_complexity_df(name, policy, metric, agg):
+    def _compute_complexity(vals):
+        if policy == 0:
+            return vals["n1"]
+        else:
+            return vals["n1"] * vals["m1"]
 
-    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
-    print("Number of epochs per proxy:")
-    print(num_epochs.to_string())
-
-    aggs = ["p(50)", "p(95)", "p(99)"]
-    aggs = [(a, _aggregate_fn(a)) for a in aggs]
-    df = df.groupby("proxy")["metric_value"].agg(aggs).reset_index()
-    df = df.melt(id_vars="proxy",
-                 var_name="percentile",
-                 value_name="metric_value")
-
-    order = df["proxy"].unique()
-    order = sorted(order)
-
-    g = sns.catplot(data=df, kind="bar", x="percentile", y="metric_value", hue="proxy", hue_order=order)
-    g.set_axis_labels("", "Latency [ms]")
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"sn-percentile", os.path.join(dst, name))
-
-
-def percentile_graph_tikz(name, time_range):
-    (start, end) = _parse_time_range(time_range)
-    paths = _get_file_paths(name, "*full.csv")
-    df = _load_k6_data(paths)
-    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
-
-    # print(df[df["metric_value"] > 1000].to_string())
-
-    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
-    print("Number of epochs per proxy:")
-    print(num_epochs.to_string())
-
-    aggs = ["p(50)", "p(95)", "p(99)"]
-    aggs_fn = [(a, _aggregate_fn(a)) for a in aggs]
-    df = df.groupby("proxy")["metric_value"].agg(aggs_fn).reset_index()
-    df = df.melt(id_vars="proxy",
-                 var_name="percentile",
-                 value_name="metric_value")
-
-    order = _order_proxies(df["proxy"].unique())
-
-    legend = ",".join(order)
-
-    plots = []
-    for i, proxy in enumerate(order):
-        color = f"{proxy}color" # predefined in latex
-        fill = f"{proxy}fill" # predefined in latex
-
-        xs = df[df["proxy"] == proxy]["percentile"]
-        ys = df[df["proxy"] == proxy]["metric_value"]
-
-        coordinates = [(x, y) for x, y in zip(xs, ys)]
-        coordinates = sorted(coordinates)
-        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
-
-        plot = f"""\\addplot[{color}, fill={fill}, line width=0.3mm] coordinates {{
-            {coordinates}
-        }};"""
-        plots.append(plot)
-
-    plots = "\n".join(plots)
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[ybar,
-ylabel={{latency [ms]}},
-ymin=0,
-axis lines=left,
-symbolic x coords={{{",".join(aggs)}}},
-x tick label style={{
-    /pgf/number format/fixed,
-    /pgf/number format/precision=1,
-    /pgf/number format/1000 sep={{}},
-}},
-scaled x ticks=false,
-xtick=data,
-enlarge x limits = 0.4,
-xlabel style={{anchor=north}},
-legend pos=north west,
-height=5cm,
-bar width=0.3cm,
-width=\\linewidth]
-
-{plots}
-
-\\legend{{{legend}}}
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
-
-
-# def scaling_graph(name, metric, agg, dst):
-#     dfs = []
-#     for i in range(1, 100):
-#         paths = _get_file_paths(f"{name}-{i}", "*k6*summary*.json")
-#         if len(paths) > 0:
-#             df = _load_k6_summaries(paths)
-#             df["services"] = i
-#             dfs.append(df)
-
-#     df = pd.concat(dfs)
-#     df = df[df["metric_name"] == metric]
-#     df = df.groupby(["proxy", "services"]).agg({agg: "mean"})
-#     print(df)
-
-#     g = sns.lineplot(data=df, x="services", y=agg, hue="proxy", marker="o")
-#     g.set(xlabel="#Services", ylabel="Latency [ms]")
-
-#     if args.legend:
-#         _rename_legend_labels(g)
-
-#     _save_to_path(f"scaling-{agg}", os.path.join(dst, name))
-
-def scaling_graph(policy, metric, agg, dst):
-    def _load_df(name):
-        dfs = []
-        for i in range(1, 100):
-            paths = _get_file_paths(f"{name}-{i}", "*k6*summary*.json")
-            if len(paths) > 0:
-                df = _load_k6_summaries(paths)
-                df["services"] = i
-                dfs.append(df)
-        return pd.concat(dfs)
-
+    paths = _get_file_paths(f"{name}-p{policy}-*", "*k6*summary*.json")
     dfs = []
-    policies = [("chain-mutate", "mutate"), ("chain-jwt", "jwt"), ("chain", "none")]
-    for (name, pol) in policies:
-        df = _load_df(name)
-        df["policy"] = pol
+    for p in paths:
+        folder = os.path.dirname(p)
+        name = os.path.basename(folder)
+        vals = [s for s in name.split("-")[2:]]
+        vals = {vals[i]: int(vals[i+1]) for i in range(0, len(vals), 2)}
+
+        df = _load_k6_summaries([p])
+        df["policy"] = policy
+        df["complexity"] = _compute_complexity(vals)
+
         dfs.append(df)
 
     df = pd.concat(dfs)
     df = df[df["metric_name"] == metric]
-    df = df.groupby(["proxy", "services", "policy"]).agg({agg: "mean"})
 
-    order = df.index.get_level_values("proxy").unique()
-    order = sorted(order)
+    num_comps = df.groupby(["proxy", "policy", "complexity"]).size().reset_index(name="count")
+    print(num_comps.to_string())
 
-    df = df.unstack(level=2)
-    df.columns = df.columns.droplevel(0)
-    df.columns.name = None
-
-    # df['mutate'] = df['mutate'] - df['none']
-    # df['jwt'] = df['jwt'] - df['none']
-    # df = df.reset_index().melt(id_vars=["proxy", "services"], value_vars=["mutate", "jwt"], var_name="policy", value_name="value")
-    df = df.reset_index()
-
-
-    # df = df[df["policy"] == policy]
-    df = df[df["services"] < 30]
-    print(df)
-
-    g = sns.catplot(data=df, kind="bar", x="services", y=policy, hue="proxy")
-    g.set(xlabel="#Services", ylabel="Latency [ms]")
-
-    plt.yscale("log")
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"scaling-{agg}", os.path.join(dst, policy))
-
-
-def _load_complexity_df(name, metric, agg):
-    def _load_df(policy):
-        dfs = []
-        for i in range(1, 100):
-            paths = _get_file_paths(f"{name}-p{policy}-c{i}", "*k6*summary*.json")
-            if len(paths) > 0:
-                df = _load_k6_summaries(paths)
-                df["complexity"] = i
-                df["policy"] = policy
-                dfs.append(df)
-
-        if len(dfs) == 0:
-            return None
-
-        return pd.concat(dfs)
-
-    dfs = []
-    for p in range(0, 20):
-        df = _load_df(p)
-        if df is not None:
-            dfs.append(df)
-
-    df = pd.concat(dfs)
-    df = df[df["metric_name"] == metric]
     df = df.groupby(["proxy", "policy", "complexity"]).agg({agg: "mean"})
-    # df.loc[(slice(None), slice(None), slice(None))] -= df.loc[(slice(None), slice(None), 1)]
     df = df.reset_index()
 
     return df
@@ -1695,104 +996,34 @@ def complexity_graph(name, metric, agg, dst):
 
 
 def complexity_graph_tikz(name, policy, metric, agg):
-    df = _load_complexity_df(name, metric, agg)
+    df = _load_complexity_df(name, policy, metric, agg)
+    plots = []
+    order = _order_proxies(df["proxy"].unique())
 
-    policies = [int(policy)] if policy else sorted(df["policy"].unique())
-    for idx, policy in enumerate(policies):
-        print(f"policy: {policy}")
-        plots = []
-        order = _order_proxies(df["proxy"].unique())
+    for proxy in order:
+        color = _tex_color_name(proxy, False)
 
-        legend = ",".join([_tex_display_name(p) for p in order])
+        xs = df[(df["proxy"] == proxy) & (df["policy"] == policy)]["complexity"]
+        ys = df[(df["proxy"] == proxy) & (df["policy"] == policy)][agg]
 
-        for proxy in order:
-            color = _tex_color_name(proxy, False)
-            fill = _tex_color_name(proxy, True)
+        coordinates = [(x, y) for x, y in zip(xs, ys)]
+        coordinates = sorted(coordinates)
+        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
-            xs = df[(df["proxy"] == proxy) & (df["policy"] == policy)]["complexity"]
-            ys = df[(df["proxy"] == proxy) & (df["policy"] == policy)][agg]
+        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+            {coordinates}
+        }};"""
+        plots.append(plot)
 
-            coordinates = [(x, y) for x, y in zip(xs, ys)]
-            coordinates = sorted(coordinates)
-            coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
-
-            plot = f"""\\addplot[{color}, fill={fill}, line width=0.3mm] coordinates {{
-                {coordinates}
-            }};"""
-            plots.append(plot)
-
-        plots = "\n".join(plots)
-        legend = f"\\legend{{{legend}}}"
-        xlabel = "xlabel={Complexity},"
-
-        if idx > 0:
-            legend = ""
-        if idx < len(policies)-1:
-            xlabel = ""
-
-        tikz = f"""\\begin{{tikzpicture}}
-        \\begin{{axis}}[ybar,
-        ylabel={{TPut [req/s]}}, {xlabel}
-        ymin=0,
-        axis lines=left,
-        legend columns = 4,
-        legend style={{at={{(0,1.1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
-        y tick label style={{
-            /pgf/number format/fixed,
-            /pgf/number format/precision=1,
-            /pgf/number format/1000 sep={{}},
-        }},
-        yticklabel={{\\pgfkeys{{/pgf/fpu=true}}\\pgfmathparse{{\\tick/1000}}\\pgfmathprintnumber{{\\pgfmathresult}}K}},
-        ytick={{0, 50000, 100000}},
-        xticklabels={{easy, medium, hard, extreme}},
-        scaled y ticks=false,
-        scaled x ticks=false,
-        grid=major,
-        ymajorgrids=true,
-        xmajorgrids=false,
-        tick style={{
-            grid style=dashed,
-        }},
-        xtick=data,
-        enlarge x limits = 0.2,
-        xlabel style={{anchor=north}},
-        height=2.5cm,
-        bar width=5pt,
-        width=\\linewidth]
-
-        {plots}
-
-        {legend}
-        \\end{{axis}}
-        \\end{{tikzpicture}}"""
-        print(tikz)
+    plots = "\n".join(plots)
+    print(plots)
 
 
 if __name__ == "__main__":
-    if args.command == "bp":
-        box_plot(args.name, args.metric, args.output)
-    elif args.command == "line":
-        line_graph(args.name, args.metric, args.agg, args.output)
-    elif args.command == "bar":
-        bar_graph(args.name, args.metric, args.agg, args.output)
-    elif args.command == "speedup":
-        speedup_graph(args.name, args.base, args.metric, args.agg, args.output)
-    elif args.command == "duration":
-        duration_graph(args.name, args.proxy, args.agg, args.output)
-    elif args.command == "overhead":
-        overhead_graph(args.name, args.base, args.metric, args.agg, args.absolute, args.output)
-    elif args.command == "cdf":
+    if args.command == "cdf":
         cdf_graph(args.name, args.range, args.output)
     elif args.command == "cdf_tikz":
         cdf_graph_tikz(args.name, args.range)
-    elif args.command == "scatter":
-        scatter_graph(args.name, args.proxy, args.metric, float(args.drop), args.output)
-    elif args.command == "time_profile":
-        time_profile_graph_tikz(args.name, args.metric, args.agg)
-    elif args.command == "lat":
-        lat_graph(args.name, args.agg, args.output)
-    elif args.command == "lat_tikz":
-        lat_graph_tikz(args.name, args.range)
     elif args.command == "stats":
         stats_graph(args.output)
     elif args.command == "stats_tikz":
@@ -1811,10 +1042,6 @@ if __name__ == "__main__":
         dissect_graph_tikz(args.name)
     elif args.command == "dissect_complexity_tikz":
         dissect_complexity_graph_tikz(args.name)
-    elif args.command == "percentile":
-        percentile_graph(args.name, args.range, args.output)
-    elif args.command == "percentile_tikz":
-        percentile_graph_tikz(args.name, args.range)
     elif args.command == "scaling":
         scaling_graph(args.name, args.metric, args.agg, args.output)
     elif args.command == "complexity":

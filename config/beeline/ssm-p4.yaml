@@ -28,6 +28,325 @@ hosts:
           - 172.18.0.10:9999
           - 172.18.0.11:9999
 policies:
+    - name: allow-put-service-1-admin
+      path: "/service-1/admins"
+      method: PUT
+      source_ip: 172.18.0.108
+      allow: true
+    - name: allow-put-service-2-admin
+      path: "/service-2/admins"
+      method: PUT
+      source_ip: 172.18.0.108
+      allow: true
+    - name: allow-put-service-3-admin
+      path: "/service-3/admins"
+      method: PUT
+      source_ip: 172.18.0.108
+      allow: true
+    - name: allow-delete-service-1-admin
+      path: "/service-1/admins"
+      method: DELETE
+      source_ip: 172.18.0.109
+      allow: true
+    - name: allow-delete-service-2-admin
+      path: "/service-2/admins"
+      method: DELETE
+      source_ip: 172.18.0.109
+      allow: true
+    - name: allow-delete-service-3-admin
+      path: "/service-3/admins"
+      method: DELETE
+      source_ip: 172.18.0.109
+      allow: true
+    - name: allow-get-service-1-health
+      path: "/service-1/health"
+      method: GET
+      allow: true
+    - name: allow-get-service-2-health
+      path: "/service-2/health"
+      method: GET
+      allow: true
+    - name: allow-get-service-3-health
+      path: "/service-3/health"
+      method: GET
+      allow: true
+    - name: allow-get-service-1-metrics
+      path: "/service-1/metrics"
+      method: GET
+      source_ip: 172.18.0.110
+      allow: true
+    - name: allow-get-service-2-metrics
+      path: "/service-2/metrics"
+      method: GET
+      source_ip: 172.18.0.110
+      allow: true
+    - name: allow-get-service-3-metrics
+      path: "/service-3/metrics"
+      method: GET
+      source_ip: 172.18.0.110
+      allow: true
+    - name: allow-post-service-1-ops
+      path: "/service-1/ops"
+      method: POST
+      source_ip: 172.18.0.111
+      allow: true
+    - name: allow-post-service-2-ops
+      path: "/service-2/ops"
+      method: POST
+      source_ip: 172.18.0.111
+      allow: true
+    - name: allow-post-service-3-ops
+      path: "/service-3/ops"
+      method: POST
+      source_ip: 172.18.0.111
+      allow: true
+    - name: allow-get-service-1-config
+      path: "/service-1/config"
+      method: GET
+      allow: true
+    - name: allow-get-service-2-config
+      path: "/service-2/config"
+      method: GET
+      allow: true
+    - name: allow-get-service-3-config
+      path: "/service-3/config"
+      method: GET
+      allow: true
+    - name: allow-patch-service-1-config
+      path: "/service-1/config"
+      method: PATCH
+      source_ip: 172.18.0.112
+      allow: true
+    - name: allow-patch-service-2-config
+      path: "/service-2/config"
+      method: PATCH
+      source_ip: 172.18.0.112
+      allow: true
+    - name: allow-patch-service-3-config
+      path: "/service-3/config"
+      method: PATCH
+      source_ip: 172.18.0.112
+      allow: true
+    - name: allow-get-service-1-info
+      path: "/service-1/info"
+      method: GET
+      allow: true
+    - name: allow-get-service-2-info
+      path: "/service-2/info"
+      method: GET
+      allow: true
+    - name: allow-get-service-3-info
+      path: "/service-3/info"
+      method: GET
+      allow: true
+    - name: allow-post-service-1-info
+      path: "/service-1/info"
+      method: POST
+      source_ip: 172.18.0.113
+      allow: true
+    - name: allow-post-service-2-info
+      path: "/service-2/info"
+      method: POST
+      source_ip: 172.18.0.113
+      allow: true
+    - name: allow-post-service-3-info
+      path: "/service-3/info"
+      method: POST
+      source_ip: 172.18.0.113
+      allow: true
+    - name: allow-get-service-1-legacy
+      path: "/service-1/legacy"
+      method: GET
+      allow: true
+    - name: allow-get-service-2-legacy
+      path: "/service-2/legacy"
+      method: GET
+      allow: true
+    - name: allow-get-service-3-legacy
+      path: "/service-3/legacy"
+      method: GET
+      allow: true
+    - name: allow-put-service-1-legacy
+      path: "/service-1/legacy"
+      method: PUT
+      source_ip: 172.18.0.114
+      allow: true
+    - name: allow-put-service-2-legacy
+      path: "/service-2/legacy"
+      method: PUT
+      source_ip: 172.18.0.114
+      allow: true
+    - name: allow-put-service-3-legacy
+      path: "/service-3/legacy"
+      method: PUT
+      source_ip: 172.18.0.114
+      allow: true
+    - name: allow-delete-service-1-legacy
+      path: "/service-1/legacy"
+      method: DELETE
+      source_ip: 172.18.0.115
+      allow: true
+    - name: allow-delete-service-2-legacy
+      path: "/service-2/legacy"
+      method: DELETE
+      source_ip: 172.18.0.115
+      allow: true
+    - name: allow-delete-service-3-legacy
+      path: "/service-3/legacy"
+      method: DELETE
+      source_ip: 172.18.0.115
+      allow: true
+    - name: allow-get-service-1-queue
+      path: "/service-1/queue"
+      method: GET
+      allow: true
+    - name: allow-get-service-2-queue
+      path: "/service-2/queue"
+      method: GET
+      allow: true
+    - name: allow-get-service-3-queue
+      path: "/service-3/queue"
+      method: GET
+      allow: true
+    - name: allow-post-service-1-queue
+      path: "/service-1/queue"
+      method: POST
+      source_ip: 172.18.0.116
+      allow: true
+    - name: allow-post-service-2-queue
+      path: "/service-2/queue"
+      method: POST
+      source_ip: 172.18.0.116
+      allow: true
+    - name: allow-post-service-3-queue
+      path: "/service-3/queue"
+      method: POST
+      source_ip: 172.18.0.116
+      allow: true
+    - name: allow-get-service-1-cache
+      path: "/service-1/cache"
+      method: GET
+      allow: true
+    - name: allow-get-service-2-cache
+      path: "/service-2/cache"
+      method: GET
+      allow: true
+    - name: allow-get-service-3-cache
+      path: "/service-3/cache"
+      method: GET
+      allow: true
+    - name: allow-put-service-1-cache
+      path: "/service-1/cache"
+      method: PUT
+      source_ip: 172.18.0.117
+      allow: true
+    - name: allow-put-service-2-cache
+      path: "/service-2/cache"
+      method: PUT
+      source_ip: 172.18.0.117
+      allow: true
+    - name: allow-put-service-3-cache
+      path: "/service-3/cache"
+      method: PUT
+      source_ip: 172.18.0.117
+      allow: true
+    - name: allow-delete-service-1-cache
+      path: "/service-1/cache"
+      method: DELETE
+      source_ip: 172.18.0.118
+      allow: true
+    - name: allow-delete-service-2-cache
+      path: "/service-2/cache"
+      method: DELETE
+      source_ip: 172.18.0.118
+      allow: true
+    - name: allow-delete-service-3-cache
+      path: "/service-3/cache"
+      method: DELETE
+      source_ip: 172.18.0.118
+      allow: true
+    - name: allow-get-service-1-status
+      path: "/service-1/status"
+      method: GET
+      allow: true
+    - name: allow-get-service-2-status
+      path: "/service-2/status"
+      method: GET
+      allow: true
+    - name: allow-get-service-3-status
+      path: "/service-3/status"
+      method: GET
+      allow: true
+    - name: allow-admin-service-1
+      path: "/service-1/admin"
+      method: POST
+      source_ip: 172.18.0.100
+      allow: true
+    - name: allow-admin-service-2
+      path: "/service-2/admin"
+      method: POST
+      source_ip: 172.18.0.100
+      allow: true
+    - name: allow-admin-service-3
+      path: "/service-3/admin"
+      method: POST
+      source_ip: 172.18.0.100
+      allow: true
+    - name: allow-health-check
+      path: "/health"
+      method: GET
+      source_ip: 172.18.0.200
+      allow: true
+    - name: allow-metrics
+      path: "/metrics"
+      method: GET
+      source_ip: 172.18.0.201
+      allow: true
+    - name: allow-config-update-service-1
+      path: "/service-1/config"
+      method: PUT
+      source_ip: 172.18.0.101
+      allow: true
+    - name: allow-config-update-service-2
+      path: "/service-2/config"
+      method: PUT
+      source_ip: 172.18.0.101
+      allow: true
+    - name: allow-config-update-service-3
+      path: "/service-3/config"
+      method: PUT
+      source_ip: 172.18.0.101
+      allow: true
+    - name: allow-delete-service-1-resource
+      path: "/service-1/resource"
+      method: DELETE
+      source_ip: 172.18.0.102
+      allow: true
+    - name: allow-delete-service-2-resource
+      path: "/service-2/resource"
+      method: DELETE
+      source_ip: 172.18.0.102
+      allow: true
+    - name: allow-delete-service-3-resource
+      path: "/service-3/resource"
+      method: DELETE
+      source_ip: 172.18.0.102
+      allow: true
+    - name: allow-patch-service-1-settings
+      path: "/service-1/settings"
+      method: PATCH
+      source_ip: 172.18.0.103
+      allow: true
+    - name: allow-patch-service-2-settings
+      path: "/service-2/settings"
+      method: PATCH
+      source_ip: 172.18.0.103
+      allow: true
+    - name: allow-patch-service-3-settings
+      path: "/service-3/settings"
+      method: PATCH
+      source_ip: 172.18.0.103
+      allow: true
     - name: allow-stats
       path: "/stats-1"
       method: GET
