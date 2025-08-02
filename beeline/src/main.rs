@@ -11,6 +11,9 @@ struct Args {
 
     #[arg(short, long)]
     config: Option<String>,
+
+    #[arg(short, long, action)]
+    validate: bool,
 }
 
 #[tokio::main]
@@ -25,7 +28,7 @@ async fn main() -> Result<()> {
         .unwrap_or(String::from("config/beeline/debug.yaml"));
 
     let config = std::fs::File::open(config)?;
-    let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse Envoy config");
+    let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
 
     let addr = args
         .address
@@ -34,5 +37,10 @@ async fn main() -> Result<()> {
 
     let mut open_obj = MaybeUninit::uninit();
     let proxy = Proxy::attach(&addr, config, &mut open_obj)?;
-    proxy.listen().await
+
+    if !args.validate {
+        proxy.listen().await
+    } else {
+        Ok(())
+    }
 }
