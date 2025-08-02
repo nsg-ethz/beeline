@@ -4,7 +4,7 @@ use common::config::{
     beeline::{Config as BConfig, Filter, JwtFilter as BJwtFilter, MutateFilter},
     envoy::{Config as EConfig, HeaderMatch},
 };
-use std::{collections::HashMap, fs::File, str::FromStr};
+use std::{collections::HashMap, fs::File, path::Path, str::FromStr};
 
 const KEYS: &str = "abcdefghijklmnopqrstuvwxyz";
 
@@ -52,20 +52,16 @@ struct Args {
     #[arg(short, long)]
     out: String,
 
+    #[arg(long)]
+    template: Option<String>,
+
     #[arg(short, long, default_value = "config")]
     config_dir: String,
 }
 
-fn load_beeline_config(policy: usize, config_dir: String) -> Result<BConfig> {
-    let path = format!("{}/beeline/ssm-p{}.yaml", config_dir, policy);
-    let config = File::open(path)?;
-    serde_yaml::from_reader(&config).map_err(anyhow::Error::new)
-}
-
-fn load_envoy_config(policy: usize, config_dir: String) -> Result<EConfig> {
-    let path = format!("{}/envoy/ssm-p{}.yaml", config_dir, policy);
-    let config = File::open(path)?;
-    serde_yaml::from_reader(&config).map_err(anyhow::Error::new)
+fn load_config<C: serde::de::DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<C> {
+    let file = File::open(path)?;
+    serde_yaml::from_reader(&file).map_err(anyhow::Error::new)
 }
 
 fn generate_policy1_args(n: usize, m: usize) -> HashMap<String, String> {
@@ -288,7 +284,11 @@ fn generate(args: Args) -> Result<()> {
 
     match args.target {
         Target::Beeline => {
-            let mut config = load_beeline_config(max_policy, args.config_dir)?;
+            let path = args.template.unwrap_or(format!(
+                "{}/beeline/ssm-p{}.yaml",
+                args.config_dir, max_policy
+            ));
+            let mut config: BConfig = load_config(path)?;
             let mut num_policies = 0;
 
             if let (Some(n1), Some(m1)) = (args.n1, args.m1) {
@@ -319,7 +319,11 @@ fn generate(args: Args) -> Result<()> {
             serde_yaml::to_writer(&mut file, &config)?;
         }
         Target::Envoy => {
-            let mut config = load_envoy_config(max_policy, args.config_dir)?;
+            let path = args.template.unwrap_or(format!(
+                "{}/envoy/ssm-p{}.yaml",
+                args.config_dir, max_policy
+            ));
+            let mut config: EConfig = load_config(path)?;
             let mut num_policies = 0;
 
             if let (Some(n1), Some(m1)) = (args.n1, args.m1) {
