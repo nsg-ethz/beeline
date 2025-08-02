@@ -38,6 +38,210 @@ hosts:
       instances:
           - 172.18.0.31:9999
 policies:
+    - name: rbac-rule-01-api-gateway
+      source_ip: 172.18.0.100
+      method: GET
+      path: "/api/v1/health"
+      destination_port: 8080
+      allow: true
+    - name: rbac-rule-02-auth-service
+      source_ip: 172.18.0.101
+      method: POST
+      path: "/auth/login"
+      destination_port: 8443
+      allow: true
+    - name: rbac-rule-03-user-management
+      source_ip: 172.18.0.102
+      method: PUT
+      path: "/users/profile"
+      destination_port: 3000
+      allow: true
+    - name: rbac-rule-04-admin-panel
+      source_ip: 172.18.0.103
+      method: DELETE
+      path: "/admin/users"
+      destination_port: 5000
+      allow: true
+    - name: rbac-rule-05-metrics-collector
+      source_ip: 172.18.0.104
+      method: GET
+      path: "/metrics"
+      destination_port: 9090
+      allow: true
+    - name: rbac-rule-06-log-aggregator
+      source_ip: 172.18.0.105
+      method: POST
+      path: "/logs/ingest"
+      destination_port: 5044
+      allow: true
+    - name: rbac-rule-07-cache-service
+      source_ip: 172.18.0.106
+      method: GET
+      path: "/cache/get"
+      destination_port: 6379
+      allow: true
+    - name: rbac-rule-08-search-engine
+      source_ip: 172.18.0.107
+      method: POST
+      path: "/search/index"
+      destination_port: 9200
+      allow: true
+    - name: rbac-rule-09-notification-service
+      source_ip: 172.18.0.108
+      method: POST
+      path: "/notifications/send"
+      destination_port: 8085
+      allow: true
+    - name: rbac-rule-10-file-storage
+      source_ip: 172.18.0.109
+      method: PUT
+      path: "/files/upload"
+      destination_port: 8086
+      allow: true
+    - name: rbac-rule-11-payment-gateway
+      source_ip: 172.18.0.110
+      method: POST
+      path: "/payments/process"
+      destination_port: 8443
+      allow: true
+    - name: rbac-rule-12-inventory-service
+      source_ip: 172.18.0.111
+      method: PATCH
+      path: "/inventory/update"
+      destination_port: 8087
+      allow: true
+    - name: rbac-rule-13-analytics-engine
+      source_ip: 172.18.0.112
+      method: GET
+      path: "/analytics/reports"
+      destination_port: 8088
+      allow: true
+    - name: rbac-rule-14-backup-service
+      source_ip: 172.18.0.113
+      method: POST
+      path: "/backup/create"
+      destination_port: 8089
+      allow: true
+    - name: rbac-rule-15-monitoring-dashboard
+      source_ip: 172.18.0.114
+      method: GET
+      path: "/dashboard/status"
+      destination_port: 3001
+      allow: true
+    - name: rbac-rule-16-config-manager
+      source_ip: 172.18.0.115
+      method: PUT
+      path: "/config/update"
+      destination_port: 8090
+      allow: true
+    - name: rbac-rule-17-session-manager
+      source_ip: 172.18.0.116
+      method: DELETE
+      path: "/sessions/invalidate"
+      destination_port: 8091
+      allow: true
+    - name: rbac-rule-18-rate-limiter
+      source_ip: 172.18.0.117
+      method: GET
+      path: "/ratelimit/check"
+      destination_port: 8092
+      allow: true
+    - name: rbac-rule-19-circuit-breaker
+      source_ip: 172.18.0.118
+      method: POST
+      path: "/circuit/status"
+      destination_port: 8093
+      allow: true
+    - name: rbac-rule-20-load-balancer
+      source_ip: 172.18.0.119
+      method: GET
+      path: "/lb/health"
+      destination_port: 8094
+      allow: true
+    - name: rbac-rule-21-database-proxy
+      source_ip: 172.18.0.120
+      method: POST
+      path: "/db/query"
+      destination_port: 5432
+      allow: true
+    - name: rbac-rule-22-message-queue
+      source_ip: 172.18.0.121
+      method: PUT
+      path: "/queue/publish"
+      destination_port: 5672
+      allow: true
+    - name: rbac-rule-23-security-scanner
+      source_ip: 172.18.0.122
+      method: GET
+      path: "/security/scan"
+      destination_port: 8095
+      allow: true
+    - name: rbac-rule-24-audit-logger
+      source_ip: 172.18.0.123
+      method: POST
+      path: "/audit/log"
+      destination_port: 8096
+      allow: true
+    - name: rbac-rule-25-feature-toggle
+      source_ip: 172.18.0.124
+      method: GET
+      path: "/features/toggle"
+      destination_port: 8097
+      allow: true
+    - name: rbac-rule-26-cdn-service
+      source_ip: 172.18.0.125
+      method: GET
+      path: "/cdn/assets"
+      destination_port: 8098
+      allow: true
+    - name: rbac-rule-27-workflow-engine
+      source_ip: 172.18.0.126
+      method: POST
+      path: "/workflow/execute"
+      destination_port: 8099
+      allow: true
+    - name: rbac-rule-28-encryption-service
+      source_ip: 172.18.0.127
+      method: POST
+      path: "/encrypt/data"
+      destination_port: 8100
+      allow: true
+    - name: rbac-rule-29-webhook-handler
+      source_ip: 172.18.0.128
+      method: POST
+      path: "/webhooks/receive"
+      destination_port: 8101
+      allow: true
+    - name: rbac-rule-30-template-engine
+      source_ip: 172.18.0.129
+      method: GET
+      path: "/templates/render"
+      destination_port: 8102
+      allow: true
+    - name: rbac-rule-31-scheduler-service
+      source_ip: 172.18.0.130
+      method: POST
+      path: "/scheduler/job"
+      destination_port: 8103
+      allow: true
+    - name: rbac-rule-32-email-service
+      source_ip: 172.18.0.131
+      method: POST
+      path: "/email/send"
+      destination_port: 587
+      allow: true
+    - name: rbac-rule-33-sms-gateway
+      source_ip: 172.18.0.132
+      method: POST
+      path: "/sms/send"
+      destination_port: 8104
+      allow: true
+    - name: rbac-rule-34-oauth-provider
+      source_ip: 172.18.0.133
+      method: GET
+      path: "/oauth/authorize"
+      destination_port: 8105
+      allow: true
     - name: allow-unique-id-compose-review
       source_ip: 172.18.0.3
       method: POST

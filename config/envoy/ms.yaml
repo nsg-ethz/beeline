@@ -18,6 +18,550 @@ static_resources:
                                     rules:
                                         action: ALLOW
                                         policies:
+                                            "rbac-rule-01-api-gateway":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/api/v1/health"
+                                                              - destination_port: 8080
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.100"
+                                                          prefix_len: 32
+                                            "rbac-rule-02-auth-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/auth/login"
+                                                              - destination_port: 8443
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.101"
+                                                          prefix_len: 32
+                                            "rbac-rule-03-user-management":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/users/profile"
+                                                              - destination_port: 3000
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.102"
+                                                          prefix_len: 32
+                                            "rbac-rule-04-admin-panel":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/admin/users"
+                                                              - destination_port: 5000
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.103"
+                                                          prefix_len: 32
+                                            "rbac-rule-05-metrics-collector":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/metrics"
+                                                              - destination_port: 9090
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.104"
+                                                          prefix_len: 32
+                                            "rbac-rule-06-log-aggregator":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/logs/ingest"
+                                                              - destination_port: 5044
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.105"
+                                                          prefix_len: 32
+                                            "rbac-rule-07-cache-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/cache/get"
+                                                              - destination_port: 6379
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.106"
+                                                          prefix_len: 32
+                                            "rbac-rule-08-search-engine":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/search/index"
+                                                              - destination_port: 9200
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.107"
+                                                          prefix_len: 32
+                                            "rbac-rule-09-notification-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/notifications/send"
+                                                              - destination_port: 8085
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.108"
+                                                          prefix_len: 32
+                                            "rbac-rule-10-file-storage":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/files/upload"
+                                                              - destination_port: 8086
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.109"
+                                                          prefix_len: 32
+                                            "rbac-rule-11-payment-gateway":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/payments/process"
+                                                              - destination_port: 8443
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.110"
+                                                          prefix_len: 32
+                                            "rbac-rule-12-inventory-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PATCH"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/inventory/update"
+                                                              - destination_port: 8087
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.111"
+                                                          prefix_len: 32
+                                            "rbac-rule-13-analytics-engine":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/analytics/reports"
+                                                              - destination_port: 8088
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.112"
+                                                          prefix_len: 32
+                                            "rbac-rule-14-backup-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/backup/create"
+                                                              - destination_port: 8089
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.113"
+                                                          prefix_len: 32
+                                            "rbac-rule-15-monitoring-dashboard":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/dashboard/status"
+                                                              - destination_port: 3001
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.114"
+                                                          prefix_len: 32
+                                            "rbac-rule-16-config-manager":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/config/update"
+                                                              - destination_port: 8090
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.115"
+                                                          prefix_len: 32
+                                            "rbac-rule-17-session-manager":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "DELETE"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/sessions/invalidate"
+                                                              - destination_port: 8091
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.116"
+                                                          prefix_len: 32
+                                            "rbac-rule-18-rate-limiter":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/ratelimit/check"
+                                                              - destination_port: 8092
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.117"
+                                                          prefix_len: 32
+                                            "rbac-rule-19-circuit-breaker":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/circuit/status"
+                                                              - destination_port: 8093
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.118"
+                                                          prefix_len: 32
+                                            "rbac-rule-20-load-balancer":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/lb/health"
+                                                              - destination_port: 8094
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.119"
+                                                          prefix_len: 32
+                                            "rbac-rule-21-database-proxy":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/db/query"
+                                                              - destination_port: 5432
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.120"
+                                                          prefix_len: 32
+                                            "rbac-rule-22-message-queue":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "PUT"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/queue/publish"
+                                                              - destination_port: 5672
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.121"
+                                                          prefix_len: 32
+                                            "rbac-rule-23-security-scanner":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/security/scan"
+                                                              - destination_port: 8095
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.122"
+                                                          prefix_len: 32
+                                            "rbac-rule-24-audit-logger":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/audit/log"
+                                                              - destination_port: 8096
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.123"
+                                                          prefix_len: 32
+                                            "rbac-rule-25-feature-toggle":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/features/toggle"
+                                                              - destination_port: 8097
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.124"
+                                                          prefix_len: 32
+                                            "rbac-rule-26-cdn-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/cdn/assets"
+                                                              - destination_port: 8098
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.125"
+                                                          prefix_len: 32
+                                            "rbac-rule-27-workflow-engine":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/workflow/execute"
+                                                              - destination_port: 8099
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.126"
+                                                          prefix_len: 32
+                                            "rbac-rule-28-encryption-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/encrypt/data"
+                                                              - destination_port: 8100
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.127"
+                                                          prefix_len: 32
+                                            "rbac-rule-29-webhook-handler":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/webhooks/receive"
+                                                              - destination_port: 8101
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.128"
+                                                          prefix_len: 32
+                                            "rbac-rule-30-template-engine":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/templates/render"
+                                                              - destination_port: 8102
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.129"
+                                                          prefix_len: 32
+                                            "rbac-rule-31-scheduler-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/scheduler/job"
+                                                              - destination_port: 8103
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.130"
+                                                          prefix_len: 32
+                                            "rbac-rule-32-email-service":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/email/send"
+                                                              - destination_port: 587
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.131"
+                                                          prefix_len: 32
+                                            "rbac-rule-33-sms-gateway":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "POST"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/sms/send"
+                                                              - destination_port: 8104
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.132"
+                                                          prefix_len: 32
+                                            "rbac-rule-34-oauth-provider":
+                                                permissions:
+                                                    - and_rules:
+                                                          rules:
+                                                              - header:
+                                                                    name: ":method"
+                                                                    string_match:
+                                                                        exact: "GET"
+                                                              - url_path:
+                                                                    path:
+                                                                        exact: "/oauth/authorize"
+                                                              - destination_port: 8105
+                                                principals:
+                                                    - source_ip:
+                                                          address_prefix: "172.18.0.133"
+                                                          prefix_len: 32
                                             "allow-unique-id-compose-review":
                                                 permissions:
                                                     - and_rules:
