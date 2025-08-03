@@ -107,7 +107,7 @@ def _load_k6_summaries(paths):
     return df
 
 
-def _load_k6_data(paths, max_epoch=30):
+def _load_k6_data(paths, max_epoch=30, min_duration=100):
     dfs = []
     epochs = {}
     for p in tqdm.tqdm(paths):
@@ -127,6 +127,10 @@ def _load_k6_data(paths, max_epoch=30):
             df["epoch"] = epoch
             # df["file"] = os.path.basename(p),
             df["timestamp"] -= df["timestamp"].min()
+
+            if df["timestamp"].max() < min_duration:
+                continue
+
             dfs.append(df)
         except Exception as e:
             print(f"Error loading {p}: {e}")
@@ -349,33 +353,7 @@ def cdf_graph_tikz(name, time_range):
         {coordinates}
     }};""" for (color, coordinates) in plots]
     plots = "\n".join(plots)
-
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[
-xlabel={{Latency [ms]}},
-ylabel={{CDF}},
-ymin=0,
-axis lines=left,
-x tick label style={{
-    /pgf/number format/fixed,
-    /pgf/number format/precision=1,
-    /pgf/number format/1000 sep={{}},
-}},
-legend columns = 4,
-legend style={{at={{(0,1.1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
-scaled x ticks=false,
-xlabel style={{anchor=north}},
-xmajorgrids=true,
-grid style=dashed,
-height=5cm,
-width=\\linewidth]
-
-{plots}
-
-\\legend{{{legend}}}
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
+    print(plots)
 
 
 def stats_graph(dst):
@@ -685,38 +663,7 @@ def rate_graph_tikz(name):
         plots.append(plot)
 
     plots = "\n".join(plots)
-    rates = ",".join([str(rate) for rate in rates])
-
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[
-xlabel={{Time [s]}},
-ylabel={{Throughput [req/s]}},
-ymin=1000, ymax=4000,
-xmax=100,
-axis lines=left,
-y tick label style={{
-    /pgf/number format/fixed,
-    /pgf/number format/precision=1,
-    /pgf/number format/1000 sep={{}},
-}},
-yticklabel={{\\pgfmathparse{{\\tick/1000}}\\pgfmathprintnumber{{\\pgfmathresult}}K}},
-scaled x ticks=false,
-xlabel style={{anchor=north}},
-ytick={{{rates}}},
-tick style={{
-    grid style=dashed,
-}},
-grid=major,
-ymajorgrids=true,
-xmajorgrids=false,
-height=5cm,
-width=\\linewidth]
-
-{plots}
-
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
+    print(plots)
 
 
 def _load_dissect_df(name):
@@ -949,23 +896,17 @@ def dissect_complexity_graph_tikz(name):
 
 
 def _load_complexity_df(name, policy, metric, agg):
-    def _compute_complexity(vals):
-        if policy == 0:
-            return vals["n1"]
-        else:
-            return vals["n1"] * vals["m1"]
-
-    paths = _get_file_paths(f"{name}-p{policy}-*", "*k6*summary*.json")
+    paths = _get_file_paths(f"{name}/p{policy}-*", "*k6*summary*.json")
     dfs = []
     for p in paths:
         folder = os.path.dirname(p)
         name = os.path.basename(folder)
-        vals = [s for s in name.split("-")[2:]]
-        vals = {vals[i]: int(vals[i+1]) for i in range(0, len(vals), 2)}
+        args = [s for s in name.split("-")[1:]]
+        args = {args[i]: int(args[i+1]) for i in range(0, len(args), 2)}
 
         df = _load_k6_summaries([p])
         df["policy"] = policy
-        df["complexity"] = _compute_complexity(vals)
+        df["complexity"] = args["n1"] * args["m1"]
 
         dfs.append(df)
 
