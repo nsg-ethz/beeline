@@ -1,4 +1,3 @@
-import { generateWebToken } from "./common.js";
 import { check } from "k6";
 import http from "k6/http";
 import {
@@ -66,7 +65,6 @@ export default () => {
 
     const headers = {
         "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: "Bearer " + generateWebToken(true),
     };
     const params = {
         headers: headers,
