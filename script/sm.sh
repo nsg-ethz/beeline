@@ -90,7 +90,7 @@ case ${ACTION} in
             CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
 
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
-            sleep 5
+            sleep 10
             if [[ -z $(pidof beeline) ]]; then
                 echo -e "${COLOR_RED}Beeline crashed${COLOR_OFF}"
                 exit 1
