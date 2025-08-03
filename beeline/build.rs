@@ -11,12 +11,12 @@ fn main() {
     };
     println!("cargo:rerun-if-env-changed=BPF_PROFILE");
 
-    let log_level = std::env::var("RUST_LOG").unwrap_or("error".to_string());
-    let log_level: u32 = match log_level.to_lowercase().as_str() {
-        "debug" => 2,
-        "trace" => 2,
-        "warn" => 1,
-        "error" => 1,
+    let log_level = std::env::var("RUST_LOG").map(|s| s.to_lowercase());
+    let log_level: u32 = match log_level.as_deref() {
+        Ok("debug") => 2,
+        Ok("trace") => 2,
+        Ok("warn") => 1,
+        Ok("error") => 1,
         _ => 0,
     };
     println!("cargo:rerun-if-env-changed=RUST_LOG");
