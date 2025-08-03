@@ -25,6 +25,9 @@ services:
 
     social-graph-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: social-graph-mongodb
         cgroup_parent: beeline.slice
         networks:
@@ -116,6 +119,9 @@ services:
 
     post-storage-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: post-storage-mongodb
         cgroup_parent: beeline.slice
         networks:
@@ -153,6 +159,9 @@ services:
 
     user-timeline-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: user-timeline-mongodb
         cgroup_parent: beeline.slice
         networks:
@@ -190,6 +199,9 @@ services:
 
     url-shorten-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: url-shorten-mongodb
         cgroup_parent: beeline.slice
         networks:
@@ -227,6 +239,9 @@ services:
 
     user-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: user-mongodb
         cgroup_parent: beeline.slice
         networks:
@@ -264,6 +279,9 @@ services:
 
     media-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: media-mongodb
         cgroup_parent: beeline.slice
         networks:

@@ -55,6 +55,9 @@ services:
 
     movie-id-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: movie-id-mongodb
         cgroup_parent: beeline.slice
         depends_on:
@@ -142,6 +145,9 @@ services:
 
     user-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: user-mongodb
         cgroup_parent: beeline.slice
         depends_on:
@@ -215,6 +221,9 @@ services:
 
     review-storage-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: review-storage-mongodb
         cgroup_parent: beeline.slice
         depends_on:
@@ -257,6 +266,9 @@ services:
 
     user-review-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: user-review-mongodb
         cgroup_parent: beeline.slice
         depends_on:
@@ -299,6 +311,9 @@ services:
 
     movie-review-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: movie-review-mongodb
         cgroup_parent: beeline.slice
         depends_on:
@@ -360,6 +375,9 @@ services:
 
     cast-info-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: cast-info-mongodb
         cgroup_parent: beeline.slice
         depends_on:
@@ -402,6 +420,9 @@ services:
 
     plot-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: plot-mongodb
         cgroup_parent: beeline.slice
         depends_on:
@@ -444,6 +465,9 @@ services:
 
     movie-info-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: movie-info-mongodb
         cgroup_parent: beeline.slice
         depends_on:

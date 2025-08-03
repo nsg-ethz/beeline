@@ -40,6 +40,9 @@ services:
 
     movie-id-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: movie-id-mongodb
         cgroup_parent: beeline.slice
         #    ports:
@@ -97,6 +100,9 @@ services:
 
     user-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: user-mongodb
         cgroup_parent: beeline.slice
         #    ports:
@@ -143,6 +149,9 @@ services:
 
     review-storage-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: review-storage-mongodb
         cgroup_parent: beeline.slice
         #    ports:
@@ -170,6 +179,9 @@ services:
 
     user-review-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: user-review-mongodb
         cgroup_parent: beeline.slice
         #    ports:
@@ -197,6 +209,9 @@ services:
 
     movie-review-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: movie-review-mongodb
         cgroup_parent: beeline.slice
         ports:
@@ -238,6 +253,9 @@ services:
 
     cast-info-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: cast-info-mongodb
         cgroup_parent: beeline.slice
         #    ports:
@@ -265,6 +283,9 @@ services:
 
     plot-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: plot-mongodb
         cgroup_parent: beeline.slice
         #    ports:
@@ -292,6 +313,9 @@ services:
 
     movie-info-mongodb:
         image: mongo:4.4.6
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: movie-info-mongodb
         cgroup_parent: beeline.slice
         #    ports:
