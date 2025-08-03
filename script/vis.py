@@ -121,8 +121,6 @@ def _load_k6_data(paths, max_epoch=30, min_duration=100):
             if num_failed_res / len(df) > 0.01:
                 continue
 
-            epochs[proxy] = epochs.get(proxy, 0) + 1
-
             df["proxy"] = proxy
             df["epoch"] = epoch
             # df["file"] = os.path.basename(p),
@@ -130,6 +128,8 @@ def _load_k6_data(paths, max_epoch=30, min_duration=100):
 
             if df["timestamp"].max() < min_duration:
                 continue
+
+            epochs[proxy] = epochs.get(proxy, 0) + 1
 
             dfs.append(df)
         except Exception as e:
