@@ -553,7 +553,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     };
 
     bool is_downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
-    bool is_upstream = (ikey.remote.ip4 == gw && ikey.remote.port >= 12345 && ikey.remote.port < 15345);
+    bool is_upstream = (ikey.remote.ip4 == gw && ikey.remote.port >= 12345 && ikey.remote.port < 20345);
 
     // in this case it's either a just established upstream connection
     // or a connection that beeline didn't handle at all
