@@ -341,85 +341,37 @@ policies:
 routes:
     - match:
           path: "/unique-id-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: unique-id-service
     - match:
           path: "/movie-id-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: movie-id-service
     - match:
           path: "/text-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: text-service
     - match:
           path: "/rating-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: rating-service
     - match:
           path: "/user-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: user-service
     - match:
           path: "/compose-review-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: compose-review-service
     - match:
           path: "/review-storage-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: review-storage-service
     - match:
           path: "/user-review-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: user-review-service
     - match:
           path: "/movie-review-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: movie-review-service
     - match:
           path: "/cast-info-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: cast-info-service
     - match:
           path: "/plot-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: plot-service
     - match:
           path: "/movie-info-service"
-      filters:
-          - type: mutate
-            add:
-                x-processed-by: beeline
       dest: movie-info-service
