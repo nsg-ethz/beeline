@@ -266,7 +266,7 @@ impl<'obj> Proxy<'obj> {
         let socket = TcpSocket::new_v4()?;
         socket.set_reuseaddr(true)?;
         socket.bind(self.address)?;
-        let listener = socket.listen(4096)?;
+        let listener = socket.listen(8192)?;
 
         let profile = env::var("BPF_PROFILE").unwrap_or("0".to_string());
         let stats = self.config.stats;
