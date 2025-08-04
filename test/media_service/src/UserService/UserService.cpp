@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
   std::mutex thread_lock;
 
   ClientPool<ThriftClient<ComposeReviewServiceClient>> compose_client_pool(
-      "compose-review-client", compose_addr, compose_port, compose_path, 0, 128, 1000);
+      "compose-review-client", compose_addr, compose_port, compose_path, 0, 512, 10000);
 
   TThreadedServer server(
       std::make_shared<UserServiceProcessor>(

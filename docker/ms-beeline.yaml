@@ -116,6 +116,9 @@ services:
 
     rating-redis:
         image: redis
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: rating-redis
         cgroup_parent: beeline.slice
         extra_hosts:
@@ -282,6 +285,9 @@ services:
 
     user-review-redis:
         image: redis
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: user-review-redis
         cgroup_parent: beeline.slice
         extra_hosts:
@@ -327,6 +333,9 @@ services:
 
     movie-review-redis:
         image: redis
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: movie-review-redis
         cgroup_parent: beeline.slice
         extra_hosts:

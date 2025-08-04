@@ -50,15 +50,15 @@ int main(int argc, char *argv[]) {
 
   ClientPool<ThriftClient<MovieInfoServiceClient>>
       movie_info_client_pool("movie-info-client", movie_info_addr,
-                             movie_info_port, movie_info_path, 0, 128, 1000);
+                             movie_info_port, movie_info_path, 0, 512, 10000);
   ClientPool<ThriftClient<CastInfoServiceClient>>
       cast_info_client_pool("cast-info-client", cast_info_addr,
-                            cast_info_port, cast_info_path, 0, 128, 1000);
+                            cast_info_port, cast_info_path, 0, 512, 10000);
   ClientPool<ThriftClient<MovieReviewServiceClient>>
       movie_review_client_pool("movie-review-client", movie_review_addr,
-                               movie_review_port, movie_review_path, 0, 128, 1000);
+                               movie_review_port, movie_review_path, 0, 512, 10000);
   ClientPool<ThriftClient<PlotServiceClient>>
-      plot_client_pool("plot-client", plot_addr, plot_port, plot_path, 0, 128, 1000);
+      plot_client_pool("plot-client", plot_addr, plot_port, plot_path, 0, 512, 10000);
 
   TThreadedServer server(
       std::make_shared<PageServiceProcessor>(

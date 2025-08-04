@@ -41,6 +41,9 @@ services:
 
     social-graph-redis:
         image: redis
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: social-graph-redis
         cgroup_parent: beeline.slice
         extra_hosts:
@@ -71,6 +74,9 @@ services:
 
     home-timeline-redis:
         image: redis
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: home-timeline-redis
         cgroup_parent: beeline.slice
         extra_hosts:
@@ -170,6 +176,9 @@ services:
 
     user-timeline-redis:
         image: redis
+        volumes:
+            - type: tmpfs
+              target: /data/db
         hostname: user-timeline-redis
         cgroup_parent: beeline.slice
         extra_hosts:

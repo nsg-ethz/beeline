@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
     int compose_port = config_json["compose-review-service"]["port"];
 
     ClientPool<ThriftClient<ComposeReviewServiceClient>> compose_client_pool(
-        "compose-review-client", compose_addr, compose_port, compose_path, 0, 128, 1000);
+        "compose-review-client", compose_addr, compose_port, compose_path, 0, 512, 10000);
 
     TThreadedServer server(
         std::make_shared<TextServiceProcessor>(

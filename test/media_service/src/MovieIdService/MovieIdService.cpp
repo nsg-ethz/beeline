@@ -52,9 +52,9 @@ int main(int argc, char *argv[]) {
   }
 
   ClientPool<ThriftClient<ComposeReviewServiceClient>> compose_client_pool(
-      "compose-review-client", compose_addr, compose_port, compose_path, 0, 128, 1000);
+      "compose-review-client", compose_addr, compose_port, compose_path, 0, 512, 10000);
   ClientPool<ThriftClient<RatingServiceClient>> rating_client_pool(
-      "rating-client", rating_addr, rating_port, rating_path, 0, 128, 1000);
+      "rating-client", rating_addr, rating_port, rating_path, 0, 512, 10000);
 
   mongoc_client_t *mongodb_client = mongoc_client_pool_pop(mongodb_client_pool);
   if (!mongodb_client) {

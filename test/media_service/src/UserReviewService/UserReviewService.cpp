@@ -43,10 +43,10 @@ int main(int argc, char *argv[]) {
 
   mongoc_client_pool_t *mongodb_client_pool =
       init_mongodb_client_pool(config_json, "user-review", 128);
-  ClientPool<RedisClient> redis_client_pool("user-review-redis", redis_addr, redis_port, redis_addr, 0, 128, 1000);
+  ClientPool<RedisClient> redis_client_pool("user-review-redis", redis_addr, redis_port, redis_addr, 0, 512, 10000);
   ClientPool<ThriftClient<ReviewStorageServiceClient>>
       review_storage_client_pool("review-storage-client", review_storage_addr,
-                                 review_storage_port, review_storage_path, 0, 128, 1000);
+                                 review_storage_port, review_storage_path, 0, 512, 10000);
 
   if (mongodb_client_pool == nullptr) {
     return EXIT_FAILURE;
