@@ -165,7 +165,8 @@ def count(path):
                         http_filter_type = sanitize_filter_name(name)
                         if http_filter_type not in filters:
                             filters[http_filter_type] = 1
-                        filters[http_filter_type] += 1
+                        else:
+                            filters[http_filter_type] += 1
 
             if file.download_url not in http_configs:
                 print(f"No http_filters found in {file.download_url}")
