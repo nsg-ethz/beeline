@@ -350,17 +350,21 @@ impl<'obj> Proxy<'obj> {
     }
 
     async fn accept(&self, listener: &TcpListener) -> Result<()> {
-        let (downstream, downstream_addr) = listener.accept().await?;
-        debug!("Accepted connection on port {:?}", downstream_addr.port());
+        let (downstream, ds_remote_addr) = listener.accept().await?;
+        debug!("Accepted connection on port {:?}", ds_remote_addr.port());
 
-        if let Err(e) = self.handle_downstream(downstream) {
+        if let Err(e) = self.handle_downstream(downstream, ds_remote_addr) {
             error!("Error handling downstream connection: {:?}", e);
         }
 
         Ok(())
     }
 
-    fn handle_downstream(&self, mut downstream: TcpStream) -> Result<()> {
+    fn handle_downstream(
+        &self,
+        mut downstream: TcpStream,
+        ds_remote_addr: SocketAddr,
+    ) -> Result<()> {
         let addr = self.address.clone();
         let utrn_wait_list = self.get_utrn_wait_list()?;
         let fib_downstream = self.get_downstream_fib()?;
@@ -368,7 +372,6 @@ impl<'obj> Proxy<'obj> {
         let upstream_pool = self.upstream_pool.clone();
 
         tokio::spawn(async move {
-            let ds_remote_addr = downstream.peer_addr().unwrap();
             let dkey = sock_key::try_from((&ds_remote_addr, &addr)).unwrap();
             let mut buf = Vec::with_capacity(8192);
             let mut upstreams = Vec::new();
