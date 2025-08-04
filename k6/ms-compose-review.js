@@ -1,4 +1,3 @@
-import { generateWebToken } from "./common.js";
 import { check } from "k6";
 import http from "k6/http";
 import {
@@ -12,10 +11,10 @@ export const options = {
     scenarios: {
         compose_review: {
             executor: "ramping-arrival-rate",
-            preAllocatedVUs: 500,
+            preAllocatedVUs: 1000,
             stages: [
-                { target: 5000, duration: "100s" },
-                { target: 5000, duration: "5s" },
+                { target: 4000, duration: "100s" },
+                { target: 4000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
@@ -37,7 +36,6 @@ export default () => {
 
     const headers = {
         "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: "Bearer " + generateWebToken(true),
     };
     const params = {
         headers: headers,
