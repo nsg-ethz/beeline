@@ -55,7 +55,7 @@ http {
     # Checklist: Turn of the access_log and error_log if you
     # don't need them.
     access_log  off;
-    # error_log off;
+    error_log off;
 
     client_max_body_size 100M;
     client_body_buffer_size 100M;
