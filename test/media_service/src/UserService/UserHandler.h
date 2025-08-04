@@ -501,7 +501,7 @@ void UserHandler::UploadUserWithUsername(
     try {
       compose_client->UploadUserId(req_id, user_id, writer_text_map);
     } catch (...) {
-      _compose_client_pool->Push(compose_client_wrapper);
+      _compose_client_pool->Remove(compose_client_wrapper);
       LOG(error) << "Failed to upload movie_id to compose-review-service";
       throw;
     }
@@ -570,7 +570,7 @@ void UserHandler::UploadUserWithUserId(
   try {
     compose_client->UploadUserId(req_id, user_id, writer_text_map);
   } catch (...) {
-    _compose_client_pool->Push(compose_client_wrapper);
+    _compose_client_pool->Remove(compose_client_wrapper);
     LOG(error) << "Failed to upload movie_id to compose-review-service";
     throw;
   }
@@ -1002,6 +1002,3 @@ int GetMachineId (std::string *mac_hash) {
 } // namespace media_service
 
 #endif //MEDIA_MICROSERVICES_USERHANDLER_H
-
-
-

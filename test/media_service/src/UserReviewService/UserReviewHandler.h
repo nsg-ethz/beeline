@@ -221,7 +221,7 @@ void UserReviewHandler::ReadUserReviews(
     review_ids_reply = review_ids_future.get();
   } catch (...) {
     LOG(error) << "Failed to read review_ids from user-review-redis";
-    _redis_client_pool->Push(redis_client_wrapper);
+    _redis_client_pool->Remove(redis_client_wrapper);
     throw;
   }
   _redis_client_pool->Push(redis_client_wrapper);
@@ -366,7 +366,7 @@ void UserReviewHandler::ReadUserReviews(
       zadd_reply_future.get();
     } catch (...) {
       LOG(error) << "Failed to Update Redis Server";
-      _redis_client_pool->Push(redis_client_wrapper);
+      _redis_client_pool->Remove(redis_client_wrapper);
       throw;
     }
     _redis_client_pool->Push(redis_client_wrapper);

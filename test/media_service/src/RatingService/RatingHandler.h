@@ -67,7 +67,7 @@ void RatingHandler::UploadRating(
     try {
       compose_client->UploadRating(req_id, rating, writer_text_map);
     } catch (...) {
-      _compose_client_pool->Push(compose_client_wrapper);
+      _compose_client_pool->Remove(compose_client_wrapper);
       LOG(error) << "Failed to upload rating to compose-review-service";
       throw;
     }

@@ -179,7 +179,7 @@ void MovieIdHandler::UploadMovieId(
     mongoc_collection_destroy(collection);
     mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
   }
-  
+
   std::future<void> set_future;
   std::future<void> movie_id_future;
   std::future<void> rating_future;
@@ -203,7 +203,7 @@ void MovieIdHandler::UploadMovieId(
       LOG(warning) << "Failed to set movie_id to Memcached: "
                    << memcached_strerror(memcached_client, memcached_rc);
     }
-    memcached_pool_push(_memcached_client_pool, memcached_client);    
+    memcached_pool_push(_memcached_client_pool, memcached_client);
   });
 
   movie_id_future = std::async(std::launch::async, [&]() {
@@ -218,7 +218,7 @@ void MovieIdHandler::UploadMovieId(
     try {
       compose_client->UploadMovieId(req_id, movie_id_str, writer_text_map);
     } catch (...) {
-      _compose_client_pool->Push(compose_client_wrapper);
+      _compose_client_pool->Remove(compose_client_wrapper);
       LOG(error) << "Failed to upload movie_id to compose-review-service";
       throw;
     }
@@ -237,7 +237,7 @@ void MovieIdHandler::UploadMovieId(
     try {
       rating_client->UploadRating(req_id, movie_id_str, rating, writer_text_map);
     } catch (...) {
-      _rating_client_pool->Push(rating_client_wrapper);
+      _rating_client_pool->Remove(rating_client_wrapper);
       LOG(error) << "Failed to upload rating to rating-service";
       throw;
     }

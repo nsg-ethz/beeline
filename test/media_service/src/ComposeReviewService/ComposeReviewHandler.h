@@ -61,7 +61,7 @@ class ComposeReviewHandler : public ComposeReviewServiceIf {
 
 ComposeReviewHandler::ComposeReviewHandler(
     memcached_pool_st *memcached_client_pool,
-    ClientPool<ThriftClient<ReviewStorageServiceClient>> 
+    ClientPool<ThriftClient<ReviewStorageServiceClient>>
         *review_storage_client_pool,
     ClientPool<ThriftClient<UserReviewServiceClient>>
         *user_review_client_pool,
@@ -182,7 +182,7 @@ void ComposeReviewHandler::_ComposeAndUpload(
   std::future<void> review_future;
   std::future<void> user_review_future;
   std::future<void> movie_review_future;
-  
+
   review_future = std::async(std::launch::async, [&](){
     auto review_storage_client_wrapper = _review_storage_client_pool->Pop();
     if (!review_storage_client_wrapper) {
@@ -199,7 +199,7 @@ void ComposeReviewHandler::_ComposeAndUpload(
       LOG(error) << "Failed to upload review to review-storage-service";
       throw;
     }
-    _review_storage_client_pool->Push(review_storage_client_wrapper);
+    _review_storage_client_pool->Remove(review_storage_client_wrapper);
   });
 
   user_review_future = std::async(std::launch::async, [&](){
@@ -215,7 +215,7 @@ void ComposeReviewHandler::_ComposeAndUpload(
       user_review_client->UploadUserReview(req_id, new_review.user_id,
           new_review.review_id, new_review.timestamp, writer_text_map);
     } catch (...) {
-      _user_review_client_pool->Push(user_review_client_wrapper);
+      _user_review_client_pool->Remove(user_review_client_wrapper);
       LOG(error) << "Failed to upload review to user-review-service";
       throw;
     }
@@ -235,13 +235,13 @@ void ComposeReviewHandler::_ComposeAndUpload(
       movie_review_client->UploadMovieReview(req_id, new_review.movie_id,
           new_review.review_id, new_review.timestamp, writer_text_map);
     } catch (...) {
-      _movie_review_client_pool->Push(movie_review_client_wrapper);
+      _movie_review_client_pool->Remove(movie_review_client_wrapper);
       LOG(error) << "Failed to upload review to movie-review-service";
       throw;
     }
     _movie_review_client_pool->Push(movie_review_client_wrapper);
   });
-  
+
   try {
     review_future.get();
     user_review_future.get();

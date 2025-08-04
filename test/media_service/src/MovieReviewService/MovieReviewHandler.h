@@ -26,9 +26,9 @@ class MovieReviewHandler : public MovieReviewServiceIf {
   void UploadMovieReview(int64_t, const std::string&, int64_t, int64_t,
                          const std::map<std::string, std::string> &) override;
   void ReadMovieReviews(std::vector<Review> & _return, int64_t req_id,
-      const std::string& movie_id, int32_t start, int32_t stop, 
+      const std::string& movie_id, int32_t start, int32_t stop,
       const std::map<std::string, std::string> & carrier) override;
-  
+
  private:
   ClientPool<RedisClient> *_redis_client_pool;
   mongoc_client_pool_t *_mongodb_client_pool;
@@ -186,7 +186,7 @@ void MovieReviewHandler::ReadMovieReviews(
     std::vector<Review> & _return, int64_t req_id,
     const std::string& movie_id, int32_t start, int32_t stop,
     const std::map<std::string, std::string> & carrier) {
-  
+
   // Initialize a span
   TextMapReader reader(carrier);
   std::map<std::string, std::string> writer_text_map;
@@ -220,7 +220,7 @@ void MovieReviewHandler::ReadMovieReviews(
     review_ids_reply = review_ids_future.get();
   } catch (...) {
     LOG(error) << "Failed to read review_ids from movie-review-redis";
-    _redis_client_pool->Push(redis_client_wrapper);
+    _redis_client_pool->Remove(redis_client_wrapper);
     throw;
   }
   _redis_client_pool->Push(redis_client_wrapper);
@@ -367,14 +367,14 @@ void MovieReviewHandler::ReadMovieReviews(
       zadd_reply_future.get();
     } catch (...) {
       LOG(error) << "Failed to Update Redis Server";
-      _redis_client_pool->Push(redis_client_wrapper);
+      _redis_client_pool->Remove(redis_client_wrapper);
       throw;
     }
     _redis_client_pool->Push(redis_client_wrapper);
   }
 
   span->Finish();
-  
+
 }
 
 } // namespace media_service

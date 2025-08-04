@@ -10,8 +10,8 @@ local Object = require "Object"
 
 local RpcClient = Object:new({
     __type = 'RpcClient',
-    timeout = 1001,
-    readTimeout = 500
+    timeout = 10000,
+    readTimeout = 10000
 })
 
 --初始化RPC连接
