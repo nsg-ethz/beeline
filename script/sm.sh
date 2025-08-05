@@ -13,6 +13,16 @@ function stop_probes {
     sudo killall -SIGINT funclatency-bpfcc >/dev/null 2>&1
 }
 
+function health_check {
+    for i in $(seq 1 20); do
+        curl -s $1
+        if [[ $? == 0 ]]; then
+            break
+        fi
+        sleep 1
+    done
+}
+
 # Parse arguments
 while getopts "c:n:p:e:m" opt; do
     case $opt in
@@ -90,7 +100,8 @@ case ${ACTION} in
             CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
 
             BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
-            sleep 10
+            health_check 172.17.0.1:9999
+
             if [[ -z $(pidof beeline) ]]; then
                 echo -e "${COLOR_RED}Beeline crashed${COLOR_OFF}"
                 exit 1
@@ -104,6 +115,8 @@ case ${ACTION} in
 
                 sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
                 echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
+
+                sleep 3
             fi
             if [[ "${PROXY}" == envoy* ]]; then
                 docker compose -f ${DOCKER_CONFIG} up sidecar --wait -d
