@@ -49,7 +49,7 @@ function frontend_args {
 }
 
 function compute_complexity {
-    PROG=$(echo "scale=5; $1 / $2" | bc)
+    PROG=$(echo "scale=5; $1 / 24000" | bc)
     cmp=$(echo "$PROG > 1" | bc)
     if [[ $cmp -eq 1 ]]; then
         PROG=1
@@ -65,17 +65,14 @@ function compute_complexity {
 
 if [[ ${POLICY} == "0" ]]; then
     echo Running policy 0
-    MAX_COMPLEXITY=28000
 
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-            if [[ ${LEN} -gt ${MAX_COMPLEXITY} ]]; then
-                echo -e "${COLOR_YELLOW}Policy length exceeds max complexity. Skipping${COLOR_OFF}"
+            if [[ ${LEN} -gt 24000 ]]; then
                 continue
             fi
-
-            compute_complexity ${LEN} ${MAX_COMPLEXITY}
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --template ${ROOT}/../../config/beeline/ssm-p0.yaml --n1 ${n1} --m1 ${m1} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
@@ -107,12 +104,10 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-            if [[ ${LEN} -gt ${MAX_COMPLEXITY} ]]; then
-                echo -e "${COLOR_YELLOW}Policy length exceeds max complexity. Skipping${COLOR_OFF}"
+            if [[ ${LEN} -gt 24000 ]]; then
                 continue
             fi
-
-            compute_complexity ${LEN} ${MAX_COMPLEXITY}
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
@@ -144,12 +139,10 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-            if [[ ${LEN} -gt ${MAX_COMPLEXITY} ]]; then
-                echo -e "${COLOR_YELLOW}Policy length exceeds max complexity. Skipping${COLOR_OFF}"
+            if [[ ${LEN} -gt 24000 ]]; then
                 continue
             fi
-
-            compute_complexity ${LEN} ${MAX_COMPLEXITY}
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
@@ -181,12 +174,10 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-            if [[ ${LEN} -gt ${MAX_COMPLEXITY} ]]; then
-                echo -e "${COLOR_YELLOW}Policy length exceeds max complexity. Skipping${COLOR_OFF}"
+            if [[ ${LEN} -gt 24000 ]]; then
                 continue
             fi
-
-            compute_complexity ${LEN} ${MAX_COMPLEXITY}
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
@@ -223,12 +214,10 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-            if [[ ${LEN} -gt ${MAX_COMPLEXITY} ]]; then
-                echo -e "${COLOR_YELLOW}Policy length exceeds max complexity. Skipping${COLOR_OFF}"
+            if [[ ${LEN} -gt 24000 ]]; then
                 continue
             fi
-
-            compute_complexity ${LEN} ${MAX_COMPLEXITY}
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} --n4 ${n4} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
