@@ -294,8 +294,8 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
     u16 len = r.len;
     u16 idx = r.idx;
 
-    if (len > 0xFFF) return -1;
-    len &= 0xFFF;
+    if (len > 0xFFFF) return -1;
+    len &= 0xFFFF;
 
     if (idx > 0xFFFF) return -1;
     idx &= 0xFFFF;
