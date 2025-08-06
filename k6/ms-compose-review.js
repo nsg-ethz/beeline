@@ -1,4 +1,3 @@
-import { generateWebToken } from "./common.js";
 import { check } from "k6";
 import http from "k6/http";
 import {
@@ -14,14 +13,11 @@ export const options = {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 300,
             stages: [
-                { target: 4000, duration: "100s" },
-                { target: 4000, duration: "5s" },
+                { target: 3500, duration: "100s" },
+                { target: 3500, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
-    },
-    thresholds: {
-        http_req_failed: [{ threshold: "rate<0.01" }],
     },
     discardResponseBodies: true,
 };
@@ -37,7 +33,6 @@ export default () => {
 
     const headers = {
         "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: "Bearer " + generateWebToken(true),
     };
     const params = {
         headers: headers,

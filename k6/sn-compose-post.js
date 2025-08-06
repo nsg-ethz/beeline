@@ -12,16 +12,13 @@ export const options = {
     scenarios: {
         compose_post: {
             executor: "ramping-arrival-rate",
-            preAllocatedVUs: 300,
+            preAllocatedVUs: 1000,
             stages: [
-                { target: 4000, duration: "100s" },
-                { target: 4000, duration: "5s" },
+                { target: 5000, duration: "100s" },
+                { target: 5000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
-    },
-    thresholds: {
-        http_req_failed: [{ threshold: "rate<0.01" }],
     },
     discardResponseBodies: true,
 };

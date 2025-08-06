@@ -22,7 +22,6 @@ while getopts "f:t:n:p:c:s:mr:" opt; do
 done
 
 ROOT=$(dirname "$(readlink -f "$0")")
-NUM_ARGS=(1 3 6 8 9 10)
 CONFIG=${ROOT}/../../res/pol/pc.yaml
 BEELINE_BIN=${ROOT}/../../target/release/beeline
 POLGEN_BIN=${ROOT}/../../target/release/polgen
@@ -50,55 +49,64 @@ function frontend_args {
 }
 
 function compute_complexity {
-    PROG=$(echo "scale=5; $1 / 27000" | bc)
+    PROG=$(echo "scale=5; $1 / 24000" | bc)
+    cmp=$(echo "$PROG > 1" | bc)
+    if [[ $cmp -eq 1 ]]; then
+        PROG=1
+    fi
+
     n2=$(echo "$PROG * 100" | bc)
     n2=$(printf "%.0f" $n2)
-    n2=$(( $n2 < 1 ? 1 : $n2 ))
-    n3=$(echo "$PROG * 1000" | bc)
+    n3=$(echo "$PROG * 1500" | bc)
     n3=$(printf "%.0f" $n3)
     m3=$n3
     n4=$n1
 }
 
-if [[ -z "${POLICY}" || ${POLICY} == "0" ]]; then
+if [[ ${POLICY} == "0" ]]; then
     echo Running policy 0
 
-    n1=1
-    for m1 in $(seq 1000 1000 16000); do
-        LEN=$(echo "${n1} * ${m1}" | bc)
+    for n1 in $(seq 1 10); do
+        for m1 in $(seq 1000 1000 16000); do
+            LEN=$(echo "${n1} * ${m1}" | bc)
+            if [[ ${LEN} -gt 24000 ]]; then
+                continue
+            fi
+            compute_complexity ${LEN}
 
-        compute_complexity $LEN
+            ${POLGEN_BIN} -t beeline --template ${ROOT}/../../config/beeline/ssm-p0.yaml --n1 ${n1} --m1 ${m1} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
 
-        ${POLGEN_BIN} -t beeline --template ${ROOT}/../../config/beeline/ssm-p0.yaml --n1 ${n1} --m1 ${m1} -o ${CONFIG}
-        scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
+            # check if beeline can compile this policy
+            validate_policy
+            if [[ $? -ne 0 ]]; then
+                echo -e "${COLOR_YELLOW}Beeline failed to compile policy. Skipping${COLOR_OFF}"
+                continue
+            fi
 
-        # check if beeline can compile this policy
-        validate_policy
-        if [[ $? -ne 0 ]]; then
-            echo -e "${COLOR_YELLOW}Beeline failed to compile policy. Skipping${COLOR_OFF}"
-            continue
-        fi
+            ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} -o ${CONFIG}
+            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
 
-        ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} -o ${CONFIG}
-        scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
+            PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
+            FRONTEND_ARGS=$(frontend_args $n1)
 
-        PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
-        FRONTEND_ARGS=$(frontend_args $n1)
-
-        script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
-        script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p0-n1-${n1}-m1-${m1} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
+        done
     done
 fi
 
 if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
     echo Running policy 1
 
-    for n1 in "${NUM_ARGS[@]}"; do
-        for m1 in $(seq 1000 1000 4000); do
+    for n1 in $(seq 1 10); do
+        for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-
-            compute_complexity $LEN
+            if [[ ${LEN} -gt 24000 ]]; then
+                continue
+            fi
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
@@ -126,10 +134,13 @@ fi
 if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
     echo Running policy 2
 
-    for n1 in "${NUM_ARGS[@]}"; do
-        for m1 in $(seq 1000 1000 4000); do
+    for n1 in $(seq 1 10); do
+        for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-            compute_complexity $LEN
+            if [[ ${LEN} -gt 24000 ]]; then
+                continue
+            fi
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
@@ -157,10 +168,13 @@ fi
 if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
     echo Running policy 3
 
-    for n1 in "${NUM_ARGS[@]}"; do
-        for m1 in $(seq 1000 1000 4000); do
+    for n1 in $(seq 1 10); do
+        for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-            compute_complexity $LEN
+            if [[ ${LEN} -gt 24000 ]]; then
+                continue
+            fi
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
@@ -192,11 +206,16 @@ fi
 
 if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
     echo Running policy 4
+    P4_REPLICAS=$(echo "3 * ${REPLICAS}" | bc)
+    P4_SERVICES=${REPLICAS}
 
-    for n1 in "${NUM_ARGS[@]}"; do
-        for m1 in $(seq 1000 1000 4000); do
+    for n1 in $(seq 1 10); do
+        for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
-            compute_complexity $LEN
+            if [[ ${LEN} -gt 24000 ]]; then
+                continue
+            fi
+            compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} --n4 ${n4} -o ${CONFIG}
             scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
@@ -219,7 +238,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
             PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
             FRONTEND_ARGS=$(echo \'$(frontend_args $n1),Authorization: Bearer ${JWT}\')
 
-            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
             script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
             script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
         done

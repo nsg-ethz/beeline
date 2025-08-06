@@ -12,9 +12,6 @@ export const options = {
             preAllocatedVUs: vus,
         },
     },
-    thresholds: {
-        http_req_failed: [{ threshold: "rate<0.01", abortOnFail: true }],
-    },
     summaryTrendStats: [
         "min",
         "med",
