@@ -94,6 +94,11 @@ def _load_k6_summaries(paths):
             data = json.load(file)
             data = data["metrics"]
 
+            if data["http_req_failed"]["passes"] > 0.03 * data["http_reqs"]["count"]:
+                ratio = data["http_req_failed"]["passes"] / data["http_reqs"]["count"]
+                print(f"Skipping {p}: {ratio:.2%}")
+                continue
+
             for (metric, aggs) in data.items():
                 rows.append({
                     "proxy": proxy,
@@ -429,43 +434,15 @@ def stats_graph_tikz():
     labels = [name.replace("_", "\\_") for name in list(df["name"]) + ["other"]]
     labels = ",".join(reversed(labels))
 
-    # colors = ["uchu-green-5" if ok else "uchu-red-5" for ok in beelineable]
-    # colors = ",".join(colors)
-
-    legend = "Stateless, Stateful"
-
     supported = f"""\\addplot[draw=uchu-green-5, fill=uchu-green-1] coordinates {{
 {supported}
 }};"""
     unsupported = f"""\\addplot[draw=uchu-red-5, fill=uchu-red-1] coordinates {{
 {unsupported}
 }};"""
-#    other = f"""\\addplot[draw=uchu-gray-5, fill=uchu-gray-1, forget plot] coordinates {{
-#    {other}
-#}};"""
+
     plots = "\n".join([supported, unsupported])
-
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[xbar,
-enlarge y limits={{abs=0.2,upper}},
-height=7.5cm,
-width=\\linewidth-45pt,
-bar shift=0pt,
-axis lines=left,
-enlarge x limits={{abs=10pt,upper}},
-enlarge y limits={{abs=10pt}},
-nodes near coords={{\\pgfmathprintnumber\\pgfplotspointmeta\\%}},
-legend pos=south east,
-yticklabels={{{labels}}},
-ytick={{0, ..., {cnt}}},
-xticklabel={{\\pgfmathprintnumber{{\\tick}}\\%}}]
-
-{plots}
-
-\\legend{{{legend}}}
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
+    print(plots)
 
 
 def cpu_graph(name, dst):

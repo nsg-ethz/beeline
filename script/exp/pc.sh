@@ -99,7 +99,6 @@ fi
 
 if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
     echo Running policy 1
-    MAX_COMPLEXITY=28000
 
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
@@ -134,7 +133,6 @@ fi
 
 if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
     echo Running policy 2
-    MAX_COMPLEXITY=28000
 
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
@@ -169,7 +167,6 @@ fi
 
 if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
     echo Running policy 3
-    MAX_COMPLEXITY=24000
 
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
@@ -209,7 +206,8 @@ fi
 
 if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
     echo Running policy 4
-    MAX_COMPLEXITY=24000
+    P4_REPLICAS=$(echo "3 * ${REPLICAS}" | bc)
+    P4_SERVICES=${REPLICAS}
 
     for n1 in $(seq 1 10); do
         for m1 in $(seq 1000 1000 16000); do
@@ -240,7 +238,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
             PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
             FRONTEND_ARGS=$(echo \'$(frontend_args $n1),Authorization: Bearer ${JWT}\')
 
-            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
+            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p beeline -s k6/pc.js -f ${FROM} -t ${TO}
             script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy -s k6/pc.js -f ${FROM} -t ${TO}
             script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy_l4fp -s k6/pc.js -f ${FROM} -t ${TO}
         done

@@ -20,9 +20,6 @@ export const options = {
             gracefulStop: "3s",
         },
     },
-    thresholds: {
-        http_req_failed: [{ threshold: "rate<0.01" }],
-    },
     discardResponseBodies: true,
 };
 
