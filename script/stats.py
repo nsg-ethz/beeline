@@ -34,6 +34,7 @@ class BaseModel(Model):
 class File(BaseModel):
     name = CharField()
     download_url = CharField(unique=True)
+    repo_url = CharField()
     content = CharField(unique=True)
 
 
@@ -66,7 +67,7 @@ def search():
             print(file.download_url)
 
             try:
-                file = File(name=file.name, download_url=file.download_url, content=file.decoded_content)
+                file = File(name=file.name, download_url=file.download_url, repo_url=file.repository.url, content=file.decoded_content)
                 file.save()
             except IntegrityError:
                 print(f"File {file.name} already exists in the database. Continuing...")
@@ -119,8 +120,9 @@ def count(path):
     files = File.select()
     print(f"Analysing {len(files)} files...")
 
-    filters = dict()
-    http_configs = set()
+    filters = []
+    parsed_files = set()
+    num_filter_chains = 0
     num_errors = 0
 
     def _iter_http_filters(config):
@@ -134,8 +136,11 @@ def count(path):
             for item in config:
                 yield from _iter_http_filters(item)
 
-    def _parse(content):
+    def _parse(content, download_url, repo_url):
         nonlocal num_errors
+        nonlocal num_filter_chains
+
+        parsed_files.add(download_url)
 
         try:
             configs = yaml.safe_load_all(content)
@@ -147,49 +152,61 @@ def count(path):
                 if "data" in config:
                     keys = [k for k in config.get("data").keys() if "envoy" in k]
                     if len(keys) != 1:
-                        # print(f"Could not find envoy config: {config.get("data").keys()} in {file.download_url}")
+                        # print(f"Could not find envoy config: {config.get("data").keys()} in {download_url}")
                         continue
 
-                    _parse(config.get("data").get(keys[0]))
+                    _parse(config.get("data").get(keys[0]), download_url, repo_url)
                     continue
 
-                for http_filters in _iter_http_filters(config):
-                    if len(http_filters) > 0:
-                        http_configs.add(file.download_url)
 
-                    for http_filter in http_filters:
+                for chain in _iter_http_filters(config):
+                    if len(chain) > 0:
+                        num_filter_chains += 1
+
+                    for http_filter in chain:
                         name = http_filter.get("name")
                         if not name:
                             print(f"Unknown http_filter format: {http_filter}")
                             continue
                         http_filter_type = sanitize_filter_name(name)
-                        if http_filter_type not in filters:
-                            filters[http_filter_type] = 1
-                        else:
-                            filters[http_filter_type] += 1
+                        filters.append({
+                            "name": http_filter_type,
+                            "repo_url": file.repo_url,
+                            "download_url": download_url
+                        })
 
-            if file.download_url not in http_configs:
-                print(f"No http_filters found in {file.download_url}")
-
-        except yaml.YAMLError as e:
-            # print(f"Error parsing YAML in file {file.download_url}: {e}")
+            if download_url not in parsed_files:
+                print(f"No http_filters found in {download_url}")
+        except yaml.YAMLError:
             num_errors += 1
 
     for file in files:
-        content = sanitize_config(file.content)
-        _parse(content)
+        if file.download_url not in parsed_files:
+            content = sanitize_config(file.content)
+            _parse(content, file.download_url, file.repo_url)
 
-    print(f"Evaluated {len(http_configs)}/{len(files)} configs, {num_errors} errors occurred")
+    print(f"Evaluated {len(parsed_files)}/{len(files)} configs, {num_errors} errors occurred, {num_filter_chains} HTTP filter chains")
 
-    filters = [{"name": name, "count": num} for (name, num) in filters.items()]
-    filters = sorted(filters, key=lambda x: x["count"], reverse=True)
+    stats = dict()
     for filter in filters:
+        stats[filter["name"]] = stats.get(filter["name"], 0) + 1
+
+    stats = [{"name": name, "count": num} for (name, num) in stats.items()]
+    stats = sorted(stats, key=lambda x: x["count"], reverse=True)
+    for filter in stats:
         print(f"{filter['name']}: {filter['count']}")
 
     if path:
+        stats = {
+            "files": len(parsed_files),
+            "filter_chains": num_filter_chains,
+            "errors": num_errors,
+            "filters": filters
+        }
+
         try:
             with open(args.path, 'w') as f:
-                json.dump(filters, f)
+                json.dump(stats, f)
         except Exception as e:
             print(f"Error writing statistics to {args.path}: {e}")
 

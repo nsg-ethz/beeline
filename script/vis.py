@@ -363,7 +363,7 @@ def cdf_graph_tikz(name, time_range):
 
 def stats_graph(dst):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    path = os.path.join(dir_path, "..", "res", "stats", "filters.json")
+    path = os.path.join(dir_path, "..", "res", "stats", "stats.json")
     df = pd.read_json(path).set_index("name")
 
     dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -374,10 +374,7 @@ def stats_graph(dst):
     df["compatible"] = cl["compatible"].astype(bool)
 
     other_mask = df["count"] < 10
-    # other = df[other_mask]
     df = df[~other_mask]
-    # other = pd.DataFrame({"count": [other["count"].sum()], "stateless": [False], "compatible": [False]}, index=["other"])
-    # df = pd.concat([df, other])
 
     df["count"] = (df["count"] / df["count"].sum()) * 100
 
@@ -393,14 +390,24 @@ def stats_graph(dst):
 
 def stats_graph_tikz():
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    path = os.path.join(dir_path, "..", "res", "stats", "filters.json")
-    df = pd.read_json(path).set_index("name")
+    path = os.path.join(dir_path, "..", "res", "stats", "stats.json")
 
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    path = os.path.join(dir_path, "..", "res", "stats", "classification.json")
-    cl = pd.read_json(path).transpose()
+    with open(path, "r") as f:
+        data = json.load(f)
 
-    df["stateless"] = cl["stateless"].astype(bool)
+    filters = data["filters"]
+    df = pd.DataFrame(filters)
+    df["supported"] = df["name"].isin(["router", "cors", "ext_authz", "jwt", "compressor"])
+
+    print(f"Repos: {len(df['repo_url'].unique())}")
+    print(f"Configs: {len(df['download_url'].unique())}")
+
+    print("Fully compatible configs:", df.groupby("download_url")["supported"].all().values.sum())
+
+    df = df.groupby("name").size().reset_index(name="count").set_index("name")
+    df["supported"] = df.index.isin(["router", "cors", "ext_authz", "jwt", "compressor"])
+
+    num_filter_chains = data["filter_chains"]
 
     names = df.index.tolist()
     names[names.index("http1bridge")] = "grpc_http1"
@@ -408,12 +415,9 @@ def stats_graph_tikz():
     names[names.index("dynamic_forward_proxy")] = "forward_proxy"
     df = df.reset_index()
     df["name"] = names
+    df["count"] = (df["count"] / num_filter_chains) * 100
 
-    df["count"] = (df["count"] / df["count"].sum()) * 100
-
-    other = df.tail(len(df)-10)
-    df = df.head(10)
-    other = pd.DataFrame({"count": [other["count"].sum()], "stateless": [False], "name": ["other"]}, index=[len(df)])
+    df = df.sort_values(by="count", ascending=False).head(10).reset_index(drop=True)
 
     cnt = len(df) + 1
     def _coords(df):
@@ -421,15 +425,11 @@ def stats_graph_tikz():
 
         return coords
 
-    supported = df.loc[df["stateless"] == True]
-    cnt = supported["count"].sum()
-    print(f"Pure filters: {cnt}")
+    supported = df.loc[df["supported"] == True]
     supported = "\n".join(_coords(supported))
 
-    unsupported = df.loc[df["stateless"] == False]
+    unsupported = df.loc[df["supported"] == False]
     unsupported = "\n".join(_coords(unsupported))
-
-    other = "\n".join(_coords(other))
 
     labels = [name.replace("_", "\\_") for name in list(df["name"]) + ["other"]]
     labels = ",".join(reversed(labels))
@@ -443,6 +443,8 @@ def stats_graph_tikz():
 
     plots = "\n".join([supported, unsupported])
     print(plots)
+
+    print(f"yticklabels={{{labels}}}")
 
 
 def cpu_graph(name, dst):
