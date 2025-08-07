@@ -28,36 +28,22 @@ subparsers = parser.add_subparsers(dest="command")
 
 cdf = subparsers.add_parser("cdf")
 cdf.add_argument("-r", "--range", required=False, help="The time range")
-cdf_tikz = subparsers.add_parser("cdf_tikz")
-cdf_tikz.add_argument("-r", "--range", required=False, help="The time range")
 
 stats = subparsers.add_parser("stats")
-stats = subparsers.add_parser("stats_tikz")
 
 cpu = subparsers.add_parser("cpu")
-cpu_tikz = subparsers.add_parser("cpu_tikz")
 
 rate = subparsers.add_parser("rate")
-rate_tikz = subparsers.add_parser("rate_tikz")
 
 dissect = subparsers.add_parser("dissect")
-dissect_tikz = subparsers.add_parser("dissect_tikz")
-dissect_complexity_tikz = subparsers.add_parser("dissect_complexity_tikz")
+dissect_complexity = subparsers.add_parser("dissect_complexity")
 
 complexity = subparsers.add_parser("complexity")
+complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
 complexity.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
 complexity.add_argument("-a", "--agg", default="rate", help="The aggregation func")
 
-complexity_tikz = subparsers.add_parser("complexity_tikz")
-complexity_tikz.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
-complexity_tikz.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
-complexity_tikz.add_argument("-a", "--agg", default="rate", help="The aggregation func")
-
 args = parser.parse_args()
-
-
-def thousand_label(x, pos):
-    return "%1.0fK" % (x * 1e-3) if x >= 1e3 else "%1.0f" % x
 
 
 def _parse_k6_path(path):
@@ -123,7 +109,8 @@ def _load_k6_data(paths, max_epoch=30, min_duration=100):
         try:
             df = pd.read_csv(p, low_memory=False)
             num_failed_res = (df["expected_response"] == False).sum()
-            if num_failed_res / len(df) > 0.01:
+            if num_failed_res / len(df) > 0.03:
+                print(f"Skipping {p}: {num_failed_res/len(df)} failed responses")
                 continue
 
             df["proxy"] = proxy
@@ -181,40 +168,6 @@ def _load_bpf_data(paths):
     return pd.concat(dfs).reset_index(drop=True)
 
 
-def _save_to_path(name, dst):
-    name = name.replace("{expected_response:true}", "_exp_res")
-    name = name.replace("(", "")
-    name = name.replace(")", "")
-
-    plt.tight_layout()
-    path = os.path.join(dst, name)
-    if os.path.splitext(path)[1] == "":
-        path += ".png"
-
-    print("Writing to", path)
-
-    os.makedirs(dst, exist_ok=True)
-    plt.savefig(path, dpi=400)
-    plt.clf()
-
-
-def _aggregate_fn(name):
-    if name in ["avg", "mean"]:
-        return "mean"
-    elif name == "med" or name == "p(50)":
-        return "median"
-    elif name == "p(90)":
-        return lambda x: np.quantile(x, q=0.9)
-    elif name == "p(95)":
-        return lambda x: np.quantile(x, q=0.95)
-    elif name == "p(99)":
-        return lambda x: np.quantile(x, q=0.99)
-    elif name in ["count", "sum"]:
-        return np.sum
-    else:
-        raise KeyError(f"Unknown aggregation function: {name}")
-
-
 def _order_proxies(proxies):
     res = []
 
@@ -269,45 +222,7 @@ def _tex_display_name(proxy):
     return names[proxy]
 
 
-def _rename_legend_labels(g):
-    print("How do you want to call the proxies?")
-    for text in g._legend.texts:
-        proxy = text.get_text()
-        new_name = input(f"{proxy}: ").strip()
-        if len(new_name) > 0:
-            text.set_text(new_name)
-
-
-def cdf_graph(name, time_range, dst):
-    (start, end) = _parse_time_range(time_range)
-    paths = _get_file_paths(name, "*full.csv")
-    df = _load_k6_data(paths)
-    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
-
-    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
-    print("Number of epochs per proxy:")
-    print(num_epochs.to_string())
-
-    order = _order_proxies(df["proxy"].unique())
-
-    g = sns.ecdfplot(data=df, x="metric_value", hue="proxy", hue_order=order)
-    g.set_xlabel("Latency [ms]")
-
-    for p, l, h in zip(order, reversed(g.lines), g.legend_.legend_handles):
-        if p == "envoy":
-            l.set_linestyle("--")
-            h.set_linestyle("--")
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    plt.ylim(0.9, 1)
-    plt.xlim(0, 2)
-    # plt.xscale("log")
-    _save_to_path(f"cdf", os.path.join(dst, name))
-
-
-def cdf_graph_tikz(name, time_range):
+def cdf_graph(name, time_range):
     (start, end) = _parse_time_range(time_range)
 
     plots = []
@@ -361,34 +276,7 @@ def cdf_graph_tikz(name, time_range):
     print(plots)
 
 
-def stats_graph(dst):
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    path = os.path.join(dir_path, "..", "res", "stats", "stats.json")
-    df = pd.read_json(path).set_index("name")
-
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    path = os.path.join(dir_path, "..", "res", "stats", "classification.json")
-    cl = pd.read_json(path).transpose()
-
-    df["stateless"] = cl["stateless"].astype(bool)
-    df["compatible"] = cl["compatible"].astype(bool)
-
-    other_mask = df["count"] < 10
-    df = df[~other_mask]
-
-    df["count"] = (df["count"] / df["count"].sum()) * 100
-
-    df["color"] = "not supported"
-    df.loc[df["compatible"] & df["stateless"], "color"] = "compatible & stateless"
-
-    g = sns.barplot(data=df, x=df.index, y="count", hue="color")
-    g.legend_.set_title(None)
-    # g.set_yscale("log")
-    plt.xticks(rotation=90)
-    _save_to_path("stats", dst)
-
-
-def stats_graph_tikz():
+def stats_graph():
     dir_path = os.path.dirname(os.path.realpath(__file__))
     path = os.path.join(dir_path, "..", "res", "stats", "stats.json")
 
@@ -447,32 +335,7 @@ def stats_graph_tikz():
     print(f"yticklabels={{{labels}}}")
 
 
-def cpu_graph(name, dst):
-    paths = _get_file_paths(name)
-    df = _load_cpu_data(paths)
-
-    min_ts = df.groupby(by=["proxy"]).agg({"timestamp": "min"})
-    df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
-
-    order = _order_proxies(df["proxy"].unique())
-
-    for p in order:
-        df.loc[df["proxy"] == p, "timestamp"] -= min_ts.loc[p, "timestamp"]
-
-    df = df.set_index(["proxy", "timestamp"])
-
-    g = sns.lineplot(data=df, x="timestamp", y="CPUPerc", hue="proxy", marker="o", hue_order=order)
-
-    g.set_xlabel("time [s]")
-
-    g.set_ylabel("CPU Utilization [%]")
-
-    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
-
-    _save_to_path(f"cpu-{name}", os.path.join(dst, name))
-
-
-def cpu_graph_tikz(name):
+def cpu_graph(name):
     paths = _get_file_paths(name, "*full.csv")
     if len(paths) > 0:
         df = _load_k6_data(paths)
@@ -512,13 +375,6 @@ def cpu_graph_tikz(name):
         data = df[mask]
         return data["timestamp"], data["CPUPerc"]
 
-    timestamps = []
-    for proxy in order:
-        usage = _usage(proxy, start=95, end=100)[1].mean()
-        print(proxy, usage)
-        ts = df.loc[(df["proxy"] == proxy) & (df["CPUPerc"] >= usage * 0.975), "timestamp"].iloc[0]
-        timestamps.append(ts)
-
     plots = []
     for i, proxy in enumerate(order):
         color = _tex_color_name(proxy) # predefined in latex
@@ -533,68 +389,11 @@ def cpu_graph_tikz(name):
         }};"""
         plots.append(plot)
 
-    timestamps = ",".join([str(ts) for ts in timestamps])
     plots = "\n".join(plots)
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[
-xlabel={{Time [s]}},
-ylabel={{CPU Utilization [\\#]}},
-y tick label style={{
-    /pgf/number format/fixed,
-    /pgf/number format/precision=1,
-    /pgf/number format/1000 sep={{}},
-}},
-xmin=0, xmax=100,
-ymax=36,
-axis lines=left,
-xticklabel style={{rotate=-0, yshift=-0.4ex}},
-xlabel style={{anchor=north}},
-xmajorgrids=true,
-grid style=dashed,
-legend pos=north west,
-xtick={{{timestamps}}},
-height=5cm,
-width=\\linewidth]
-
-{plots}
-
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
+    print(plots)
 
 
-def rate_graph(name, dst):
-    paths = _get_file_paths(name, "*full.csv")
-    df = _load_k6_data(paths)
-
-    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
-    print("Number of epochs per proxy:")
-    print(num_epochs.to_string())
-
-    df = df.groupby(["proxy", "timestamp"]).size().reset_index(name="rate")
-    num_epochs = num_epochs.reset_index()
-    num_epochs.columns = ["proxy", "num_epochs"]
-
-    df = df.merge(num_epochs, on="proxy")
-    df["rate"] = df["rate"] / df["num_epochs"]
-
-    order = _order_proxies(df["proxy"].unique())
-
-    g = sns.lineplot(data=df, x="timestamp", y="rate", hue="proxy", marker="o", hue_order=order)
-    # g.set(xlim=(200, 1100))
-    # g.set(ylim=(None, 50))
-
-    g.set_ylabel("rate [req/s]")
-    g.set_xlabel("time [s]")
-    g.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"sn-rate", os.path.join(dst, name))
-
-
-def rate_graph_tikz(name):
+def rate_graph(name):
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
 
@@ -748,16 +547,7 @@ def _load_dissect_df(name):
     return pd.concat(dfs)
 
 
-def dissect_graph(name, dst):
-    df = _load_dissect_df(name)
-
-    g = sns.barplot(data=df, x="proxy", y="mean", hue="func")
-    g.set(xlabel="proxy", ylabel="overhead [ms]")
-
-    _save_to_path(f"dissect-{name}", os.path.join(dst, name))
-
-
-def dissect_graph_tikz(name):
+def dissect_graph(name):
     df = _load_dissect_df(name)
     print(df)
 
@@ -808,7 +598,7 @@ width=\\linewidth]
     print(tikz)
 
 
-def dissect_complexity_graph_tikz(name):
+def dissect_complexity_graph(name):
     df = _load_dissect_df(name)
 
     order = ["envoy", "envoy_l4fp", "beeline"]
@@ -901,21 +691,7 @@ def _load_complexity_df(name, policy, metric, agg):
     return df
 
 
-def complexity_graph(name, metric, agg, dst):
-    df = _load_complexity_df(name, metric, agg)
-    policies = sorted(df["policy"].unique())
-
-    g = sns.FacetGrid(df, row="policy", row_order=policies, height=2, aspect=4)
-    g.map_dataframe(sns.barplot, x="complexity", y=agg, hue="proxy")
-    g.set(xlabel="Policies", ylabel="req/s")
-
-    if args.legend:
-        _rename_legend_labels(g)
-
-    _save_to_path(f"complexity-{agg}", os.path.join(dst, name))
-
-
-def complexity_graph_tikz(name, policy, metric, agg):
+def complexity_graph(name, policy, metric, agg):
     df = _load_complexity_df(name, policy, metric, agg)
     plots = []
     order = _order_proxies(df["proxy"].unique())
@@ -941,30 +717,16 @@ def complexity_graph_tikz(name, policy, metric, agg):
 
 if __name__ == "__main__":
     if args.command == "cdf":
-        cdf_graph(args.name, args.range, args.output)
-    elif args.command == "cdf_tikz":
-        cdf_graph_tikz(args.name, args.range)
+        cdf_graph(args.name, args.range)
     elif args.command == "stats":
-        stats_graph(args.output)
-    elif args.command == "stats_tikz":
-        stats_graph_tikz()
+        stats_graph()
     elif args.command == "cpu":
-        cpu_graph(args.name, args.output)
-    elif args.command == "cpu_tikz":
-        cpu_graph_tikz(args.name)
+        cpu_graph(args.name)
     elif args.command == "rate":
-        rate_graph(args.name, args.output)
-    elif args.command == "rate_tikz":
-        rate_graph_tikz(args.name)
+        rate_graph(args.name)
     elif args.command == "dissect":
-        dissect_graph(args.name, args.output)
-    elif args.command == "dissect_tikz":
-        dissect_graph_tikz(args.name)
-    elif args.command == "dissect_complexity_tikz":
-        dissect_complexity_graph_tikz(args.name)
-    elif args.command == "scaling":
-        scaling_graph(args.name, args.metric, args.agg, args.output)
+        dissect_graph(args.name)
+    elif args.command == "dissect_complexity":
+        dissect_complexity_graph(args.name)
     elif args.command == "complexity":
-        complexity_graph(args.name, args.metric, args.agg, args.output)
-    elif args.command == "complexity_tikz":
-        complexity_graph_tikz(args.name, args.policy, args.metric, args.agg)
+        complexity_graph(args.name, args.policy, args.metric, args.agg)

@@ -1,6 +1,6 @@
 import { request } from "./common.js";
 
-const vus = __ENV.VUS || 100;
+const vus = __ENV.VUS || 3000;
 
 export const options = {
     scenarios: {
