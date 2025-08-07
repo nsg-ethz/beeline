@@ -107,8 +107,9 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
         bool in_network = local_in_network && remote_in_network;
         // memcached does not work well with the L4FP
         bool is_memcached = skey.local.port == 11211 || skey.remote.port == 11211;
+        bool is_proxy = (skey.local.port == 9999 || skey.remote.port == 9999);
 
-        if (in_network && !is_memcached) {
+        if ((in_network && !is_memcached) || is_proxy) {
             if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
