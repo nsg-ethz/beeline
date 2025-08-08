@@ -44,7 +44,6 @@ fi
 
 ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
-ENVOY_BIN="${HOME}/envoy/bazel-out/k8-opt/bin/source/exe/envoy-static"
 mkdir -p ${SUMMARY_DIR}
 
 cd ${ROOT}
@@ -77,7 +76,7 @@ case ${ACTION} in
         stop_probes
         sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
         sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
-        sudo systemctl stop sm-bpf-monitor.scope > /dev/null 2>&1
+        sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
         sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 
         echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
@@ -108,6 +107,10 @@ case ${ACTION} in
             else
                 echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
             fi
+
+            if [[ "${MONITOR}" = 1 ]]; then
+                sudo -b -E systemd-run -q --scope -u sm-rt-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
+            fi
         else
             if [[ "${PROXY}" == *l4fp ]]; then
                 PROXY_BIN=${ROOT}/../target/release/l4fp
@@ -126,16 +129,18 @@ case ${ACTION} in
                 # this is because uprobes do not work well in docker
                 SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
                 SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
-                if [[ -z ${ENVOY_CONCURRENCY} ]]; then
-                    sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} > /dev/null 2>&1
-                    echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+
+                if [[ "${MONITOR}" = 1 ]]; then
+                    ENVOY_OUT=${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
                 else
-                    sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} ${ENVOY_BIN} -c ${SIDECAR_CONFIG} --concurrency ${ENVOY_CONCURRENCY} > /dev/null 2>&1
-                    echo -e "${COLOR_GREEN}Launched envoy with ${ENVOY_CONCURRENCY} workers${COLOR_OFF}"
+                    ENVOY_OUT=/dev/null
                 fi
 
+                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} envoy -c ${SIDECAR_CONFIG} > ${ENVOY_OUT} 2>&1
+                echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+
                 sleep 5
-                if [[ -z $(pidof envoy-static) ]]; then
+                if [[ -z $(pidof envoy) ]]; then
                     echo -e "${COLOR_RED}Envoy crashed${COLOR_OFF}"
                     exit 1
                 fi
@@ -158,24 +163,6 @@ case ${ACTION} in
             ./register_movies.sh
         fi
 
-        if [[ "${MONITOR}" = 1 ]]; then
-            if [[ "${PROXY}" = "beeline" ]]; then
-                sudo -b -E systemd-run -q --scope -u sm-bpf-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
-            elif [[ "${PROXY}" == *envoy* ]]; then
-                ENVOY_PID=$(pidof envoy-static)
-
-                echo -e "${COLOR_YELLOW}Attaching probes...${COLOR_OFF}"
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} ${ENVOY_BIN}:"*BalsaParser*execute*" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.parse-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} -r ${ENVOY_BIN}:"^.*onFileEvent.*$" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.user-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "process_backlog" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.ipc-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "ep_send_events" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.epoll-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "__sys_sendto" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.write-e${EPOCH}.log 2>/dev/null
-                sudo -b funclatency-bpfcc -p ${ENVOY_PID} "do_readv" > ${SUMMARY_DIR}/${PROXY}-bpf-${PROXY}.read-e${EPOCH}.log 2>/dev/null
-
-                sleep 5
-            fi
-        fi
-
         sudo -b systemd-run -q --scope -u sm-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
 
@@ -185,18 +172,19 @@ case ${ACTION} in
         stop_probes
         sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
         sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
-        sudo systemctl stop sm-bpf-monitor.scope > /dev/null 2>&1
+        sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
         sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 
         if [[ "${MONITOR}" = 1 ]]; then
-            if [[ "${PROXY}" = "beeline" ]]; then
-                grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.user-e${EPOCH}.log
-                grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-beeline.parse-e${EPOCH}.log
-                rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
-            elif [[ "${PROXY}" = "naive" ]] || [[ "${PROXY}" = "naive_fp" ]]; then
-                grep "other total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.user-e${EPOCH}.log
-                grep "parse total" ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-bpf-naive.parse-e${EPOCH}.log
-                rm ${SUMMARY_DIR}/${PROXY}-bpf-e${EPOCH}.log
+            if [[ "${PROXY}" == "beeline" ]]; then
+                grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-user-e${EPOCH}.log
+                grep "parse total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-parse-e${EPOCH}.log
+                rm ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
+            elif [[ "${PROXY}" == envoy* ]]; then
+                grep "ipc total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-ipc-e${EPOCH}.log
+                grep "parse total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-parse-e${EPOCH}.log
+                grep "user total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-user-e${EPOCH}.log
+                rm ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
             fi
         fi
 
