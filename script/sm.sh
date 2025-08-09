@@ -9,10 +9,6 @@ MONITOR=0
 ACTION=$1
 shift 1
 
-function stop_probes {
-    sudo killall -SIGINT funclatency-bpfcc >/dev/null 2>&1
-}
-
 function health_check {
     for i in $(seq 1 20); do
         curl -s $1
@@ -169,7 +165,6 @@ case ${ACTION} in
     down)
         CPU_SYSTEM=0-39
 
-        stop_probes
         sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
         sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
         sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
