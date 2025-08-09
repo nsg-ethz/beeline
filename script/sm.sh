@@ -5,7 +5,6 @@ COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
-MONITOR=0
 ACTION=$1
 shift 1
 
@@ -26,7 +25,6 @@ while getopts "c:n:p:e:m" opt; do
         n ) NAME=${OPTARG} ;;
         p ) PROXY=${OPTARG} ;;
         e ) EPOCH=${OPTARG} ;;
-        m ) MONITOR=1 ;;
         \?)
             echo "Invalid option: -$OPTARG"
             ;;
@@ -91,9 +89,9 @@ case ${ACTION} in
         if [[ "${PROXY}" == "beeline" ]]; then
             BEELINE_BIN=${ROOT}/../target/release/beeline
             BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
-            CONFIG=${BEELINE_CONFIG} BPF_PROFILE=${MONITOR} cargo b -r -p beeline
+            CONFIG=${BEELINE_CONFIG} BPF_PROFILE=1 cargo b -r -p beeline
 
-            BPF_PROFILE=${MONITOR} sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
+            BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
             health_check 172.17.0.1:9999
 
             if [[ -z $(pidof beeline) ]]; then
@@ -103,9 +101,7 @@ case ${ACTION} in
                 echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
             fi
 
-            if [[ "${MONITOR}" = 1 ]]; then
-                sudo -b -E systemd-run -q --scope -u sm-rt-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
-            fi
+            sudo -b -E systemd-run -q --scope -u sm-rt-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
         else
             if [[ "${PROXY}" == *l4fp ]]; then
                 PROXY_BIN=${ROOT}/../target/release/l4fp
@@ -125,12 +121,7 @@ case ${ACTION} in
                 SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
                 SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
 
-                if [[ "${MONITOR}" = 1 ]]; then
-                    ENVOY_OUT=${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
-                else
-                    ENVOY_OUT=/dev/null
-                fi
-
+                ENVOY_OUT=${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
                 sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} envoy -c ${SIDECAR_CONFIG} > ${ENVOY_OUT} 2>&1
                 echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
 
@@ -169,17 +160,15 @@ case ${ACTION} in
         sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
         sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 
-        if [[ "${MONITOR}" = 1 ]]; then
-            if [[ "${PROXY}" == "beeline" ]]; then
-                grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-user-e${EPOCH}.log
-                grep "parse total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-parse-e${EPOCH}.log
-                rm ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
-            elif [[ "${PROXY}" == envoy* ]]; then
-                grep "ipc total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-ipc-e${EPOCH}.log
-                grep "parse total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-parse-e${EPOCH}.log
-                grep "user total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-user-e${EPOCH}.log
-                rm ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
-            fi
+        if [[ "${PROXY}" == "beeline" ]]; then
+            grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-user-e${EPOCH}.log
+            grep "parse total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-parse-e${EPOCH}.log
+            rm ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
+        elif [[ "${PROXY}" == envoy* ]]; then
+            grep "ipc total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-ipc-e${EPOCH}.log
+            grep "parse total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-parse-e${EPOCH}.log
+            grep "user total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-user-e${EPOCH}.log
+            rm ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
         fi
 
         docker compose -f ${DOCKER_CONFIG} down

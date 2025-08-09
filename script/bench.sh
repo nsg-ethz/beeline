@@ -9,10 +9,9 @@ BENCH=$1
 shift 1
 
 WRITE_REPORT=false
-MONITOR="0"
 
 # Parse arguments
-while getopts "c:e:f:t:n:p:rs:m:" opt; do
+while getopts "c:e:f:t:n:p:rs:" opt; do
     case $opt in
         e ) ENV=${OPTARG} ;;
         f ) FROM=${OPTARG} ;;
@@ -22,7 +21,6 @@ while getopts "c:e:f:t:n:p:rs:m:" opt; do
         p ) PROXY=${OPTARG} ;;
         r ) WRITE_REPORT=true ;;
         s ) SCRIPT=${OPTARG} ;;
-        m ) MONITOR=${OPTARG} ;;
 
         \?)
             echo "Invalid option: -$OPTARG"
@@ -34,10 +32,6 @@ ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 SOCIAL_NETWORK_DIR=${ROOT}/../test/social_network
 
-if [[ "${MONITOR}" == 1 || "${MONITOR}" == true ]]; then
-    MONITOR_FLAG="-m"
-fi
-
 mkdir -p ${SUMMARY_DIR}
 
 for i in $(seq ${FROM} ${TO} ) ; do
@@ -47,7 +41,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
     case ${BENCH} in
         sm)
-            ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} ${MONITOR_FLAG}"
+            ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
             if [ "${WRITE_REPORT}" = true ]; then
@@ -56,7 +50,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
                 k6 run ${SCRIPT} --summary-export ${SUMMARY}
             fi
 
-            ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i} ${MONITOR_FLAG}"
+            ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             ;;
 
         mb)
