@@ -69,7 +69,6 @@ case ${ACTION} in
         docker volume prune -f
         docker network prune -f
 
-        stop_probes
         sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
         sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
         sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
