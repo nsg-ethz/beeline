@@ -149,6 +149,11 @@ case ${ACTION} in
             ./register_movies.sh
         fi
 
+        # restart services to reset statistics
+        sudo systemctl restart sm-proxy.scope > /dev/null 2>&1
+        sudo systemctl restart sm-proxy-opt.scope > /dev/null 2>&1
+        sudo systemctl restart sm-rt-monitor.scope > /dev/null 2>&1
+
         sudo -b systemd-run -q --scope -u sm-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
 
