@@ -18,6 +18,7 @@ fn main() {
     let log_level: u32 = match log_level.as_deref() {
         Ok("debug") => 2,
         Ok("trace") => 2,
+        Ok("info") => 1,
         Ok("warn") => 1,
         Ok("error") => 1,
         _ => 0,
