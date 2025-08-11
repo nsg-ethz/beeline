@@ -37,6 +37,9 @@ rate = subparsers.add_parser("rate")
 
 dissect = subparsers.add_parser("dissect")
 dissect_complexity = subparsers.add_parser("dissect_complexity")
+dissect_complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
+dissect_complexity.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
+dissect_complexity.add_argument("-a", "--agg", default="rate", help="The aggregation func")
 
 complexity = subparsers.add_parser("complexity")
 complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
@@ -62,14 +65,13 @@ def _parse_cpu_path(path):
     return proxy, int(epoch)
 
 
-def _parse_bpf_path(path):
-    match = re.search(r"(\w+)-bpf-(\w+).(\w+)-e(\d+).*", path)
+def _parse_rt_path(path):
+    match = re.search(r"(\w+)-rt-(\w+)-e(\d+).*", path)
     proxy = match.group(1)
-    bin = match.group(2)
-    func = match.group(3)
-    epoch = match.group(4)
+    func = match.group(2)
+    epoch = match.group(3)
 
-    return proxy, bin, func, int(epoch)
+    return proxy, func, int(epoch)
 
 
 def _load_k6_summaries(paths):
@@ -90,7 +92,7 @@ def _load_k6_summaries(paths):
                     "proxy": proxy,
                     "metric_name": metric,
                     "epoch": epoch,
-                    "file": os.path.basename(p),
+                    "file": p,
                     **aggs
                 })
 
@@ -145,10 +147,10 @@ def _load_cpu_data(paths):
     return pd.concat(dfs)
 
 
-def _load_bpf_data(paths):
+def _load_rt_data(paths):
     dfs = []
     for p in paths:
-        proxy, bin, func, epoch = _parse_bpf_path(p)
+        proxy, func, epoch = _parse_rt_path(p)
 
         with open(p, "r") as file:
             text = file.read()
@@ -162,7 +164,7 @@ def _load_bpf_data(paths):
             total = int(match.group(1))
             count = int(match.group(2))
 
-            df = pd.DataFrame({"proxy": [proxy], "bin": [bin], "file": [os.path.basename(p)], "total": [total], "count": [count], "func": [func], "epoch": [epoch]})
+            df = pd.DataFrame({"proxy": [proxy], "file": [os.path.basename(p)], "total": [total], "count": [count], "func": [func], "epoch": [epoch]})
             dfs.append(df)
 
     return pd.concat(dfs).reset_index(drop=True)
@@ -445,106 +447,71 @@ def rate_graph(name):
 
 
 def _load_dissect_df(name):
-    def _load_df(complexity):
-        avg_req_latency = lambda df, proxy: df[(df["proxy"] == proxy) & (df["metric_name"] == "http_req_duration{expected_response:true}")]["avg"].mean()
+    med_req_latency = lambda df, proxy: df[(df["proxy"] == proxy) & (df["metric_name"] == "http_req_duration{expected_response:true}")]["med"].mean()
 
-        suffix = f"-c{complexity}" if complexity else ""
-        paths = _get_file_paths(f"{name}{suffix}", "*k6*.json")
-        if len(paths) == 0:
-            return None
+    paths = _get_file_paths(name, "*k6*.json")
+    if len(paths) == 0:
+        return None
 
-        if complexity:
-            print("Load complexity", complexity)
+    k6 = _load_k6_summaries(paths)
 
-        k6 = _load_k6_summaries(paths)
+    # l4fp does not have much network stack overhead because its sockets
+    # are connected using the eBPF program
+    l4fp = med_req_latency(k6, "envoy_l4fp")
+    envoy = med_req_latency(k6, "envoy")
+    beeline = med_req_latency(k6, "beeline")
+    direct = med_req_latency(k6, "none")
 
-        paths = _get_file_paths(f"{name}{suffix}-bpf", "*k6*.json")
-        k6_bpf = _load_k6_summaries(paths)
+    iters = k6[k6["metric_name"] == "iterations"].set_index("proxy")["count"].rename("reqs")
 
-        # l4fp does not have much network stack overhead because its sockets
-        # are connected using the eBPF program
-        l4fp = avg_req_latency(k6, "envoy_l4fp")
-        envoy = avg_req_latency(k6, "envoy")
-        beeline = avg_req_latency(k6, "beeline")
-        direct = avg_req_latency(k6, "none")
+    # we get the IPC, parsing etc overhead for every single request
+    paths = _get_file_paths(name, "*rt*.log")
+    df = _load_rt_data(paths)
+    df = df.merge(iters, on="proxy")
+    df["mean"] = (df["total"] / df["reqs"]) / 1e6
 
-        l4fp_bpf = avg_req_latency(k6_bpf, "envoy_l4fp")
-        envoy_bpf = avg_req_latency(k6_bpf, "envoy")
-        beeline_bpf = avg_req_latency(k6_bpf, "beeline")
+    df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
 
-        iters = k6[k6["metric_name"] == "iterations"]["count"].mean()
+    # userspace processing contains everything else -> subtract from processing so it's not represented twice
+    df.loc[("beeline", "user"), "mean"] -= df.loc[("beeline", "parse"), "mean"]
+    ideal = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
 
-        # we get the IPC, parsing etc overhead for every single request
-        paths = _get_file_paths(f"{name}{suffix}-bpf", "*bpf*.log")
-        df = _load_bpf_data(paths)
-        df["mean"] = (df["total"] / iters) / 1e6
+    print("request latency:")
+    print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}, direct: {direct}, ideal: {ideal}")
 
-        df = df.groupby(by=["proxy", "func"]).agg({"mean": "mean"})
+    beeline -= ideal
+    envoy -= ideal
+    l4fp -= ideal
 
-        ideal = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
-        print("request latency:")
-        print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}, direct: {direct}, ideal: {ideal}")
-        print("request latency with bpf:")
-        print(f"beeline: {beeline_bpf}, envoy: {envoy_bpf}, lf4p: {l4fp_bpf}")
-        print("measured components total:")
-        beeline_comp = df.loc[("beeline", slice(None)), "mean"].sum()
-        envoy_comp = df.loc[("envoy", slice(None)), "mean"].sum()
-        l4fp_comp = df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
-        print(f"beeline: {beeline_comp}, envoy: {envoy_comp}, lf4p: {l4fp_comp}")
+    print("overhead:")
+    print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}")
 
-        beeline -= ideal
-        envoy -= ideal
-        l4fp -= ideal
+    # userspace processing contains everything else -> subtract from processing so it's not represented twice
+    for p in ["envoy", "envoy_l4fp"]:
+        df.loc[(p, "user"), "mean"] -= df.loc[(p, "parse"), "mean"].sum()
+        df.loc[(p, "user"), "mean"] -= df.loc[(p, "ipc"), "mean"].sum()
 
-        beeline_bpf -= ideal
-        envoy_bpf -= ideal
-        l4fp_bpf -= ideal
+    print("measured components total:")
+    beeline_comp = df.loc[("beeline", slice(None)), "mean"].sum()
+    envoy_comp = df.loc[("envoy", slice(None)), "mean"].sum()
+    l4fp_comp = df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
+    print(f"beeline: {beeline_comp}, envoy: {envoy_comp}, lf4p: {l4fp_comp}")
 
-        # normalize our measured results
-        df.loc[("beeline", slice(None)), "mean"] *= beeline/beeline_bpf
-        df.loc[("envoy", slice(None)), "mean"] *= envoy/envoy_bpf
-        df.loc[("envoy_l4fp", slice(None)), "mean"] *= l4fp/l4fp_bpf
+    # the remainder of the request duration is unaccounted for
+    df.loc[("envoy", "unaccounted"), "mean"] = envoy - df.loc[("envoy", slice(None)), "mean"].sum()
+    df.loc[("envoy_l4fp", "unaccounted"), "mean"] = l4fp - df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
+    df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
 
-        # userspace processing contains everything else -> subtract from processing so it's not represented twice
-        df.loc[(slice(None), "user"), "mean"] -= df.loc[(slice(None), "parse"), "mean"].values
-        for p in ["envoy", "envoy_l4fp"]:
-            df.loc[(p, "user"), "mean"] -= df.loc[(p, "read"), "mean"]
-            df.loc[(p, "user"), "mean"] -= df.loc[(p, "write"), "mean"]
-            # write contains process_backlog
-            df.loc[(p, "write"), "mean"] -= df.loc[(p, "ipc"), "mean"]
+    assert 0 <= df.loc[("envoy", "unaccounted"), "mean"].round(2), f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
+    assert 0 <= df.loc[("envoy_l4fp", "unaccounted"), "mean"].round(2), f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
+    assert 0 <= df.loc[("beeline", "unaccounted"), "mean"].round(2), f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
 
-        # this is the overhead from running an eBPF program at the sk_msg level
-        # the L4 fast path executes this twice as often as beeline
-        sk_msg = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
-        df.loc[("beeline", "ebpf"), "mean"] = sk_msg
+    # unaccounted is mostly the overhead of the uprobes, removing it from parsing
+    rename = {"user": "Policy Enforcement", "parse": "Parsing", "ipc": "IPC", "unaccounted": "Other"}
+    df = df.rename(index=rename, level="func").reset_index()
+    df = df.groupby(by=["proxy", "func"]).agg({"mean": "sum"})
 
-        # the remainder of the request duration is unaccounted for
-        df.loc[("beeline", slice(None)), "mean"] *= beeline/df.loc[("beeline", slice(None)), "mean"].sum()
-        df.loc[("envoy", slice(None)), "mean"] *= envoy/df.loc[("envoy", slice(None)), "mean"].sum()
-        df.loc[("envoy_l4fp", slice(None)), "mean"] *= l4fp/df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
-
-        # unaccounted is mostly the overhead of the uprobes, removing it from parsing
-        rename = {"user": "Policy Enforcement", "ebpf": "IPC", "parse": "Parsing", "epoll": "IPC", "ipc": "IPC", "read": "IPC", "write": "IPC"}
-        df = df.rename(index=rename, level="func").reset_index()
-
-        if complexity:
-            df["complexity"] = complexity
-            df = df.groupby(by=["proxy", "func", "complexity"]).agg({"mean": "sum"})
-        else:
-            df = df.groupby(by=["proxy", "func"]).agg({"mean": "sum"})
-
-        return df
-
-    dfs = []
-    for c in range(0, 20):
-        df = _load_df(c)
-        if df is not None:
-            dfs.append(df)
-
-    if len(dfs) == 0:
-        return _load_df(None)
-
-    return pd.concat(dfs)
+    return df
 
 
 def dissect_graph(name):
@@ -552,9 +519,8 @@ def dissect_graph(name):
     print(df)
 
     order = ["envoy", "envoy_l4fp", "beeline"]
-
     plots = []
-    funcs = ["Policy Enforcement", "Parsing", "IPC"]
+    funcs = ["Policy Enforcement", "Parsing", "IPC", "Other"]
     for f in funcs:
         coords = []
         for p in order:
@@ -565,47 +531,47 @@ def dissect_graph(name):
                 coords.append(f"({p}, 0)")
 
         coords = " ".join(coords)
-        style = "pattern=north west lines, draw=uchu-gray-5, pattern color=uchu-gray-5" if f == "echo" else ""
+        style = "pattern=north west lines, draw=uchu-gray-5, pattern color=uchu-gray-5" if f == "Other" else ""
         plots.append(f"\\addplot+[ybar, {style}] plot coordinates {{{coords}}};")
 
     plots = "\n".join(plots)
-    legend = ",".join(funcs)
-    proxies = ",".join(order)
-
-    tikz = f"""\\begin{{tikzpicture}}
-\\begin{{axis}}[
-ybar stacked,
-ymin=0,
-cycle list name=uchu,
-every axis plot/.style={{fill}},
-bar width=20pt,
-ylabel={{Overhead [ms]}},
-symbolic x coords={{{proxies}}},
-legend columns = 4,
-legend style={{at={{(0,1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
-xticklabels={{Envoy, {{Envoy + L4\\\\ Fast Path}}, {{Envoy +\\\\\\proj}}}},
-xticklabel style={{align=center}},
-xtick=data,
-enlarge x limits={{abs=1.5cm}},
-height=5cm,
-width=\\linewidth]
-
-{plots}
-
-\\legend{{{legend}}}
-\\end{{axis}}
-\\end{{tikzpicture}}"""
-    print(tikz)
+    print(plots)
 
 
-def dissect_complexity_graph(name):
-    df = _load_dissect_df(name)
+def _load_dissect_complexity_df(name, policy, metric, agg):
+    paths = _get_file_paths(f"{name}/p{policy}-*", "*k6*summary*.json")
+    dfs = []
+    for p in paths:
+        folder = os.path.dirname(p)
+        name = os.path.basename(folder)
+        args = [s for s in name.split("-")[1:]]
+        args = {args[i]: int(args[i+1]) for i in range(0, len(args), 2)}
 
+        df = _load_dissect_df(folder)
+        df["policy"] = policy
+        df["complexity"] = args["n1"] * args["m1"]
+
+        dfs.append(df)
+
+    df = pd.concat(dfs)
+    df = df[df["metric_name"] == metric]
+
+    num_comps = df.groupby(["proxy", "complexity"]).size().reset_index(name="count")
+    print(num_comps.to_string())
+
+    df = df.groupby(["proxy", "func", "complexity"]).agg({agg: "mean"})
+    df = df.reset_index()
+
+    return df
+
+
+def dissect_complexity_graph(name, policy, metric, agg):
+    df = _load_dissect_complexity_df(name, policy, metric, agg)
     order = ["envoy", "envoy_l4fp", "beeline"]
-    complexities = sorted(df.index.get_level_values("complexity").unique())
+    complexities = [1000, 4000, 8000, 16000]
 
     axes = []
-    funcs = ["eBPF", "Processing", "Parsing", "IPC"]
+    funcs = ["Policy Enforcement", "Parsing", "IPC", "Other"]
     shift = ["-10pt", "0pt", "10pt"]
     func_names = ",".join(funcs)
 
@@ -633,35 +599,12 @@ def dissect_complexity_graph(name):
         axis = f"""\\begin{{axis}}[bar shift={shift[idx]},{hide_axis}]
             {plots}
             {legend}
-        \end{{axis}}
+        \\end{{axis}}
         """
         axes.append(axis)
 
     axes = "\n".join(axes)
-
-    tikz = f"""\\begin{{tikzpicture}}[
-    every axis/.style={{
-        ybar stacked,
-        ymin=0,
-        cycle list name=uchu,
-        every axis plot/.style={{fill}},
-        bar width=10pt,
-        ylabel={{latency [ms]}},
-        legend columns = 4,
-        legend style={{at={{(0,1)}},draw=none,anchor=south west, /tikz/every even column/.append style={{column sep=0.25cm}}}},
-        xticklabels={{easy, medium, hard, extreme}},
-        xticklabel style={{align=center}},
-        xtick=data,
-        enlarge x limits={{abs=1.5cm}},
-        height=5cm,
-        width=\\linewidth
-    }}
-    ]
-
-{axes}
-
-\\end{{tikzpicture}}"""
-    print(tikz)
+    print(axes)
 
 
 def _load_complexity_df(name, policy, metric, agg):
@@ -727,6 +670,6 @@ if __name__ == "__main__":
     elif args.command == "dissect":
         dissect_graph(args.name)
     elif args.command == "dissect_complexity":
-        dissect_complexity_graph(args.name)
+        dissect_complexity_graph(args.name, args.policy, args.metric, args.agg)
     elif args.command == "complexity":
         complexity_graph(args.name, args.policy, args.metric, args.agg)
