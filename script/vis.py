@@ -38,13 +38,9 @@ rate = subparsers.add_parser("rate")
 dissect = subparsers.add_parser("dissect")
 dissect_complexity = subparsers.add_parser("dissect_complexity")
 dissect_complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
-dissect_complexity.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
-dissect_complexity.add_argument("-a", "--agg", default="rate", help="The aggregation func")
 
 complexity = subparsers.add_parser("complexity")
 complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
-complexity.add_argument("-m", "--metric", default="http_reqs", help="The recorded metric to visualize")
-complexity.add_argument("-a", "--agg", default="rate", help="The aggregation func")
 
 args = parser.parse_args()
 
@@ -212,17 +208,6 @@ def _tex_color_name(proxy, fill=False):
     else:
         return proxy.replace("_", "") + "color"
 
-def _tex_display_name(proxy):
-    names = {
-        "beeline": "Envoy + \\proj",
-        "envoy": "Envoy",
-        "envoy_iouring": "Envoy + \\iouring",
-        "envoy_l4fp": "Envoy + L4 Fast Path",
-        "none": "Vanilla"
-    }
-
-    return names[proxy]
-
 
 def cdf_graph(name, time_range):
     (start, end) = _parse_time_range(time_range)
@@ -237,8 +222,6 @@ def cdf_graph(name, time_range):
     print(num_epochs.to_string())
 
     order = _order_proxies(df["proxy"].unique())
-
-    legend = ",".join([_tex_display_name(p) for p in order])
 
     def _percentiles(proxy):
         vals = df[df["proxy"] == proxy]["metric_value"]
@@ -538,7 +521,7 @@ def dissect_graph(name):
     print(plots)
 
 
-def _load_dissect_complexity_df(name, policy, metric, agg):
+def _load_dissect_complexity_df(name, policy):
     paths = _get_file_paths(f"{name}/p{policy}-*", "*k6*summary*.json")
     dfs = []
     for p in paths:
@@ -547,51 +530,49 @@ def _load_dissect_complexity_df(name, policy, metric, agg):
         args = [s for s in name.split("-")[1:]]
         args = {args[i]: int(args[i+1]) for i in range(0, len(args), 2)}
 
-        df = _load_dissect_df(folder)
-        df["policy"] = policy
-        df["complexity"] = args["n1"] * args["m1"]
+        try:
+            df = _load_dissect_df(folder)
+            df["policy"] = policy
+            df["complexity"] = args["n1"] * args["m1"]
 
-        dfs.append(df)
+            dfs.append(df)
+        except Exception as e:
+            print(f"Error loading {folder}: {e}")
 
     df = pd.concat(dfs)
-    df = df[df["metric_name"] == metric]
-
-    num_comps = df.groupby(["proxy", "complexity"]).size().reset_index(name="count")
-    print(num_comps.to_string())
-
-    df = df.groupby(["proxy", "func", "complexity"]).agg({agg: "mean"})
-    df = df.reset_index()
+    df = df.groupby(["proxy", "func", "complexity"]).agg({"mean": "mean"})
 
     return df
 
 
-def dissect_complexity_graph(name, policy, metric, agg):
-    df = _load_dissect_complexity_df(name, policy, metric, agg)
+def dissect_complexity_graph(name, policy):
+    df = _load_dissect_complexity_df(name, policy)
     order = ["envoy", "envoy_l4fp", "beeline"]
     complexities = [1000, 4000, 8000, 16000]
 
     axes = []
     funcs = ["Policy Enforcement", "Parsing", "IPC", "Other"]
-    shift = ["-10pt", "0pt", "10pt"]
+    shift = ["-15pt", "-5pt", "5pt", "15pt"]
     func_names = ",".join(funcs)
 
-    for idx, p in enumerate(order):
+    for idx, c in enumerate(complexities):
         plots = []
         for f in funcs:
             coords = []
-            for c in complexities:
+            for p in order:
                 if (p, f, c) in df.index:
                     v = df.loc[(p, f, c), "mean"]
-                    coords.append(f"({c}, {v})")
+                    coords.append(f"({p.replace('_', '')}, {v})")
                 else:
-                    coords.append(f"({c}, 0)")
+                    coords.append(f"({p.replace('_', '')}, 0)")
 
             coords = " ".join(coords)
-            plots.append(f"\\addplot+ coordinates {{{coords}}};")
+            style = "[pattern=north west lines, draw=uchu-gray-5, pattern color=uchu-gray-5]" if f == "Other" else ""
+            plots.append(f"\\addplot+{style} coordinates {{{coords}}};")
 
         hide_axis = "hide axis"
         legend = ""
-        if idx == len(order)-1:
+        if idx == 0:
             legend = f"\\legend{{{func_names}}}"
             hide_axis = ""
 
@@ -670,6 +651,6 @@ if __name__ == "__main__":
     elif args.command == "dissect":
         dissect_graph(args.name)
     elif args.command == "dissect_complexity":
-        dissect_complexity_graph(args.name, args.policy, args.metric, args.agg)
+        dissect_complexity_graph(args.name, args.policy)
     elif args.command == "complexity":
-        complexity_graph(args.name, args.policy, args.metric, args.agg)
+        complexity_graph(args.name, args.policy)
