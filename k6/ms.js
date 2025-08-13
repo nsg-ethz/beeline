@@ -11,10 +11,10 @@ export const options = {
     scenarios: {
         compose_review: {
             executor: "ramping-arrival-rate",
-            preAllocatedVUs: 300,
+            preAllocatedVUs: 1000,
             stages: [
-                { target: 3500, duration: "100s" },
-                { target: 3500, duration: "5s" },
+                { target: 5000, duration: "100s" },
+                { target: 5000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
@@ -25,12 +25,9 @@ export const options = {
 export default () => {
     const userIndex = randomIntBetween(1, 1000);
     const movieIndex = randomIntBetween(1, 1000);
-
-    const username = `username_${userIndex}`;
-    const password = `password_${userIndex}`;
-    const title = `title_${movieIndex}`;
     const rating = randomIntBetween(0, 10);
 
+    const body = `username=username_${userIndex}&password=password_${userIndex}&title=title_${movieIndex}&rating=${rating}&text=${randomText}`;
     const headers = {
         "Content-Type": "application/x-www-form-urlencoded",
     };
@@ -39,7 +36,6 @@ export default () => {
         timeout: "3s",
     };
 
-    const body = `username=${username}&password=${password}&title=${title}&rating=${rating}&text=${randomText}`;
     const res = http.post(
         "http://moonshine:8080/wrk2-api/review/compose",
         body,
