@@ -463,7 +463,7 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u16 start, s
 
     u32 i;
     bpf_for(i, start, len+1) {
-        if (data + i + 1 > data_end) return -i;
+        if (data + i + 1 > data_end) break;
         char c = data[i];
 
         u16 a = 0;
@@ -580,7 +580,7 @@ int msg_verdict(struct sk_msg_md *msg) {
 
     int done_idx = _parse(msg, pranges);
     if (done_idx < 0) {
-        if (done_idx == -msg->size) {
+        if (done_idx == -msg->size || done_idx == -msg->size + 1) {
             bpf_log("Could not parse header after %dB. Corking...", msg->size);
 
             bpf_profile_start(sk_msg_cork);
@@ -648,7 +648,7 @@ int msg_verdict(struct sk_msg_md *msg) {
             return SK_PASS;
         }
     }
-    else if (res == PR_UTRN) {
+    if (res == PR_UTRN) {
         if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }

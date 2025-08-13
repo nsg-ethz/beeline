@@ -318,7 +318,7 @@ void MovieReviewHandler::ReadMovieReviews(
           review_client->ReadReviews(
               _return_reviews, req_id, review_ids, writer_text_map);
         } catch (...) {
-          _review_client_pool->Push(review_client_wrapper);
+          _review_client_pool->Remove(review_client_wrapper);
           LOG(error) << "Failed to read review from review-storage-service";
           throw;
         }

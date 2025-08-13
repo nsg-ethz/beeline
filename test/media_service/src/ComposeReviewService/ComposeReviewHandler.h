@@ -195,11 +195,11 @@ void ComposeReviewHandler::_ComposeAndUpload(
     try {
       review_storage_client->StoreReview(req_id, new_review, writer_text_map);
     } catch (...) {
-      _review_storage_client_pool->Push(review_storage_client_wrapper);
+      _review_storage_client_pool->Remove(review_storage_client_wrapper);
       LOG(error) << "Failed to upload review to review-storage-service";
       throw;
     }
-    _review_storage_client_pool->Remove(review_storage_client_wrapper);
+    _review_storage_client_pool->Push(review_storage_client_wrapper);
   });
 
   user_review_future = std::async(std::launch::async, [&](){

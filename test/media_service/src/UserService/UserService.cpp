@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
   int compose_port = config_json["compose-review-service"]["port"];
 
   memcached_pool_st *memcached_client_pool =
-      init_memcached_client_pool(config_json, "user", 32, 128);
+      init_memcached_client_pool(config_json, "user", MEMCACHED_POOL_MIN_SIZE, MEMCACHED_POOL_MAX_SIZE);
   mongoc_client_pool_t *mongodb_client_pool =
       init_mongodb_client_pool(config_json, "user", 128);
 

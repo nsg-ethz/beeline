@@ -5,7 +5,7 @@
 #include <libmemcached/util.h>
 
 #define MEMCACHED_POOL_MIN_SIZE 128
-#define MEMCACHED_POOL_MAX_SIZE 128
+#define MEMCACHED_POOL_MAX_SIZE 512
 
 namespace media_service {
 

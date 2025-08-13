@@ -75,45 +75,39 @@ ClientPool<TClient>::~ClientPool() {
 template<class TClient>
 TClient * ClientPool<TClient>::Pop() {
   TClient * client = nullptr;
-  std::unique_lock<std::mutex> cv_lock(_mtx); {
-    while (_pool.size() == 0) {
+  {
+    std::unique_lock<std::mutex> cv_lock(_mtx);
+    while (_pool.size() == 0 && _curr_pool_size == _max_pool_size) {
       // Create a new a client if current pool size is less than
       // the max pool size.
-      if (_curr_pool_size < _max_pool_size) {
-        try {
-          client = new TClient(_addr, _port, _path);
-          _curr_pool_size++;
-          break;
-        } catch (...) {
-          cv_lock.unlock();
-          return nullptr;
-        }
-      } else {
-        auto wait_time = std::chrono::system_clock::now() +
-            std::chrono::milliseconds(_timeout_ms);
-        bool wait_success = _cv.wait_until(cv_lock, wait_time,
-            [this] { return _pool.size() > 0; });
-        if (!wait_success) {
-          LOG(warning) << "ClientPool pop timeout";
-          cv_lock.unlock();
-          return nullptr;
-        }
+      auto wait_time = std::chrono::system_clock::now() +
+          std::chrono::milliseconds(_timeout_ms);
+      bool wait_success = _cv.wait_until(cv_lock, wait_time,
+            [this] { return _pool.size() > 0 || _curr_pool_size < _max_pool_size; });
+      if (!wait_success) {
+        LOG(warning) << "ClientPool pop timeout";
+        LOG(info) << _pool.size() << " " << _curr_pool_size;
+        cv_lock.unlock();
+        return nullptr;
       }
     }
-    if (!client){
+    if (_pool.size() > 0) {
       client = _pool.front();
       _pool.pop_front();
+    } else {
+      client = new TClient(_addr, _port, _path);
+      _curr_pool_size++;
     }
-
-  } // cv_lock(_mtx)
   cv_lock.unlock();
+  } // cv_lock(_mtx)
+
 
   if (client) {
     try {
       client->Connect();
     } catch (...) {
       LOG(error) << "Failed to connect " + _client_type;
-      _pool.push_back(client);
+      Remove(client);
       throw;
     }
   }

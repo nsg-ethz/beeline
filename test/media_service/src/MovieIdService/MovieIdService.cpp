@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
   int rating_port = config_json["rating-service"]["port"];
 
   memcached_pool_st *memcached_client_pool =
-      init_memcached_client_pool(config_json, "movie-id", 32, 128);
+      init_memcached_client_pool(config_json, "movie-id", MEMCACHED_POOL_MIN_SIZE, MEMCACHED_POOL_MAX_SIZE);
   mongoc_client_pool_t* mongodb_client_pool =
       init_mongodb_client_pool(config_json, "movie-id", 128);
 

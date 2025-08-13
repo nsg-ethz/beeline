@@ -351,7 +351,7 @@ impl<'obj> Proxy<'obj> {
 
     async fn accept(&self, listener: &TcpListener) -> Result<()> {
         let (downstream, ds_remote_addr) = listener.accept().await?;
-        debug!("Accepted connection on port {:?}", ds_remote_addr.port());
+        debug!("Accepted connection {:?}", ds_remote_addr);
 
         if let Err(e) = self.handle_downstream(downstream, ds_remote_addr) {
             error!("Error handling downstream connection: {:?}", e);
@@ -377,6 +377,7 @@ impl<'obj> Proxy<'obj> {
             let mut upstreams = Vec::new();
 
             let send_error = async |stream: &mut TcpStream| {
+                error!("Sending 500 to {:?}", ds_remote_addr);
                 stream
                     .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
                     .await
@@ -394,7 +395,10 @@ impl<'obj> Proxy<'obj> {
                 match downstream.try_read_buf(&mut buf) {
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
-                    Ok(0) => break Ok(()),
+                    Ok(0) => {
+                        trace!("Connection to {:?} closed", downstream.peer_addr());
+                        break Ok(());
+                    }
                     Ok(len) => len,
                 };
 

@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  int port = config_json["compose-review-service"]["port"];
+  int port = config_json["review-storage-service"]["port"];
   std::string review_storage_addr = config_json["review-storage-service"]["addr"];
   std::string review_storage_path = config_json["review-storage-service"]["path"];
   int review_storage_port = config_json["review-storage-service"]["port"];
@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
   int movie_review_port = config_json["movie-review-service"]["port"];
 
   ClientPool<ThriftClient<ReviewStorageServiceClient>> compose_client_pool(
-      "compose-review-service", review_storage_addr, review_storage_port, review_storage_path, 0, 512, 10000);
+      "review-storage-service", review_storage_addr, review_storage_port, review_storage_path, 0, 512, 10000);
   ClientPool<ThriftClient<UserReviewServiceClient>> user_client_pool(
       "user-review-service", user_review_addr, user_review_port, user_review_path, 0, 512, 10000);
   ClientPool<ThriftClient<MovieReviewServiceClient>> movie_client_pool(

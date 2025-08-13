@@ -84,7 +84,7 @@ void PageHandler::ReadPage(
       movie_info_client->ReadMovieInfo(_reture_movie_info,
           req_id, movie_id, writer_text_map);
     } catch (...) {
-      _movie_info_client_pool->Push(movie_info_client_wrapper);
+      _movie_info_client_pool->Remove(movie_info_client_wrapper);
       LOG(error) << "Failed to read movie_info to movie-info-service";
       throw;
     }
@@ -106,7 +106,7 @@ void PageHandler::ReadPage(
       movie_review_client->ReadMovieReviews(_return_movie_reviews,
           req_id, movie_id, review_start, review_stop, writer_text_map);
     } catch (...) {
-      _movie_review_client_pool->Push(movie_review_client_wrapper);
+      _movie_review_client_pool->Remove(movie_review_client_wrapper);
       LOG(error) << "Failed to read reviews to movie-review-service";
       throw;
     }
@@ -119,7 +119,7 @@ void PageHandler::ReadPage(
   } catch (...) {
     throw;
   }
-  
+
   std::vector<int64_t> cast_info_ids;
   for (auto &cast : _return.movie_info.casts) {
     cast_info_ids.emplace_back(cast.cast_info_id);
@@ -139,7 +139,7 @@ void PageHandler::ReadPage(
       cast_info_client->ReadCastInfo(_return_cast_infos, req_id,
           cast_info_ids, writer_text_map);
     } catch (...) {
-      _cast_info_client_pool->Push(cast_info_client_wrapper);
+      _cast_info_client_pool->Remove(cast_info_client_wrapper);
       LOG(error) << "Failed to read cast-info to cast-info-service";
       throw;
     }
@@ -161,7 +161,7 @@ void PageHandler::ReadPage(
       plot_client->ReadPlot(_return_plot, req_id, _return.movie_info.plot_id,
           writer_text_map);
     } catch (...) {
-      _plot_client_pool->Push(plot_client_wrapper);
+      _plot_client_pool->Remove(plot_client_wrapper);
       LOG(error) << "Failed to read plot to plot-service";
       throw;
     }
