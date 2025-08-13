@@ -1,0 +1,70 @@
+socket: 172.17.0.1:9999
+accelerate: 172.18.0.0/24
+hosts:
+    - name: social-graph-service
+      instances:
+          - 172.18.0.2:9999
+    - name: home-timeline-service
+      instances:
+          - 172.18.0.6:9999
+    - name: compose-post-service
+      instances:
+          - 172.18.0.9:9999
+    - name: post-storage-service
+      instances:
+          - 172.18.0.11:9999
+    - name: user-timeline-service
+      instances:
+          - 172.18.0.15:9999
+    - name: url-shorten-service
+      instances:
+          - 172.18.0.19:9999
+    - name: user-service
+      instances:
+          - 172.18.0.23:9999
+    - name: media-service
+      instances:
+          - 172.18.0.27:9999
+    - name: text-service
+      instances:
+          - 172.18.0.31:9999
+    - name: unique-id-service
+      instances:
+          - 172.18.0.33:9999
+    - name: user-mention-service
+      instances:
+          - 172.18.0.35:9999
+routes:
+    - match:
+          path: "/social-graph-service"
+      dest: social-graph-service
+    - match:
+          path: "/home-timeline-service"
+      dest: home-timeline-service
+    - match:
+          path: "/compose-post-service"
+      dest: compose-post-service
+    - match:
+          path: "/post-storage-service"
+      dest: post-storage-service
+    - match:
+          path: "/user-timeline-service"
+      dest: user-timeline-service
+    - match:
+          path: "/url-shorten-service"
+      dest: url-shorten-service
+    - match:
+          path: "/user-service"
+      dest: user-service
+    - match:
+          path: "/media-service"
+      dest: media-service
+    - match:
+          path: "/text-service"
+      dest: text-service
+    - match:
+          path: "/unique-id-service"
+      dest: unique-id-service
+    - match:
+          path: "/user-mention-service"
+      dest: user-mention-service

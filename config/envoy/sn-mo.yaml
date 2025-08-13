@@ -1,0 +1,624 @@
+static_resources:
+    listeners:
+        - name: listener_0
+          address:
+              socket_address:
+                  # Entrypoint for service through Envoy
+                  address: 0.0.0.0
+                  port_value: 9999
+          filter_chains:
+              - filters:
+                    - name: envoy.filters.network.http_connection_manager
+                      typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                          http_filters:
+                              - name: envoy.filters.http.router
+                                typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                          codec_type: auto
+                          stat_prefix: ingress_http
+                          route_config:
+                              virtual_hosts:
+                                  - name: service
+                                    domains:
+                                        - "*"
+                                    routes:
+                                        - match:
+                                              path: "/compose-post-service"
+                                          route:
+                                              cluster: compose-post-service
+                                        - match:
+                                              path: "/compose-post-redis"
+                                          route:
+                                              cluster: compose-post-redis
+                                        - match:
+                                              path: "/write-home-timeline-service"
+                                          route:
+                                              cluster: write-home-timeline-service
+                                        - match:
+                                              path: "/media-service"
+                                          route:
+                                              cluster: media-service
+                                        - match:
+                                              path: "/post-storage-service"
+                                          route:
+                                              cluster: post-storage-service
+                                        - match:
+                                              path: "/social-graph-service"
+                                          route:
+                                              cluster: social-graph-service
+                                        - match:
+                                              path: "/social-graph-mongodb"
+                                          route:
+                                              cluster: social-graph-mongodb
+                                        - match:
+                                              path: "/social-graph-redis"
+                                          route:
+                                              cluster: social-graph-redis
+                                        - match:
+                                              path: "/text-service"
+                                          route:
+                                              cluster: text-service
+                                        - match:
+                                              path: "/unique-id-service"
+                                          route:
+                                              cluster: unique-id-service
+                                        - match:
+                                              path: "/url-shorten-service"
+                                          route:
+                                              cluster: url-shorten-service
+                                        - match:
+                                              path: "/url-shorten-memcached"
+                                          route:
+                                              cluster: url-shorten-memcached
+                                        - match:
+                                              path: "/user-mention-service"
+                                          route:
+                                              cluster: user-mention-service
+                                        - match:
+                                              path: "/user-service"
+                                          route:
+                                              cluster: user-service
+                                        - match:
+                                              path: "/user-mongodb"
+                                          route:
+                                              cluster: user-mongodb
+                                        - match:
+                                              path: "/user-memcached"
+                                          route:
+                                              cluster: user-memcached
+                                        - match:
+                                              path: "/user-timeline-service"
+                                          route:
+                                              cluster: user-timeline-service
+                                        - match:
+                                              path: "/user-timeline-mongodb"
+                                          route:
+                                              cluster: user-timeline-mongodb
+                                        - match:
+                                              path: "/user-timeline-redis"
+                                          route:
+                                              cluster: user-timeline-redis
+                                        - match:
+                                              path: "/home-timeline-service"
+                                          route:
+                                              cluster: home-timeline-service
+    clusters:
+        - name: compose-post-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: compose-post-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.9
+                                      port_value: 9999
+
+        - name: compose-post-redis
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: compose-post-redis
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.8
+                                      port_value: 6379
+
+        - name: write-home-timeline-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: write-home-timeline-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.6
+                                      port_value: 9999
+
+        - name: media-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: media-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.27
+                                      port_value: 9999
+
+        - name: post-storage-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: post-storage-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.11
+                                      port_value: 9999
+
+        - name: social-graph-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: social-graph-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.2
+                                      port_value: 9999
+        - name: social-graph-mongodb
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: social-graph-mongodb
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.4
+                                      port_value: 27017
+
+        - name: social-graph-redis
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: social-graph-redis
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.5
+                                      port_value: 6379
+
+        - name: text-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: text-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.31
+                                      port_value: 9999
+
+        - name: unique-id-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: unique-id-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.33
+                                      port_value: 9999
+
+        - name: url-shorten-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: url-shorten-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.19
+                                      port_value: 9999
+
+        - name: url-shorten-memcached
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: url-shorten-memcached
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.21
+                                      port_value: 11211
+
+        - name: user-mention-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: user-mention-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.35
+                                      port_value: 9999
+
+        - name: user-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: user-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.23
+                                      port_value: 9999
+
+        - name: user-mongodb
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: user-mongodb
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.26
+                                      port_value: 27017
+
+        - name: user-memcached
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: user-memcached
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.25
+                                      port_value: 11211
+
+        - name: user-timeline-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: user-timeline-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.15
+                                      port_value: 9999
+
+        - name: user-timeline-mongodb
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: user-timeline-mongodb
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.18
+                                      port_value: 27017
+
+        - name: user-timeline-redis
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: user-timeline-redis
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.17
+                                      port_value: 6379
+
+        - name: home-timeline-service
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          circuit_breakers:
+              thresholds:
+                  - priority: DEFAULT
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+                  - priority: HIGH
+                    max_connections: 1000000000
+                    max_pending_requests: 1000000000
+                    max_requests: 1000000000
+                    max_retries: 1000000000
+
+          load_assignment:
+              cluster_name: home-timeline-service
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 172.18.0.6
+                                      port_value: 9999
