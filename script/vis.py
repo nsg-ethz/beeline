@@ -5,9 +5,6 @@ import glob
 import argparse
 import re
 import os
-from matplotlib.artist import get
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import numpy as np
 import seaborn as sns
 import pandas as pd
@@ -21,8 +18,6 @@ np.random.seed(1)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-n", "--name", help="Name of the experiment")
-parser.add_argument("-l", "--legend", default=False, action=argparse.BooleanOptionalAction, help="Rename the legend labels")
-parser.add_argument("-o", "--output", default="res/vis", help="Can be an output directory or file")
 
 subparsers = parser.add_subparsers(dest="command")
 
@@ -30,17 +25,18 @@ cdf = subparsers.add_parser("cdf")
 cdf.add_argument("-r", "--range", required=False, help="The time range")
 
 stats = subparsers.add_parser("stats")
-
 cpu = subparsers.add_parser("cpu")
-
 rate = subparsers.add_parser("rate")
 
 dissect = subparsers.add_parser("dissect")
 dissect_complexity = subparsers.add_parser("dissect_complexity")
 dissect_complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
+dissect_complexity.add_argument("-x", "--proxy", required=True, help="The proxy to visualize")
 
 complexity = subparsers.add_parser("complexity")
 complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
+
+latencythroughput = subparsers.add_parser("latencythroughput")
 
 args = parser.parse_args()
 
@@ -202,11 +198,8 @@ def _get_file_paths(name, filename_pattern="*.json"):
     return glob.glob(os.path.join(dir_path, "..", "res", "runs", name, filename_pattern))
 
 
-def _tex_color_name(proxy, fill=False):
-    if fill:
-        return proxy.replace("_", "") + "fill"
-    else:
-        return proxy.replace("_", "") + "color"
+def _tex_style_name(proxy):
+    return proxy.replace("_", "")
 
 
 def cdf_graph(name, time_range):
@@ -246,17 +239,17 @@ def cdf_graph(name, time_range):
     print(f"p99 beeline: {ps_beeline[99]} envoy: {ps_envoy[99]} l4fp: {ps_l4fp[99]}")
 
     for i, proxy in enumerate(order):
-        color = _tex_color_name(proxy) # predefined in latex
+        style = _tex_style_name(proxy) # predefined in latex
         (xs, ys) = _percentiles(proxy)
 
         coordinates = [(x, y/100.0) for x, y in zip(xs, ys)]
         coordinates = sorted(coordinates)
         coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
-        plots.append((color, coordinates))
+        plots.append((style, coordinates))
 
-    plots = [f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+    plots = [f"""\\addplot[{style}] coordinates {{
         {coordinates}
-    }};""" for (color, coordinates) in plots]
+    }};""" for (style, coordinates) in plots]
     plots = "\n".join(plots)
     print(plots)
 
@@ -362,14 +355,14 @@ def cpu_graph(name):
 
     plots = []
     for i, proxy in enumerate(order):
-        color = _tex_color_name(proxy) # predefined in latex
+        style = _tex_style_name(proxy) # predefined in latex
         xs, ys = _usage(proxy)
 
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
         coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
-        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+        plot = f"""\\addplot[{style}] coordinates {{
             {coordinates}
         }};"""
         plots.append(plot)
@@ -413,14 +406,14 @@ def rate_graph(name):
 
     plots = []
     for i, proxy in enumerate(order):
-        color = _tex_color_name(proxy) # predefined in latex
+        style = _tex_style_name(proxy) # predefined in latex
 
         xs, ys = _rate(proxy)
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
         coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
-        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+        plot = f"""\\addplot[{style}] coordinates {{
             {coordinates}
         }};"""
         plots.append(plot)
@@ -545,47 +538,45 @@ def _load_dissect_complexity_df(name, policy):
     return df
 
 
-def dissect_complexity_graph(name, policy):
+def dissect_complexity_graph(name, policy, proxy):
     df = _load_dissect_complexity_df(name, policy)
-    order = ["envoy", "envoy_l4fp", "beeline"]
-    complexities = [1000, 4000, 8000, 16000]
-
-    axes = []
+    complexities = sorted(df.index.get_level_values("complexity").unique())
     funcs = ["Policy Enforcement", "Parsing", "IPC", "Other"]
-    shift = ["-15pt", "-5pt", "5pt", "15pt"]
-    func_names = ",".join(funcs)
+    line_style = {
+        funcs[0]: "uchu-green-5",
+        funcs[1]: "uchu-blue-5",
+        funcs[2]: "uchu-orange-5",
+        funcs[3]: "uchu-gray-5"
+    }
+    fill_style = {
+        funcs[0]: "uchu-green-1",
+        funcs[1]: "uchu-blue-1",
+        funcs[2]: "uchu-orange-1",
+        funcs[3]: "uchu-gray-1"
+    }
+    stack = {c: 0 for c in complexities}
+    plots = []
 
-    for idx, c in enumerate(complexities):
-        plots = []
-        for f in funcs:
-            coords = []
-            for p in order:
-                if (p, f, c) in df.index:
-                    v = df.loc[(p, f, c), "mean"]
-                    coords.append(f"({p.replace('_', '')}, {v})")
-                else:
-                    coords.append(f"({p.replace('_', '')}, 0)")
+    max_complexity = max(complexities)
+    plots.append(f"\\path[name path=axis] (axis cs:0,0) -- (axis cs:{max_complexity},0);")
 
-            coords = " ".join(coords)
-            style = "[pattern=north west lines, draw=uchu-gray-5, pattern color=uchu-gray-5]" if f == "Other" else ""
-            plots.append(f"\\addplot+{style} coordinates {{{coords}}};")
+    for idx, f in enumerate(funcs):
+        coords = []
+        for c in complexities:
+            if (proxy, f, c) in df.index:
+                stack[c] += df.loc[(proxy, f, c), "mean"]
+                coords.append(f"({c}, {stack[c]})")
+            else:
+                coords.append(f"({c}, 0)")
 
-        hide_axis = "hide axis"
-        legend = ""
-        if idx == 0:
-            legend = f"\\legend{{{func_names}}}"
-            hide_axis = ""
+        coords = " ".join(coords)
+        pf = funcs[idx-1] if idx > 0 else "axis"
 
-        plots = "\n".join(plots)
-        axis = f"""\\begin{{axis}}[bar shift={shift[idx]},{hide_axis}]
-            {plots}
-            {legend}
-        \\end{{axis}}
-        """
-        axes.append(axis)
+        plots.append(f"\\addplot[name path={f}, {line_style[f]}] coordinates {{{coords}}};")
+        plots.append(f"\\addplot[{fill_style[f]}] fill between[of = {f} and {pf}];")
 
-    axes = "\n".join(axes)
-    print(axes)
+    plots = "\n".join(plots)
+    print(plots)
 
 
 def _load_complexity_df(name, policy, metric, agg):
@@ -615,22 +606,65 @@ def _load_complexity_df(name, policy, metric, agg):
     return df
 
 
-def complexity_graph(name, policy, metric, agg):
-    df = _load_complexity_df(name, policy, metric, agg)
+def complexity_graph(name, policy):
+    df = _load_complexity_df(name, policy, "http_req_duration{expected_response:true}", "avg")
     plots = []
     order = _order_proxies(df["proxy"].unique())
 
     for proxy in order:
-        color = _tex_color_name(proxy, False)
+        style = _tex_style_name(proxy)
 
         xs = df[(df["proxy"] == proxy) & (df["policy"] == policy)]["complexity"]
-        ys = df[(df["proxy"] == proxy) & (df["policy"] == policy)][agg]
+        ys = df[(df["proxy"] == proxy) & (df["policy"] == policy)]["avg"]
 
         coordinates = [(x, y) for x, y in zip(xs, ys)]
         coordinates = sorted(coordinates)
         coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
 
-        plot = f"""\\addplot[{color}, line width=0.3mm] coordinates {{
+        plot = f"""\\addplot[{style}] coordinates {{
+            {coordinates}
+        }};"""
+        plots.append(plot)
+
+    plots = "\n".join(plots)
+    print(plots)
+
+
+def latencythroughput_graph(name):
+    paths = _get_file_paths(name, "*full.csv")
+    df = _load_k6_data(paths)
+
+    num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
+
+    grouped = df.groupby(["proxy", "timestamp"])
+
+    df = pd.DataFrame({
+        "http_req_duration": grouped["metric_value"].mean(),
+        "rate": grouped.size()
+    }).reset_index()
+    num_epochs = num_epochs.reset_index()
+    num_epochs.columns = ["proxy", "num_epochs"]
+
+    df = df.merge(num_epochs, on="proxy")
+    df["rate"] = df["rate"] / df["num_epochs"]
+
+    order = _order_proxies(df["proxy"].unique())
+
+    plots = []
+    for i, proxy in enumerate(order):
+        style = _tex_style_name(proxy) # predefined in latex
+
+        pdf = df[df["proxy"] == proxy].sort_values("rate")
+        xs = pdf["rate"]
+        ys = pdf["http_req_duration"]
+
+        coordinates = [(rate, val) for rate, val in zip(xs, ys)]
+        coordinates = sorted(coordinates)
+        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
+
+        plot = f"""\\addplot[{style}] coordinates {{
             {coordinates}
         }};"""
         plots.append(plot)
@@ -651,6 +685,8 @@ if __name__ == "__main__":
     elif args.command == "dissect":
         dissect_graph(args.name)
     elif args.command == "dissect_complexity":
-        dissect_complexity_graph(args.name, args.policy)
+        dissect_complexity_graph(args.name, args.policy, args.proxy)
     elif args.command == "complexity":
         complexity_graph(args.name, args.policy)
+    elif args.command == "latencythroughput":
+        latencythroughput_graph(args.name)
