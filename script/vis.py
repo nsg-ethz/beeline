@@ -210,6 +210,9 @@ def cdf_graph(name, time_range):
     df = _load_k6_data(paths)
     df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
 
+    # filter out timeouts
+    df = df[df["metric_value"] < 3000]
+
     num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
     print("Number of epochs per proxy:")
     print(num_epochs.to_string())
