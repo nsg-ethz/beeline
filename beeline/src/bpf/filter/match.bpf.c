@@ -1,6 +1,6 @@
 // ---
 
-static __always_inline enum pr_action _pipeline(struct sk_msg_md *msg, struct pipeline_ctx *ctx, const struct sock_key *ikey) {
+static __always_inline enum pr_action _match(struct sk_msg_md *msg, struct filter_ctx *ctx, const struct sock_key *ikey) {
     bool is_downstream = (ikey->remote.ip4 == ip4 && ikey->remote.port == port);
 
     if (is_downstream) {

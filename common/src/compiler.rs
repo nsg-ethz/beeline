@@ -590,8 +590,8 @@ impl Compiler {
         filter
     }
 
-    fn generate_chain(&self, downstream: &Vec<Route>, upstream: &Vec<Route>) -> Filter {
-        let mut filter = self.read_filter("chain");
+    fn generate_match(&self, downstream: &Vec<Route>, upstream: &Vec<Route>) -> Filter {
+        let mut filter = self.read_filter("match");
         let mut downstream = downstream
             .iter()
             .map(|r| r.cond.clone())
@@ -620,7 +620,7 @@ impl Compiler {
         let rbac = self.generate_rbac(&self.config.policies);
         let ds_routes = self.generate_ds_routes();
         let us_routes = Vec::new();
-        let chain = self.generate_chain(&ds_routes, &us_routes);
+        let match_reqs = self.generate_match(&ds_routes, &us_routes);
 
         let mut filters = Vec::new();
         filters.push(ctx);
@@ -632,7 +632,7 @@ impl Compiler {
             }
         }
 
-        filters.push(chain);
+        filters.push(match_reqs);
 
         filters
     }

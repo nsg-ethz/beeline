@@ -117,7 +117,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, u32);
-    __type(value, struct pipeline_ctx);
+    __type(value, struct filter_ctx);
 } ctx_percpu SEC(".maps");
 
 enum pr_action {
@@ -395,14 +395,14 @@ static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool dow
     return PR_PASS;
 }
 
-static __always_inline enum pr_action forward_us_conn(const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+static __always_inline enum pr_action forward_us_conn(const struct sock_key *ukey, struct filter_ctx *ctx) {
     if (ukey == NULL || ctx == NULL) return PR_DROP;
     ctx->dest = ukey->remote;
 
     return PR_PASS;
 }
 
-static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct pipeline_ctx *ctx) {
+static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct filter_ctx *ctx) {
     if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
     if (ukey->local.ip4 == 0 && ukey->remote.ip4 == 0) return PR_PASS;
 
@@ -418,7 +418,7 @@ static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key
     return PR_PASS;
 }
 
-static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct pipeline_ctx *ctx) {
+static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct filter_ctx *ctx) {
     if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
 
     // make upstream connection available for new requests
@@ -593,14 +593,14 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    struct pipeline_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
+    struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
     if (ctx == NULL) {
-        bpf_err("ERROR: Failed to init pipeline context");
+        bpf_err("ERROR: Failed to init filter context");
         return SK_DROP;
     }
-    _init_pipeline_ctx(msg, ctx, done_idx, pranges);
+    _init_filter_ctx(msg, ctx, done_idx, pranges);
 
-    res = _pipeline(msg, ctx, &ikey);
+    res = _match(msg, ctx, &ikey);
 
     u32 msg_len = ctx->content_length+ctx->done_idx+2;
     bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);

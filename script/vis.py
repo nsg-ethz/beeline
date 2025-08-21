@@ -102,11 +102,6 @@ def _load_k6_data(paths, max_epoch=30, min_duration=100):
 
         try:
             df = pd.read_csv(p, low_memory=False)
-            num_failed_res = (df["expected_response"] == False).sum()
-            if num_failed_res / len(df) > 0.03:
-                print(f"Skipping {p}: {num_failed_res/len(df)} failed responses")
-                continue
-
             df["proxy"] = proxy
             df["epoch"] = epoch
             # df["file"] = os.path.basename(p),
@@ -389,7 +384,13 @@ def rate_graph(name):
     df = df.merge(num_epochs, on="proxy")
     df["rate"] = df["rate"] / df["num_epochs"]
 
+    df["rate_exp"] = 50 * df["timestamp"]
+    df = df[df["rate"] > 0.5*df["rate_exp"]]
+
     order = _order_proxies(df["proxy"].unique())
+
+    for p in order:
+        print(f"{p}: {df[df['proxy'] == p]['rate'].max()}")
 
     def _rate(proxy, start=None, end=None):
         mask = df["proxy"] == proxy
@@ -400,12 +401,6 @@ def rate_graph(name):
 
         data = df[mask]
         return data["timestamp"], data["rate"]
-
-    rates = []
-    for proxy in order:
-        rate = _rate(proxy, start=90, end=100)[1].mean()
-        print(proxy, rate)
-        rates.append(rate)
 
     plots = []
     for i, proxy in enumerate(order):
@@ -610,7 +605,7 @@ def _load_complexity_df(name, policy, metric, agg):
 
 
 def complexity_graph(name, policy):
-    df = _load_complexity_df(name, policy, "http_req_duration{expected_response:true}", "avg")
+    df = _load_complexity_df(name, policy, "http_reqs", "rate")
     plots = []
     order = _order_proxies(df["proxy"].unique())
 
@@ -618,7 +613,7 @@ def complexity_graph(name, policy):
         style = _tex_style_name(proxy)
 
         xs = df[(df["proxy"] == proxy) & (df["policy"] == policy)]["complexity"]
-        ys = df[(df["proxy"] == proxy) & (df["policy"] == policy)]["avg"]
+        ys = df[(df["proxy"] == proxy) & (df["policy"] == policy)]["rate"]
 
         coordinates = [(x, y) for x, y in zip(xs, ys)]
         coordinates = sorted(coordinates)
@@ -660,6 +655,9 @@ def latencythroughput_graph(name):
         style = _tex_style_name(proxy) # predefined in latex
 
         pdf = df[df["proxy"] == proxy].sort_values("rate")
+        pdf = pdf[["rate", "http_req_duration"]]
+        pdf = pdf.rolling(window=5, on="rate", min_periods=1).mean()
+
         xs = pdf["rate"]
         ys = pdf["http_req_duration"]
 

@@ -1,6 +1,6 @@
 // ---
 
-enum pr_action _validate_jwt_admission_{idx}(struct pipeline_ctx *ctx) {
+enum pr_action _validate_jwt_admission_{idx}(struct filter_ctx *ctx) {
     if (!ctx) return PR_DROP;
     if (ctx->jwt_claims_range.len == 0 || ctx->jwt_sig_range.len == 0) {
         return PR_DROP;
