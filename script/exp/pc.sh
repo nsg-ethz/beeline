@@ -6,10 +6,9 @@ COLOR_YELLOW='\033[0;33m'
 COLOR_OFF='\033[0m' # No Color
 
 REPLICAS=1
-DISSECT=false
 
 # Parse arguments
-while getopts "f:t:n:p:s:r:d" opt; do
+while getopts "f:t:n:p:s:r:" opt; do
     case $opt in
         f ) FROM=${OPTARG} ;;
         t ) TO=${OPTARG} ;;
@@ -17,7 +16,6 @@ while getopts "f:t:n:p:s:r:d" opt; do
         p ) POLICY=${OPTARG} ;;
         r ) REPLICAS=${OPTARG} ;;
         s ) SCRIPT=${OPTARG} ;;
-        d ) DISSECT=true ;;
         \?)
             echo "Invalid option: -$OPTARG"
             ;;
@@ -241,10 +239,6 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
 
             PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
             FRONTEND_ARGS=$(echo \'$(frontend_args $n1),Authorization: Bearer ${JWT}\')
-
-            if [[ ${DISSECT} ]]; then
-                script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-vanilla.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p none -s ${SCRIPT} -f ${FROM} -t ${TO}
-            fi
 
             script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO}
             script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}

@@ -36,7 +36,7 @@ dissect_complexity.add_argument("-x", "--proxy", required=True, help="The proxy 
 complexity = subparsers.add_parser("complexity")
 complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
 
-latencythroughput = subparsers.add_parser("latencythroughput")
+lattput = subparsers.add_parser("lattput")
 
 args = parser.parse_args()
 
@@ -205,8 +205,8 @@ def cdf_graph(name, time_range):
     df = _load_k6_data(paths)
     df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
 
-    # filter out timeouts
-    df = df[df["metric_value"] < 3000]
+    df = df[df["timestamp"] < 101] # experiment is only 100s long
+    df = df[df["metric_value"] < 3000] # we have a timeout of 3s
 
     num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
     print("Number of epochs per proxy:")
@@ -384,9 +384,6 @@ def rate_graph(name):
     df = df.merge(num_epochs, on="proxy")
     df["rate"] = df["rate"] / df["num_epochs"]
 
-    df["rate_exp"] = 50 * df["timestamp"]
-    df = df[df["rate"] > 0.5*df["rate_exp"]]
-
     order = _order_proxies(df["proxy"].unique())
 
     for p in order:
@@ -421,7 +418,7 @@ def rate_graph(name):
 
 
 def _load_dissect_df(name):
-    med_req_latency = lambda df, proxy: df[(df["proxy"] == proxy) & (df["metric_name"] == "http_req_duration{expected_response:true}")]["med"].mean()
+    avg_req_latency = lambda df, proxy: df[(df["proxy"] == proxy) & (df["metric_name"] == "http_req_duration{expected_response:true}")]["avg"].mean()
 
     paths = _get_file_paths(name, "*k6*.json")
     if len(paths) == 0:
@@ -431,10 +428,9 @@ def _load_dissect_df(name):
 
     # l4fp does not have much network stack overhead because its sockets
     # are connected using the eBPF program
-    l4fp = med_req_latency(k6, "envoy_l4fp")
-    envoy = med_req_latency(k6, "envoy")
-    beeline = med_req_latency(k6, "beeline")
-    direct = med_req_latency(k6, "none")
+    l4fp = avg_req_latency(k6, "envoy_l4fp")
+    envoy = avg_req_latency(k6, "envoy")
+    beeline = avg_req_latency(k6, "beeline")
 
     iters = k6[k6["metric_name"] == "iterations"].set_index("proxy")["count"].rename("reqs")
 
@@ -448,10 +444,13 @@ def _load_dissect_df(name):
 
     # userspace processing contains everything else -> subtract from processing so it's not represented twice
     df.loc[("beeline", "user"), "mean"] -= df.loc[("beeline", "parse"), "mean"]
-    ideal = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
+    for p in ["envoy", "envoy_l4fp"]:
+        df.loc[(p, "user"), "mean"] -= df.loc[(p, "parse"), "mean"].sum()
+        df.loc[(p, "user"), "mean"] -= df.loc[(p, "ipc"), "mean"].sum()
 
+    ideal = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
     print("request latency:")
-    print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}, direct: {direct}, ideal: {ideal}")
+    print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}, ideal: {ideal}")
 
     beeline -= ideal
     envoy -= ideal
@@ -459,11 +458,6 @@ def _load_dissect_df(name):
 
     print("overhead:")
     print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}")
-
-    # userspace processing contains everything else -> subtract from processing so it's not represented twice
-    for p in ["envoy", "envoy_l4fp"]:
-        df.loc[(p, "user"), "mean"] -= df.loc[(p, "parse"), "mean"].sum()
-        df.loc[(p, "user"), "mean"] -= df.loc[(p, "ipc"), "mean"].sum()
 
     print("measured components total:")
     beeline_comp = df.loc[("beeline", slice(None)), "mean"].sum()
@@ -497,12 +491,12 @@ def dissect_graph(name):
     funcs = ["Policy Enforcement", "Parsing", "IPC", "Other"]
     for f in funcs:
         coords = []
-        for p in order:
+        for i, p in enumerate(order):
             if (p, f) in df.index:
                 v = df.loc[(p, f), "mean"]
-                coords.append(f"({p}, {v})")
+                coords.append(f"({i+1}, {v})")
             else:
-                coords.append(f"({p}, 0)")
+                coords.append(f"({i+1}, 0)")
 
         coords = " ".join(coords)
         style = "pattern=north west lines, draw=uchu-gray-5, pattern color=uchu-gray-5" if f == "Other" else ""
@@ -628,9 +622,12 @@ def complexity_graph(name, policy):
     print(plots)
 
 
-def latencythroughput_graph(name):
+def lattput_graph(name):
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
+
+    df = df[df["timestamp"] < 101] # experiment is only 100s long
+    df = df[df["metric_value"] < 3000] # we have a timeout of 3s
 
     num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
     print("Number of epochs per proxy:")
@@ -646,7 +643,8 @@ def latencythroughput_graph(name):
     num_epochs.columns = ["proxy", "num_epochs"]
 
     df = df.merge(num_epochs, on="proxy")
-    df["rate"] = df["rate"] / df["num_epochs"]
+    df["rate"] = np.round(df["rate"] / df["num_epochs"])
+    # df = df.groupby(["proxy", "rate"]).agg({"http_req_duration": "mean"}).reset_index()
 
     order = _order_proxies(df["proxy"].unique())
 
@@ -654,12 +652,23 @@ def latencythroughput_graph(name):
     for i, proxy in enumerate(order):
         style = _tex_style_name(proxy) # predefined in latex
 
-        pdf = df[df["proxy"] == proxy].sort_values("rate")
+        pdf = df[df["proxy"] == proxy]
+        print(pdf.to_string())
         pdf = pdf[["rate", "http_req_duration"]]
-        pdf = pdf.rolling(window=5, on="rate", min_periods=1).mean()
+        pdf = pdf.set_index("rate")
 
-        xs = pdf["rate"]
-        ys = pdf["http_req_duration"]
+        xs = np.arange(20, pdf.index.max(), 25).astype(int)
+        pdf_nan = pd.DataFrame(np.NaN, index=xs, columns=["http_req_duration"])
+        pdf = pd.concat([pdf, pdf_nan]).sort_index()
+        print(pdf.to_string())
+        pdf = pdf.interpolate()
+
+        ys = pdf.loc[xs, "http_req_duration"]
+
+        # pdf = pdf.rolling(window=5, min_periods=1).mean()
+
+        # xs = pdf["rate"]
+        # ys = pdf["http_req_duration"]
 
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
@@ -689,5 +698,5 @@ if __name__ == "__main__":
         dissect_complexity_graph(args.name, args.policy, args.proxy)
     elif args.command == "complexity":
         complexity_graph(args.name, args.policy)
-    elif args.command == "latencythroughput":
-        latencythroughput_graph(args.name)
+    elif args.command == "lattput":
+        lattput_graph(args.name)
