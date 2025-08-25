@@ -8,16 +8,6 @@ COLOR_OFF='\033[0m' # No Color
 ACTION=$1
 shift 1
 
-function health_check {
-    for i in $(seq 1 20); do
-        curl -s $1
-        if [[ $? == 0 ]]; then
-            break
-        fi
-        sleep 1
-    done
-}
-
 # Parse arguments
 while getopts "c:n:p:e:m" opt; do
     case $opt in
@@ -43,6 +33,74 @@ mkdir -p ${SUMMARY_DIR}
 cd ${ROOT}
 source ${ROOT}/../venv/bin/activate
 
+function health_check {
+    for i in $(seq 1 20); do
+        curl -s $1
+        if [[ $? == 0 ]]; then
+            break
+        fi
+        sleep 1
+    done
+}
+
+function launch_proxy {
+    if [[ "${PROXY}" == "beeline" ]]; then
+        BEELINE_BIN=${ROOT}/../target/release/beeline
+        BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
+        CONFIG=${BEELINE_CONFIG} BPF_PROFILE=1 cargo b -r -p beeline
+
+        BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
+        health_check 172.17.0.1:9999
+
+        if [[ -z $(pidof beeline) ]]; then
+            echo -e "${COLOR_RED}Beeline crashed${COLOR_OFF}"
+            exit 1
+        else
+            echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
+        fi
+
+        sudo -b -E systemd-run -q --scope -u sm-rt-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
+    else
+        if [[ "${PROXY}" == *l4fp ]]; then
+            PROXY_BIN=${ROOT}/../target/release/l4fp
+            cargo b -r -p l4fp
+
+            sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
+            echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
+
+            sleep 3
+        fi
+        if [[ "${PROXY}" == envoy* ]]; then
+            docker compose -f ${DOCKER_CONFIG} up sidecar --wait -d
+            SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
+
+            # envoy is not loaded by docker
+            # this is because uprobes do not work well in docker
+            SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
+            SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
+
+            ENVOY_OUT=${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
+            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} envoy -c ${SIDECAR_CONFIG} > ${ENVOY_OUT} 2>&1
+            echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
+
+            sleep 5
+            if [[ -z $(pidof envoy) ]]; then
+                echo -e "${COLOR_RED}Envoy crashed${COLOR_OFF}"
+                exit 1
+            fi
+        else
+            sleep 3
+        fi
+    fi
+}
+
+function stop_services {
+    sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
+    sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
+    sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
+    sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
+}
+
 case ${ACTION} in
     up)
         if [ -z "${NAME}" ]; then
@@ -67,10 +125,7 @@ case ${ACTION} in
         docker volume prune -f
         docker network prune -f
 
-        sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
-        sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
-        sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
-        sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
+        stop_services
 
         echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
         echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
@@ -86,55 +141,7 @@ case ${ACTION} in
         sudo chmod -R o+r ${ROOT}/../test/media_service/config-*
         sudo chmod -R o+r ${ROOT}/../config/envoy/*.yaml
 
-        if [[ "${PROXY}" == "beeline" ]]; then
-            BEELINE_BIN=${ROOT}/../target/release/beeline
-            BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
-            CONFIG=${BEELINE_CONFIG} BPF_PROFILE=1 cargo b -r -p beeline
-
-            BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
-            health_check 172.17.0.1:9999
-
-            if [[ -z $(pidof beeline) ]]; then
-                echo -e "${COLOR_RED}Beeline crashed${COLOR_OFF}"
-                exit 1
-            else
-                echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
-            fi
-
-            sudo -b -E systemd-run -q --scope -u sm-rt-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
-        else
-            if [[ "${PROXY}" == *l4fp ]]; then
-                PROXY_BIN=${ROOT}/../target/release/l4fp
-                cargo b -r -p l4fp
-
-                sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
-                echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
-
-                sleep 3
-            fi
-            if [[ "${PROXY}" == envoy* ]]; then
-                docker compose -f ${DOCKER_CONFIG} up sidecar --wait -d
-                SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
-
-                # envoy is not loaded by docker
-                # this is because uprobes do not work well in docker
-                SIDECAR_NAME=$(docker ps | grep sidecar | awk '{ print $NF }')
-                SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
-
-                ENVOY_OUT=${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
-                sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} envoy -c ${SIDECAR_CONFIG} > ${ENVOY_OUT} 2>&1
-                echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
-
-                sleep 5
-                if [[ -z $(pidof envoy) ]]; then
-                    echo -e "${COLOR_RED}Envoy crashed${COLOR_OFF}"
-                    exit 1
-                fi
-            else
-                sleep 3
-            fi
-        fi
-
+        launch_proxy
         docker compose -f ${DOCKER_CONFIG} up --wait -d
 
         # populate dbs with data
@@ -150,9 +157,8 @@ case ${ACTION} in
         fi
 
         # restart services to reset statistics
-        sudo systemctl restart sm-proxy.scope > /dev/null 2>&1
-        sudo systemctl restart sm-proxy-opt.scope > /dev/null 2>&1
-        sudo systemctl restart sm-rt-monitor.scope > /dev/null 2>&1
+        stop_services
+        launch_proxy
 
         sudo -b systemd-run -q --scope -u sm-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
@@ -160,10 +166,7 @@ case ${ACTION} in
     down)
         CPU_SYSTEM=0-39
 
-        sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
-        sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
-        sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
-        sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
+        stop_services
 
         if [[ "${PROXY}" == "beeline" ]]; then
             grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-user-e${EPOCH}.log
