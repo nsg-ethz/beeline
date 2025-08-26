@@ -535,15 +535,15 @@ def dissect_complexity_graph(name, policy, proxy):
     complexities = sorted(df.index.get_level_values("complexity").unique())
     funcs = ["Policy Enforcement", "Parsing", "IPC", "Other"]
     line_style = {
-        funcs[0]: "uchu-green-5",
-        funcs[1]: "uchu-blue-5",
-        funcs[2]: "uchu-orange-5",
+        funcs[0]: "uchu-pink-5",
+        funcs[1]: "uchu-red-5",
+        funcs[2]: "uchu-purple-5",
         funcs[3]: "uchu-gray-5"
     }
     fill_style = {
-        funcs[0]: "uchu-green-1",
-        funcs[1]: "uchu-blue-1",
-        funcs[2]: "uchu-orange-1",
+        funcs[0]: "uchu-pink-1",
+        funcs[1]: "uchu-red-1",
+        funcs[2]: "uchu-purple-1",
         funcs[3]: "uchu-gray-1"
     }
     stack = {c: 0 for c in complexities}

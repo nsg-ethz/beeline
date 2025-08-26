@@ -6,8 +6,8 @@ export const options = {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 1000,
             stages: [
-                { target: 5000, duration: "10s" },
-                { target: 5000, duration: "3m" },
+                { target: 10000, duration: "10s" },
+                { target: 10000, duration: "3m" },
             ],
             gracefulStop: "3s",
         },
