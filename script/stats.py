@@ -174,7 +174,7 @@ def count(path):
 
             if file.download_url not in parsed_files:
                 print(f"No http_filters found in {file.download_url}")
-        except yaml.YAMLError:
+        except Exception as e:
             num_errors += 1
 
     for file in files:

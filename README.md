@@ -1,29 +1,31 @@
 # Beeline
 
-This project aims to bring L7 policy enforcement to the kernel, using eBPF.
+Beeline is an eBPF-based fast path for L7 policy enforcement. Given an input policy, Beeline synthesizes a specialized data plane that can parse L7 messages, authorize JWT, and more.
 
-## Testing
+## Project Structure
 
-```
-cargo test
-```
+Generally, the `ms` prefix stands for [Media Service](https://github.com/delimitrou/DeathStarBench/tree/master/mediaMicroservices), `sn` stands for [Social Network](https://github.com/delimitrou/DeathStarBench/tree/master/socialNetwork) and `ssm` stands for Synthetic Service Mesh.
 
-## Benchmarking
+* `beeline`: source code for Beelines' control plane in Rust and data plane in eBPF
+* `common`: general helpers used throughout the project
+  * `common/bin/pol_gen.rs`: a binary that generates a Beeline or Envoy policy with a given set of parameters
+  * `common/compiler.rs`: the Beeline data plane synthesis, added here for simplicity
+* `config`: configuration files for Beeline and Envoy, used for the experiments and debugging
+* `docker`: docker compose files for the experiments
+* `echo`: an HTTP echo service, used in the Synthetic Servive Mesh
+* `frontend`: an HTTP edge service, used in the Synthetic Servive Mesh
+* `include/vmlinux.h`: the kernel headers for the current kernel version
+* `k6`: the workloads used for the experiments
+* `l4fp`: the L4 Fast Path, a simple eBPF program that redirects traffic at the socket level
+* `naive`: a naive user space service proxy
+* `scripts`: scripts used for the experiments
+  * `scripts/exp` the experiments in a simple script. See below how to use them
+  * `scripts/reload-lkm.sh` reloads the Linux kernel module that exposes the crypto API to eBPF
+  * `scripts/stats.py` crawls GitHub and collects statistics on the usage of Envoy
+  * `scripts/vis.py` visualizes experiment data
+* `test`: the applications from [DeathStarBench](https://github.com/delimitrou/DeathStarBench). They include some bug fixes and configuration changes.
 
-It's likely that your firwall does not allow any traffic to reach host OS. Explicitely enable this using the following rule:
-```
-sudo ufw allow from 172.18.0.0/24
-```
-
-Also, you might have to increase the limit of open files in `/etc/security/limits.conf`
-
-```
-RUST_LOG=info taskset --cpu-list 1-35 cargo run -r -p beeline -- -a 172.17.0.1:9999 -c config/beeline/sn.yaml
-docker compose -f docker/sn-beeline.yaml up --force-recreate
-script/sm.sh -n [EXPERIMENT_NAME] -p beeline
-```
-
-## Requirements
+## Build
 
 This project is tested and evaluated on Linux kernel version 6.11.
 However, older versions should work as well if the `jwt` filter is disabled.
@@ -43,4 +45,54 @@ Next, install [bpftool](https://github.com/libbpf/bpftool) from source.
 Then, generate a new vmlinux file as follows:
 ```
 bpftool btf dump file /sys/kernel/btf/vmlinux format c > include/vmlinux.h
+```
+
+Finally, load the crypto kernel module that exposes the crypto API to eBPF:
+```
+./scripts/reload-lkm.sh
+```
+
+You should now be able to compile and run Beeline as follows:
+
+```
+CONFIG=config/beeline/debug.yaml RUST_LOG=debug cargo run -p beeline
+```
+
+## Benchmarking
+
+Before running any benchmark, make sure that the following requirements are met:
+* The firewall allows traffic from the Docker network to reach the host. Explicitely enable this using the following rule: `sudo ufw allow from 172.18.0.0/24`
+* The soft and hard limit of open files in `/etc/security/limits.conf` is high enough
+* The `DEST_HOST` (in `script/bench.sh` and `script/pc.sh`) and `dest` in `k6/common.js` points to the machine that runs your application
+
+Now, you can run the experiments and visualize them as follows:
+```
+# media service experiment
+script/exp/fp-ms.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
+script/vis.py -n [YOUR_EXPERIMENT_NAME] rate
+script/vis.py -n [YOUR_EXPERIMENT_NAME] cdf
+
+# social network experiment
+script/exp/fp-sn.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
+script/vis.py -n [YOUR_EXPERIMENT_NAME] rate
+script/vis.py -n [YOUR_EXPERIMENT_NAME] cdf
+
+# slow path experiment
+script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -p 0 -f 1 -t [YOUR_EXPERIMENT_NAME]
+script/vis.py -n [YOUR_EXPERIMENT_NAME] complexity -p 0
+
+# policy complexity experiment
+script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [YOUR_EXPERIMENT_NAME]
+script/vis.py -n [YOUR_EXPERIMENT_NAME] complexity -p [1,2,3 or 4]
+
+# dissecting the policy 4
+script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [YOUR_EXPERIMENT_NAME] -s k6/pc-rps.js
+script/vis.py -n [YOUR_EXPERIMENT_NAME] dissect_complexity -p [1,2,3 or 4] -x [beeline, envoy_l4fp, or envoy]
+```
+
+To reproduce the policy statistics, run the following code:
+```
+GITHUB_API=[GITHUB_API_TOKEN] python3 script/stats.py search
+python3 script/stats.py count -p res/stats/stats.json
+script/vis.py stats
 ```

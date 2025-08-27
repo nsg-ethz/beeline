@@ -391,6 +391,7 @@ mod tests {
             target,
             out: path.clone(),
             config_dir: format!("{}/../config", manifest_dir.to_str().unwrap()),
+            template: None,
         };
 
         generate(args).expect("Failed to generate policy");

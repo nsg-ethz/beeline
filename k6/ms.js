@@ -1,3 +1,4 @@
+import { dest } from "./common.js";
 import { check } from "k6";
 import http from "k6/http";
 import {
@@ -36,11 +37,7 @@ export default () => {
         timeout: "3s",
     };
 
-    const res = http.post(
-        "http://moonshine:8080/wrk2-api/review/compose",
-        body,
-        params,
-    );
+    const res = http.post(`${dest}/wrk2-api/review/compose`, body, params);
 
     return check(res, {
         "status is 200": (r) => r.status === 200,

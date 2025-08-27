@@ -264,14 +264,14 @@ def stats_graph():
     df["supported"] = df["name"].isin(["router", "cors", "ext_authz", "jwt", "compressor"])
 
     print(f"Repos: {len(df['repo_url'].unique())}")
-    print(f"Configs: {len(df['download_url'].unique())}")
-
+    print(f"Files: {len(df['download_url'].unique())}")
+    print(f"Using gRPC: {df['name'].str.contains('grpc').sum()}")
+    print(f"Using lua or wasm: {df['name'].isin(['lua', 'wasm']).sum()}")
+    print(f"Configs: {data['filter_chains']}")
     print("Fully compatible configs:", df.groupby("download_url")["supported"].all().values.sum())
 
     df = df.groupby("name").size().reset_index(name="count").set_index("name")
-    df["supported"] = df.index.isin(["router", "cors", "ext_authz", "jwt", "compressor"])
-
-    num_filter_chains = data["filter_chains"]
+    df["supported"] = df.index.isin(["router", "cors", "ext_authz", "jwt", "compressor", "dynamic_forward_proxy"])
 
     names = df.index.tolist()
     names[names.index("http1bridge")] = "grpc_http1"
@@ -279,7 +279,7 @@ def stats_graph():
     names[names.index("dynamic_forward_proxy")] = "forward_proxy"
     df = df.reset_index()
     df["name"] = names
-    df["count"] = (df["count"] / num_filter_chains) * 100
+    # df["count"] = (df["count"] / num_filter_chains) * 100
 
     df = df.sort_values(by="count", ascending=False).head(10).reset_index(drop=True)
 
@@ -298,10 +298,10 @@ def stats_graph():
     labels = [name.replace("_", "\\_") for name in list(df["name"]) + ["other"]]
     labels = ",".join(reversed(labels))
 
-    supported = f"""\\addplot[draw=uchu-green-5, fill=uchu-green-1] coordinates {{
+    supported = f"""\\addplot[draw=uchu-green-6, fill=uchu-green-1] coordinates {{
 {supported}
 }};"""
-    unsupported = f"""\\addplot[draw=uchu-red-5, fill=uchu-red-1] coordinates {{
+    unsupported = f"""\\addplot[draw=uchu-red-6, fill=uchu-red-1] coordinates {{
 {unsupported}
 }};"""
 

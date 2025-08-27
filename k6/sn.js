@@ -1,3 +1,4 @@
+import { dest } from "./common.js";
 import { check } from "k6";
 import http from "k6/http";
 import {
@@ -75,11 +76,7 @@ export default () => {
         body = `username=${userName}&user_id=${userId}&text=${text}&media_ids=${mediaIdsArg}&post_type=0`;
     }
 
-    const res = http.post(
-        "http://moonshine:8080/wrk2-api/post/compose",
-        body,
-        params,
-    );
+    const res = http.post(`${dest}/wrk2-api/post/compose`, body, params);
 
     return check(res, {
         "status is 200": (r) => r.status === 200,

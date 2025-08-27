@@ -22,6 +22,7 @@ while getopts "f:t:n:p:s:r:" opt; do
     esac
 done
 
+DEST_HOST="moonshine"
 ROOT=$(dirname "$(readlink -f "$0")")
 SCRIPT=${ROOT}/../../${SCRIPT:-/k6/pc.js}
 CONFIG=${ROOT}/../../res/pol/pc.yaml
@@ -30,7 +31,7 @@ POLGEN_BIN=${ROOT}/../../target/release/polgen
 cargo b -r --bin polgen
 
 function validate_policy {
-    ssh -t moonshine "source ~/.profile && cd ${PWD} && CONFIG=${ROOT}/../../config/beeline/pc.yaml cargo r -r -p beeline -- --validate"
+    ssh -t ${DEST_HOST} "source ~/.profile && cd ${PWD} && CONFIG=${ROOT}/../../config/beeline/pc.yaml cargo r -r -p beeline -- --validate"
 }
 
 function frontend_args {
@@ -77,7 +78,7 @@ if [[ ${POLICY} == "0" ]]; then
             compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --template ${ROOT}/../../config/beeline/ssm-p0.yaml --n1 ${n1} --m1 ${m1} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/beeline/pc.yaml
 
             # check if beeline can compile this policy
             validate_policy
@@ -87,7 +88,7 @@ if [[ ${POLICY} == "0" ]]; then
             fi
 
             ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/envoy/pc.yaml
 
             PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
             FRONTEND_ARGS=$(frontend_args $n1)
@@ -111,7 +112,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
             compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/beeline/pc.yaml
 
             # check if beeline can compile this policy
             validate_policy
@@ -121,7 +122,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "1" ]]; then
             fi
 
             ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/envoy/pc.yaml
 
             PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
             FRONTEND_ARGS=$(frontend_args $n1)
@@ -145,7 +146,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
             compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/beeline/pc.yaml
 
             # check if beeline can compile this policy
             validate_policy
@@ -155,7 +156,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
             fi
 
             ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1}  --n2 ${n2} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/envoy/pc.yaml
 
             PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
             FRONTEND_ARGS=$(frontend_args $n1)
@@ -179,7 +180,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
             compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/beeline/pc.yaml
 
             # check if beeline can compile this policy
             validate_policy
@@ -189,7 +190,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
             fi
 
             ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/envoy/pc.yaml
 
             AUD=$(eval "printf 'a%.0s' {1..$n3}")
             ISS=$(eval "printf 'a%.0s' {1..$m3}")
@@ -220,7 +221,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
             compute_complexity ${LEN}
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} --n4 ${n4} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/beeline/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/beeline/pc.yaml
 
             # check if beeline can compile this policy
             validate_policy
@@ -230,7 +231,7 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
             fi
 
             ${POLGEN_BIN} -t envoy --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} --n4 ${n4} -o ${CONFIG}
-            scp -q ${CONFIG} moonshine:${ROOT}/../../config/envoy/pc.yaml
+            scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/envoy/pc.yaml
 
             AUD=$(eval "printf 'a%.0s' {1..$n3}")
             ISS=$(eval "printf 'a%.0s' {1..$m3}")
