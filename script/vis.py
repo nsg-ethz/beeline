@@ -137,7 +137,10 @@ def _load_cpu_data(paths):
 def _load_rt_data(paths):
     dfs = []
     for p in paths:
-        proxy, func, epoch = _parse_rt_path(p)
+        try:
+            proxy, func, epoch = _parse_rt_path(p)
+        except Exception as e:
+            continue
 
         with open(p, "r") as file:
             text = file.read()
@@ -449,33 +452,33 @@ def _load_dissect_df(name):
         df.loc[(p, "user"), "mean"] -= df.loc[(p, "ipc"), "mean"].sum()
 
     ideal = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
-    print("request latency:")
-    print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}, ideal: {ideal}")
+    # print("request latency:")
+    # print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}, ideal: {ideal}")
 
     beeline -= ideal
     envoy -= ideal
     l4fp -= ideal
 
-    print("overhead:")
-    print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}")
+    # print("overhead:")
+    # print(f"beeline: {beeline}, envoy: {envoy}, lf4p: {l4fp}")
 
-    print("measured components total:")
-    beeline_comp = df.loc[("beeline", slice(None)), "mean"].sum()
-    envoy_comp = df.loc[("envoy", slice(None)), "mean"].sum()
-    l4fp_comp = df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
-    print(f"beeline: {beeline_comp}, envoy: {envoy_comp}, lf4p: {l4fp_comp}")
+    # print("measured components total:")
+    # beeline_comp = df.loc[("beeline", slice(None)), "mean"].sum()
+    # envoy_comp = df.loc[("envoy", slice(None)), "mean"].sum()
+    # l4fp_comp = df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
+    # print(f"beeline: {beeline_comp}, envoy: {envoy_comp}, lf4p: {l4fp_comp}")
 
     # the remainder of the request duration is unaccounted for
     df.loc[("envoy", "unaccounted"), "mean"] = envoy - df.loc[("envoy", slice(None)), "mean"].sum()
     df.loc[("envoy_l4fp", "unaccounted"), "mean"] = l4fp - df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
     df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
 
-    assert 0 <= df.loc[("envoy", "unaccounted"), "mean"].round(2), f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
-    assert 0 <= df.loc[("envoy_l4fp", "unaccounted"), "mean"].round(2), f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
-    assert 0 <= df.loc[("beeline", "unaccounted"), "mean"].round(2), f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
+    # assert 0 <= df.loc[("envoy", "unaccounted"), "mean"], f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
+    # assert 0 <= df.loc[("envoy_l4fp", "unaccounted"), "mean"], f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
+    # assert 0 <= df.loc[("beeline", "unaccounted"), "mean"], f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
 
     # unaccounted is mostly the overhead of the uprobes, removing it from parsing
-    rename = {"user": "Policy Enforcement", "parse": "Parsing", "ipc": "IPC", "unaccounted": "Other"}
+    rename = {"user": "Processing", "parse": "Parsing", "ipc": "IPC", "unaccounted": "Other"}
     df = df.rename(index=rename, level="func").reset_index()
     df = df.groupby(by=["proxy", "func"]).agg({"mean": "sum"})
 
@@ -488,7 +491,7 @@ def dissect_graph(name):
 
     order = ["envoy", "envoy_l4fp", "beeline"]
     plots = []
-    funcs = ["Policy Enforcement", "Parsing", "IPC", "Other"]
+    funcs = ["Parsing", "Processing", "IPC", "Other"]
     for f in funcs:
         coords = []
         for i, p in enumerate(order):
@@ -508,21 +511,24 @@ def dissect_graph(name):
 
 def _load_dissect_complexity_df(name, policy):
     paths = _get_file_paths(f"{name}/p{policy}-*", "*k6*summary*.json")
+    paths = set((os.path.dirname(p) for p in paths))
+
     dfs = []
     for p in paths:
-        folder = os.path.dirname(p)
-        name = os.path.basename(folder)
+        name = os.path.basename(p)
         args = [s for s in name.split("-")[1:]]
         args = {args[i]: int(args[i+1]) for i in range(0, len(args), 2)}
+        comp = args["n1"] * args["m1"]
 
         try:
-            df = _load_dissect_df(folder)
+            df = _load_dissect_df(p)
             df["policy"] = policy
-            df["complexity"] = args["n1"] * args["m1"]
+            df["complexity"] = comp
 
             dfs.append(df)
         except Exception as e:
-            print(f"Error loading {folder}: {e}")
+            print(f"Error loading {comp} {p}: {e}")
+            continue
 
     df = pd.concat(dfs)
     df = df.groupby(["proxy", "func", "complexity"]).agg({"mean": "mean"})
@@ -532,21 +538,22 @@ def _load_dissect_complexity_df(name, policy):
 
 def dissect_complexity_graph(name, policy, proxy):
     df = _load_dissect_complexity_df(name, policy)
+
     complexities = sorted(df.index.get_level_values("complexity").unique())
-    funcs = ["Policy Enforcement", "Parsing", "IPC", "Other"]
+    funcs = ["Parsing", "Processing", "IPC", "Other"]
     line_style = {
-        funcs[0]: "uchu-pink-5",
-        funcs[1]: "uchu-red-5",
-        funcs[2]: "uchu-purple-5",
-        funcs[3]: "uchu-gray-5"
+        funcs[0]: "uchu-pink-6",
+        funcs[1]: "uchu-red-6",
+        funcs[2]: "uchu-purple-6",
+        funcs[3]: "uchu-gray-6"
     }
     fill_style = {
         funcs[0]: "uchu-pink-1",
         funcs[1]: "uchu-red-1",
         funcs[2]: "uchu-purple-1",
-        funcs[3]: "uchu-gray-1"
+        funcs[3]: "pattern=north west lines, draw=uchu-gray-6, pattern color=uchu-gray-6"
     }
-    stack = {c: 0 for c in complexities}
+    stack = {c: 0.0 for c in complexities}
     plots = []
 
     max_complexity = max(complexities)

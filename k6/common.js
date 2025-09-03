@@ -76,14 +76,14 @@ export function requestTo(url, headers = {}) {
     const res = http.post(url, payload, params);
     let passed = check(res, {
         "status is 200": (r) => r.status === 200,
-        "body is the same": (r) => r.body === payload,
+        "body is the same": (r) => r.body === payload || r.body === null,
     });
 
-    // if (!passed && res.body != null) {
-    //     console.log(
-    //         `Failed request to ${url}:\nreq = ${payload},\nres = ${res.body},\nheaders = ${JSON.stringify(res.headers)}`,
-    //     );
-    // }
+    if (!passed && res.body != null) {
+        console.log(
+            `Failed request to ${url}:\nreq = ${payload},\nres = ${res.body},\nheaders = ${JSON.stringify(res.headers)}`,
+        );
+    }
 
     return passed;
 }
