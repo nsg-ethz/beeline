@@ -27,79 +27,79 @@ struct bpf_crypto_ctx {
 	refcount_t usage;
 };
 
-void *__bpf_dynptr_slice(const struct bpf_dynptr *p, u32 offset,
-				   void *buffer__opt, u32 buffer__szk);
+// void *__bpf_dynptr_slice(const struct bpf_dynptr *p, u32 offset,
+// 				   void *buffer__opt, u32 buffer__szk);
 
-bool __bpf_dynptr_is_rdonly(const struct bpf_dynptr_kern *ptr)
-{
-	return ptr->size & DYNPTR_RDONLY_BIT;
-}
+// bool __bpf_dynptr_is_rdonly(const struct bpf_dynptr_kern *ptr)
+// {
+// 	return ptr->size & DYNPTR_RDONLY_BIT;
+// }
 
-static enum bpf_dynptr_type __bpf_dynptr_get_type(const struct bpf_dynptr_kern *ptr)
-{
-	return (ptr->size & ~(DYNPTR_RDONLY_BIT)) >> DYNPTR_TYPE_SHIFT;
-}
+// static enum bpf_dynptr_type __bpf_dynptr_get_type(const struct bpf_dynptr_kern *ptr)
+// {
+// 	return (ptr->size & ~(DYNPTR_RDONLY_BIT)) >> DYNPTR_TYPE_SHIFT;
+// }
 
-u32 __bpf_dynptr_size(const struct bpf_dynptr_kern *ptr)
-{
-	return ptr->size & DYNPTR_SIZE_MASK;
-}
+// u32 __bpf_dynptr_size(const struct bpf_dynptr_kern *ptr)
+// {
+// 	return ptr->size & DYNPTR_SIZE_MASK;
+// }
 
-static int __bpf_dynptr_check_off_len(const struct bpf_dynptr_kern *ptr, u32 offset, u32 len)
-{
-	u32 size = __bpf_dynptr_size(ptr);
+// static int __bpf_dynptr_check_off_len(const struct bpf_dynptr_kern *ptr, u32 offset, u32 len)
+// {
+// 	u32 size = __bpf_dynptr_size(ptr);
 
-	if (len > size || offset > size - len)
-		return -E2BIG;
+// 	if (len > size || offset > size - len)
+// 		return -E2BIG;
 
-	return 0;
-}
+// 	return 0;
+// }
 
-void *__bpf_dynptr_slice(const struct bpf_dynptr *p, u32 offset,
-				   void *buffer__opt, u32 buffer__szk)
-{
-	const struct bpf_dynptr_kern *ptr = (struct bpf_dynptr_kern *)p;
-	enum bpf_dynptr_type type;
-	u32 len = buffer__szk;
-	int err;
+// void *__bpf_dynptr_slice(const struct bpf_dynptr *p, u32 offset,
+// 				   void *buffer__opt, u32 buffer__szk)
+// {
+// 	const struct bpf_dynptr_kern *ptr = (struct bpf_dynptr_kern *)p;
+// 	enum bpf_dynptr_type type;
+// 	u32 len = buffer__szk;
+// 	int err;
 
-	if (!ptr->data)
-		return NULL;
+// 	if (!ptr->data)
+// 		return NULL;
 
-	err = __bpf_dynptr_check_off_len(ptr, offset, len);
-	if (err)
-		return NULL;
+// 	err = __bpf_dynptr_check_off_len(ptr, offset, len);
+// 	if (err)
+// 		return NULL;
 
-	type = __bpf_dynptr_get_type(ptr);
+// 	type = __bpf_dynptr_get_type(ptr);
 
-	switch (type) {
-	case BPF_DYNPTR_TYPE_LOCAL:
-	case BPF_DYNPTR_TYPE_RINGBUF:
-		return ptr->data + ptr->offset + offset;
-	case BPF_DYNPTR_TYPE_SKB:
-		if (buffer__opt)
-			return skb_header_pointer(ptr->data, ptr->offset + offset, len, buffer__opt);
-		else
-			return skb_pointer_if_linear(ptr->data, ptr->offset + offset, len);
-	default:
-		WARN_ONCE(true, "unknown dynptr type %d\n", type);
-		return NULL;
-	}
-}
+// 	switch (type) {
+// 	case BPF_DYNPTR_TYPE_LOCAL:
+// 	case BPF_DYNPTR_TYPE_RINGBUF:
+// 		return ptr->data + ptr->offset + offset;
+// 	case BPF_DYNPTR_TYPE_SKB:
+// 		if (buffer__opt)
+// 			return skb_header_pointer(ptr->data, ptr->offset + offset, len, buffer__opt);
+// 		else
+// 			return skb_pointer_if_linear(ptr->data, ptr->offset + offset, len);
+// 	default:
+// 		WARN_ONCE(true, "unknown dynptr type %d\n", type);
+// 		return NULL;
+// 	}
+// }
 
-const void *__bpf_dynptr_data(const struct bpf_dynptr_kern *ptr, u32 len)
-{
-	const struct bpf_dynptr *p = (struct bpf_dynptr *)ptr;
+// const void *__bpf_dynptr_data(const struct bpf_dynptr_kern *ptr, u32 len)
+// {
+// 	const struct bpf_dynptr *p = (struct bpf_dynptr *)ptr;
 
-	return __bpf_dynptr_slice(p, 0, NULL, len);
-}
+// 	return __bpf_dynptr_slice(p, 0, NULL, len);
+// }
 
-void *__bpf_dynptr_data_rw(const struct bpf_dynptr_kern *ptr, u32 len)
-{
-	if (__bpf_dynptr_is_rdonly(ptr))
-		return NULL;
-	return (void *)__bpf_dynptr_data(ptr, len);
-}
+// void *__bpf_dynptr_data_rw(const struct bpf_dynptr_kern *ptr, u32 len)
+// {
+// 	if (__bpf_dynptr_is_rdonly(ptr))
+// 		return NULL;
+// 	return (void *)__bpf_dynptr_data(ptr, len);
+// }
 
 // int __bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
 // 			    		const struct bpf_dynptr_kern *src,
