@@ -1,17 +1,11 @@
 #!/usr/bin/env python
 
 import argparse
-from datetime import datetime
-from http.client import HTTP_PORT
 from github import Github, Auth
 import json
 import os
-from numpy import fix
-from pandas.core.generic import T
 from peewee import *
 import re
-import subprocess
-import time
 import yaml
 
 parser = argparse.ArgumentParser()
@@ -52,7 +46,7 @@ def search():
         size_range = f"{size}..{size+step}"
         print(f"Searching for files with size {size_range}")
 
-        res = g.search_code(f"http_filters filename:envoy.yml OR filename:envoy.yaml size:{size_range}")
+        res = g.search_code(f"envoy.filters.network.http_connection_manager extension:yml OR extension:yaml OR extension:json size:{size_range}")
         print(f"Found {res.totalCount} files")
 
         if res.totalCount >= 1000 and step > 1:
@@ -136,14 +130,17 @@ def count(path):
             for item in config:
                 yield from _iter_http_filters(item)
 
-    def _parse(content, download_url, repo_url):
+    def _parse(file, content):
         nonlocal num_errors
         nonlocal num_filter_chains
 
-        parsed_files.add(download_url)
+        parsed_files.add(file.download_url)
 
         try:
-            configs = yaml.safe_load_all(content)
+            if os.path.splitext(file.name)[1] == ".json":
+                configs = json.loads(content)
+            else:
+                configs = yaml.safe_load_all(content)
 
             for config in configs:
                 if not isinstance(config, dict):
@@ -155,7 +152,7 @@ def count(path):
                         # print(f"Could not find envoy config: {config.get("data").keys()} in {download_url}")
                         continue
 
-                    _parse(config.get("data").get(keys[0]), download_url, repo_url)
+                    _parse(file, config.get("data").get(keys[0]))
                     continue
 
 
@@ -172,18 +169,18 @@ def count(path):
                         filters.append({
                             "name": http_filter_type,
                             "repo_url": file.repo_url,
-                            "download_url": download_url
+                            "download_url": file.download_url
                         })
 
-            if download_url not in parsed_files:
-                print(f"No http_filters found in {download_url}")
-        except yaml.YAMLError:
+            if file.download_url not in parsed_files:
+                print(f"No http_filters found in {file.download_url}")
+        except Exception as e:
             num_errors += 1
 
     for file in files:
         if file.download_url not in parsed_files:
             content = sanitize_config(file.content)
-            _parse(content, file.download_url, file.repo_url)
+            _parse(file, content)
 
     print(f"Evaluated {len(parsed_files)}/{len(files)} configs, {num_errors} errors occurred, {num_filter_chains} HTTP filter chains")
 

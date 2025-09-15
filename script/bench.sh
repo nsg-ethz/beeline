@@ -28,6 +28,7 @@ while getopts "c:e:f:t:n:p:rs:" opt; do
     esac
 done
 
+DEST_HOST="moonshine"
 ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 SOCIAL_NETWORK_DIR=${ROOT}/../test/social_network
@@ -41,7 +42,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
     case ${BENCH} in
         sm)
-            ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
+            ssh -t ${DEST_HOST} "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
             if [ "${WRITE_REPORT}" = true ]; then
@@ -50,7 +51,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
                 k6 run ${SCRIPT} --summary-export ${SUMMARY}
             fi
 
-            ssh -t moonshine "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
+            ssh -t ${DEST_HOST} "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             ;;
 
         mb)
