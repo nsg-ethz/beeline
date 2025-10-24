@@ -171,6 +171,7 @@ case ${ACTION} in
         if [[ "${PROXY}" == "beeline" ]]; then
             grep "sk_msg total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-user-e${EPOCH}.log
             grep "parse total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-parse-e${EPOCH}.log
+            grep "ctx total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-ctx-e${EPOCH}.log
             rm ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
         elif [[ "${PROXY}" == envoy* ]]; then
             grep "ipc total" ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log > ${SUMMARY_DIR}/${PROXY}-rt-ipc-e${EPOCH}.log
