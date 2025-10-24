@@ -743,6 +743,8 @@ int print_profile_stats() {
     bpf_profile_print(parse);
     bpf_profile_print(parse_linearize);
 
+    bpf_profile_print(ctx);
+
     bpf_profile_print(mutate);
     bpf_profile_print(mutate_prelinearize);
     bpf_profile_print(mutate_postlinearize);
