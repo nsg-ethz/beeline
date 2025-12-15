@@ -5,13 +5,13 @@ use axum::{
     routing::post,
 };
 use clap::Parser;
-use log::{debug, error};
 use reqwest::Client;
 use std::str::FromStr;
 use tokio::{
     signal::unix::{SignalKind, signal},
     task::JoinSet,
 };
+use tracing::{debug, error, info, trace};
 
 #[derive(Parser)]
 #[command(ignore_errors(true))] // this way we can pass FRONTEND_ARGS, even if it's an empty string
@@ -71,21 +71,18 @@ async fn main() {
     } else {
         "connecting directly".to_string()
     };
-    log::info!(
+    info!(
         "Listening on {}, {} with {} services, {}",
-        address,
-        strategy_msg,
-        num_services,
-        proxy_msg
+        address, strategy_msg, num_services, proxy_msg
     );
     if headers.len() > 0 {
-        log::info!("Will use headers: {:?}", headers);
+        info!("Will use headers: {:?}", headers);
     }
 
     let svc = if fan_out {
         post(
             async move |req_hdrs: HeaderMap, body: Bytes| -> Result<String, StatusCode> {
-                log::debug!("Received request: {:?}", req_hdrs);
+                debug!("Received request: {:?}", req_hdrs);
 
                 if let Ok(body) = String::from_utf8(body.to_vec()) {
                     let mut set = JoinSet::new();
@@ -130,7 +127,7 @@ async fn main() {
     } else {
         post(
             async move |req_hdrs: HeaderMap, body: Bytes| -> Result<String, StatusCode> {
-                log::debug!("Received request: {:?}", req_hdrs);
+                debug!("Received request: {:?}", req_hdrs);
 
                 if let Ok(body) = String::from_utf8(body.to_vec()) {
                     for i in 1..=num_services {
@@ -187,7 +184,7 @@ async fn handle_echo_res(res: reqwest::Result<reqwest::Response>) -> Result<(), 
             let status = response.status();
             if status.is_success() {
                 let response_body = response.text().await.unwrap();
-                log::trace!("Received response: {}", response_body);
+                trace!("Received response: {}", response_body);
                 Ok(())
             } else {
                 let response_body = response.text().await.unwrap();

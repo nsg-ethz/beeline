@@ -15,7 +15,6 @@ use libbpf_rs::{
     Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
 use libc::exit;
-use log::{debug, error, info, log_enabled, trace, warn};
 use std::{
     env,
     io::Cursor,
@@ -32,6 +31,7 @@ use tokio::{
     net::{TcpListener, TcpSocket, TcpStream},
     signal::unix::{signal, SignalKind},
 };
+use tracing::{debug, error, info, trace, warn, Level};
 
 pub mod bpf;
 pub mod parse;
@@ -146,7 +146,7 @@ impl<'obj> Proxy<'obj> {
 
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
-        if log_enabled!(log::Level::Debug) {
+        if tracing::event_enabled!(Level::DEBUG) {
             open_skel.progs.msg_verdict.set_log_level(1);
         }
 

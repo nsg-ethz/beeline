@@ -175,7 +175,9 @@ fn assert_http_payload_eq(lhs: &str, rhs: &str) {
 }
 
 async fn setup() -> (TcpListener, TcpListener) {
-    _ = env_logger::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
 
     let mut port = 8001;
     let server1 = loop {

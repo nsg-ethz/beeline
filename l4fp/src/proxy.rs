@@ -9,7 +9,6 @@ use libbpf_rs::{
     skel::{OpenSkel, SkelBuilder},
     Link, PrintLevel,
 };
-use log::{debug, info, log_enabled, warn};
 use std::{
     mem::MaybeUninit,
     os::{
@@ -17,6 +16,7 @@ use std::{
         unix::fs::OpenOptionsExt,
     },
 };
+use tracing::{debug, info, warn, Level};
 
 pub mod bpf;
 
@@ -51,7 +51,7 @@ impl<'obj> Proxy<'obj> {
 
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
-        if log_enabled!(log::Level::Debug) {
+        if tracing::event_enabled!(Level::DEBUG) {
             open_skel.progs.msg_verdict.set_log_level(1);
         }
 

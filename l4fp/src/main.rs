@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use common::config::beeline::Cidr;
 use l4fp::Proxy;
-use log::info;
 use std::{mem::MaybeUninit, time::Duration};
+use tracing::info;
 
 #[derive(Parser)]
 struct Args {
@@ -13,7 +13,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     let args = Args::parse();
     let mut open_obj = MaybeUninit::uninit();
