@@ -17,7 +17,6 @@ Generally, the `ms` prefix stands for [Media Service](https://github.com/delimit
 * `include/vmlinux.h`: the kernel headers for the current kernel version
 * `k6`: the workloads used for the experiments
 * `l4fp`: the L4 Fast Path, a simple eBPF program that redirects traffic at the socket level
-* `naive`: a naive user space service proxy
 * `scripts`: scripts used for the experiments
   * `scripts/exp` the experiments in a simple script. See below how to use them
   * `scripts/reload-lkm.sh` reloads the Linux kernel module that exposes the crypto API to eBPF
