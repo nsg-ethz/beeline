@@ -1,7 +1,7 @@
 // ---
 
 static __always_inline enum pr_action _match(struct sk_msg_md *msg, struct filter_ctx *ctx, const struct sock_key *ikey) {
-    bool is_downstream = (ikey->remote.ip4 == ip4 && ikey->remote.port == port);
+    bool is_downstream = _cmp_proxy_addr(&ikey->remote);
 
     if (is_downstream) {
         bpf_stats_add(downstream_rq_total, 1);

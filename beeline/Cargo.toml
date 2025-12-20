@@ -29,6 +29,10 @@ httparse = "1.9.5"
 sha2 = "0.10.8"
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+ktls = "6.0.2"
+rcgen = "0.14.6"
+rustls = { version = "0.23.35", features = ["ring"] }
+tokio-rustls = { version = "0.26.4", features = ["ring"] }
 
 [build-dependencies]
 common = { path = "../common" }

@@ -41,7 +41,12 @@ async fn setup() -> SocketAddr {
         let mut open_obj = OpenObject::new();
         let mut port = 3000;
         let proxy = loop {
-            match Proxy::attach(format!("127.0.0.1:{port}"), test::config(), &mut open_obj) {
+            match Proxy::attach(
+                format!("127.0.0.1:{port}"),
+                None,
+                test::config(),
+                &mut open_obj,
+            ) {
                 Ok(proxy) => break proxy,
                 Err(_) => port += 1,
             }

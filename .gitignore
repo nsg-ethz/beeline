@@ -8,3 +8,4 @@ res
 *.skel.rs
 run.sh
 config/*/pc.yaml
+.clangd

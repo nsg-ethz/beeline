@@ -104,6 +104,13 @@ struct {
     __uint(max_entries, 32768);
     __type(key, struct sock_key);
     __type(value, int);
+} egress SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_SOCKHASH);
+    __uint(max_entries, 32768);
+    __type(key, struct sock_key);
+    __type(value, int);
 } sock_map SEC(".maps");
 
 struct {
@@ -111,7 +118,7 @@ struct {
     __uint(max_entries, 32768);
     __type(key, struct sock_key);
     __type(value, int);
-} sock_map_contains SEC(".maps");
+} sock_map_wait_list SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -192,6 +199,7 @@ volatile const u32 ip4;
 volatile const u32 ip4_start;
 volatile const u32 ip4_end;
 volatile const u32 port;
+volatile const u32 tls_port;
 volatile const u32 gw;
 
 {{DEFS}}
@@ -339,11 +347,6 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
 
     if (data + str_len > data_end) return -1;
     __builtin_memcpy(data, str, str_len);
-    // u32 i;
-    // bpf_for(i, 0, str_len) {
-    //     if (data + i + 1 > data_end) return -1;
-    //     data[i] = str[i];
-    // }
 
     bpf_profile_end(mutate_copy);
     bpf_profile_end(mutate);
@@ -359,7 +362,7 @@ static __always_inline int _fib_insert(const struct addr_key *addr, bool downstr
     else {
         struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, addr);
         if (pqueue == NULL) {
-            bpf_err("WARN: No pqueue found for forwarding token");
+            bpf_log("WARN: No pqueue found for forwarding token");
             return -1;
         }
 
@@ -423,15 +426,45 @@ static __always_inline enum pr_action post_forward_us_conn(const struct sock_key
 
     // make upstream connection available for new requests
     if (_fib_insert(&ukey->local, false, ukey) < 0) {
-        bpf_err("ERROR: Failed to reinsert upstream socket to FIB");
+        bpf_log("WARN: Failed to reinsert upstream socket to FIB");
     }
 
     return PR_PASS;
 }
 
+static __always_inline struct sock_key _invert_sock_key(const struct sock_key *key) {
+    struct sock_key inv = {
+        .local = key->remote,
+        .remote = key->local,
+    };
+    return inv;
+}
+
+static __always_inline bool _cmp_proxy_addr(struct addr_key *addr) {
+    return (ip4 == 0 || addr->ip4 == ip4) && (addr->port == port || addr->port == tls_port);
+}
+
 {{FILTERS}}
 
 // ----------------------------------------------
+
+static __always_inline int _skip_tls(const struct __sk_buff *skb, bool tls) {
+    char *data = (char *)(long)skb->data;
+    char *data_end = (char *)(long)skb->data_end;
+    u32 len = (u32)(data_end - data) & MAX_BYTES;
+
+    if (len == 0) {
+        return 0;
+    }
+
+    u32 i;
+    bpf_for(i, 0, len + 1) {
+        if (data + i + 1 > data_end) return -1;
+        if (data[i] != 0) return i;
+    }
+
+    return -1;
+}
 
 static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *action) {
     state &= 0x1FF;
@@ -451,10 +484,7 @@ static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *act
     *action = t.action;
 }
 
-static __always_inline int _parse_from(const struct sk_msg_md *msg, u16 start, struct prange *pranges, u32* cidx, u16* s) {
-    bpf_profile_start(parse_range);
-    char *data = (char *)(long)msg->data;
-    char *data_end = (char *)(long)msg->data_end;
+static __always_inline int _parse_from(const char *data, const char *data_end, u16 start, struct prange *pranges, u32* cidx, u16* s) {
     u32 len = (u32)(data_end - data) & MAX_BYTES;
 
     if (len-start == 0) {
@@ -501,37 +531,123 @@ static __always_inline int _parse_from(const struct sk_msg_md *msg, u16 start, s
     return -len;
 }
 
-static __always_inline struct sock_key _invert_sock_key(const struct sock_key *key) {
-    struct sock_key inv = {
-        .local = key->remote,
-        .remote = key->local,
-    };
-    return inv;
+static __always_inline int _parse_msg_from(const struct sk_msg_md *msg, u16 start, struct prange *pranges, u32* cidx, u16* s) {
+    return _parse_from(msg->data, msg->data_end, start, pranges, cidx, s);
 }
 
 bpf_profile_def(parse);
-bpf_profile_def(parse_linearize);
-static __always_inline int _parse(struct sk_msg_md *msg, struct prange *pranges) {
+static __always_inline int _parse_msg(struct sk_msg_md *msg, struct prange *pranges) {
     bpf_profile_start(parse);
     u32 cidx[MAX_MATCHES] = { 0 };
     u16 s = s_init;
-    int res = _parse_from(msg, 0, pranges, cidx, &s);
+    int res = _parse_msg_from(msg, 0, pranges, cidx, &s);
 
     // check if we can pull data
     if (res < 0 && msg->size > -res) {
-        bpf_profile_start(parse_linearize);
         if (bpf_msg_pull_data(msg, 0, msg->size, 0) < 0) {
-            bpf_profile_end(parse_linearize);
             return res;
         }
-        bpf_profile_end(parse_linearize);
 
-        res = _parse_from(msg, -res, pranges, cidx, &s);
+        res = _parse_msg_from(msg, -res, pranges, cidx, &s);
     }
 
     bpf_profile_end(parse);
 
     return res;
+}
+
+static __always_inline int _parse_skb_from(const struct __sk_buff *skb, u16 start, struct prange *pranges, u32* cidx, u16* s) {
+    return _parse_from((char *)(long)skb->data, (char *)(long)skb->data_end, start, pranges, cidx, s);
+}
+
+static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pranges, bool tls) {
+    bpf_profile_start(parse);
+    u32 cidx[MAX_MATCHES] = { 0 };
+    u16 s = s_init;
+
+    // TODO: Pull data gradually
+    if (bpf_skb_pull_data(skb, skb->len) < 0) {
+        return -1;
+    }
+
+    int offset = 0;
+    if (tls) {
+        // TODO: skip TLS header here
+        offset = 13;
+        // offset = _skip_tls(skb, tls);
+        if (offset < 0) return offset;
+    }
+
+    int res = _parse_skb_from(skb, offset, pranges, cidx, &s);
+
+    bpf_profile_end(parse);
+
+    return res;
+}
+
+SEC("sk_skb/stream_parser")
+int skb_parser(struct __sk_buff *skb)
+{
+	return skb->len;
+}
+
+SEC("sk_skb/stream_verdict")
+int skb_verdict(struct __sk_buff *skb)
+{
+    // socket identifier of the ingress connection
+    struct sock_key ikey = {
+        .local = {
+            .ip4 = skb->local_ip4,
+            .port = skb->local_port
+        },
+        .remote = {
+            .ip4 = skb->remote_ip4,
+            .port = bpf_ntohl(skb->remote_port)
+        }
+    };
+
+    bool is_downstream = _cmp_proxy_addr(&ikey.remote);
+    bpf_log("Processing %dB skb from [%pI4:%u->%pI4:%u] (downstream: %d)", skb->len, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
+
+    enum pr_action res = PR_PASS;
+    struct prange pranges[MAX_MATCHES] = { 0 };
+
+    int done_idx = _parse_skb(skb, pranges, true);
+
+    bpf_log("done_idx: %d", done_idx);
+
+    // TODO: actually parse the payload
+    struct addr_key dest = {
+        .ip4 = 16777343,
+        .port = 8001
+    };
+
+    struct sock_key ekey = { 0 };
+    res = _fib_query(&dest, !is_downstream, &ekey);
+
+    struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
+    if (ctx == NULL) {
+        bpf_err("ERROR: Failed to init filter context");
+        return SK_DROP;
+    }
+    _init_filter_ctx((char*)(long)skb->data, ctx, done_idx, pranges);
+
+    if (bpf_sk_redirect_hash(skb, &sock_map, &ekey, 0) == SK_DROP) {
+        bpf_err("ERROR: Failed to redirect skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+
+        // Somehow, the kernel sometimes crashes if we don't redirect
+        // struct sock_key ikey_inv = _invert_sock_key(&ikey);
+        // if (bpf_sk_redirect_hash(skb, &sock_map, &ikey_inv, BPF_F_INGRESS) == SK_DROP) {
+        //     bpf_err("ERROR: Fallback failed, dropping...");
+        //     return SK_DROP;
+        // }
+
+        return SK_PASS;
+    }
+    else {
+        bpf_log("Redirecting skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+        return SK_PASS;
+    }
 }
 
 bpf_profile_def(sk_msg);
@@ -552,16 +668,28 @@ int msg_verdict(struct sk_msg_md *msg) {
         }
     };
 
-    bool is_downstream = (ikey.remote.ip4 == ip4 && ikey.remote.port == port);
-    bool is_upstream = (ikey.remote.ip4 == gw && ikey.remote.port >= 12345 && ikey.remote.port < 20345);
+    bool is_downstream = _cmp_proxy_addr(&ikey.remote);
+    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
-    // in this case it's either a just established upstream connection
-    // or a connection that beeline didn't handle at all
-    if (!is_downstream && !is_upstream) {
+    bool is_proxy = _cmp_proxy_addr(&ikey.local);
+    if (is_proxy) {
+        // struct sock_key ekey = _invert_sock_key(&ikey);
+        // if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+        //     bpf_err("ERROR: Failed to accelerate msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        // }
+
+        bpf_log("Passing msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+
+        return SK_PASS;
+    }
+
+    // check if this is a connection we need to redirect without parsing
+    // i.e. L4 acceleration
+    bool local_in_network = bpf_ntohl(ikey.local.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(ikey.local.ip4) <= bpf_ntohl(ip4_end);
+    bool remote_in_network = bpf_ntohl(ikey.remote.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(ikey.remote.ip4) <= bpf_ntohl(ip4_end);
+    if (local_in_network && remote_in_network) {
         if (ikey.remote.ip4 == gw) return SK_PASS;
         struct sock_key ekey = _invert_sock_key(&ikey);
-
-        if (bpf_map_lookup_elem(&sock_map_contains, &ekey) == NULL) return SK_PASS;
 
         if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
             bpf_err("ERROR: Failed to accelerate msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
@@ -573,12 +701,10 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
-
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
 
-    int done_idx = _parse(msg, pranges);
+    int done_idx = _parse_msg(msg, pranges);
     if (done_idx < 0) {
         if (done_idx == -msg->size || done_idx == -msg->size + 1) {
             bpf_log("Could not parse header after %dB. Corking...", msg->size);
@@ -598,7 +724,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         bpf_err("ERROR: Failed to init filter context");
         return SK_DROP;
     }
-    _init_filter_ctx(msg, ctx, done_idx, pranges);
+    _init_filter_ctx(msg->data, ctx, done_idx, pranges);
 
     res = _match(msg, ctx, &ikey);
 
@@ -639,12 +765,21 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_DROP;
     }
     else if (res == PR_PASS) {
-        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+        // TODO: Implement TLS redirection logic
+        int dir = BPF_F_INGRESS;
+        void *map = &sock_map;
+        if (_cmp_proxy_addr(&ekey.remote)) {
+            bpf_log("Redirecting to egress socket");
+            // map = &egress;
+            dir = 0;
+        }
+
+        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, dir) == SK_DROP) {
             bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             res = PR_UTRN;
         }
         else {
-            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u] dir: %d", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port, dir);
             return SK_PASS;
         }
     }
@@ -679,25 +814,42 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 
         bpf_log("Established socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
 
-        bool local_in_network = bpf_ntohl(skey.local.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(skey.local.ip4) <= bpf_ntohl(ip4_end);
-        bool local_is_proxy = skey.local.ip4 == ip4 && skey.local.port == port;
-        bool remote_in_network = bpf_ntohl(skey.remote.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(skey.remote.ip4) <= bpf_ntohl(ip4_end);
-        bool remote_is_proxy = skey.remote.ip4 == ip4 && skey.remote.port == port;
-        bool is_proxy = local_is_proxy || remote_is_proxy;
-        bool in_network = local_in_network && remote_in_network;
         // memcached does not work well with the L4FP
         bool is_memcached = skey.local.port == 11211 || skey.remote.port == 11211;
+        if (is_memcached) return SK_PASS;
 
-        if ((is_proxy || in_network) && !is_memcached) {
+        bool local_in_network = bpf_ntohl(skey.local.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(skey.local.ip4) <= bpf_ntohl(ip4_end);
+        bool remote_in_network = bpf_ntohl(skey.remote.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(skey.remote.ip4) <= bpf_ntohl(ip4_end);
+        bool in_network = local_in_network && remote_in_network;
+        bool remote_is_proxy = _cmp_proxy_addr(&skey.remote);
+        bool local_is_proxy = _cmp_proxy_addr(&skey.local);
+        bool is_proxy = remote_is_proxy || local_is_proxy;
+
+        if (!in_network && !is_proxy) {
+            int* wait = bpf_map_lookup_elem(&sock_map_wait_list, &skey);
+            if (wait != NULL) {
+                bpf_map_delete_elem(&sock_map_wait_list, &skey);
+            }
+            else {
+                return SK_PASS;
+            }
+        }
+
+        if (local_is_proxy) {
+            // bpf_log("Add egress socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+
+            // if (bpf_sock_hash_update(ops, &egress, &skey, BPF_ANY) < 0) {
+            //     bpf_err("ERROR: Failed to add proxy socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+            //     return SK_PASS;
+            // }
+        }
+        else {
+            bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+
             if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
-
-            int flag = 1;
-            bpf_map_update_elem(&sock_map_contains, &skey, &flag, BPF_ANY);
-
-            bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
         }
     }
 

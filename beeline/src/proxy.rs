@@ -6,20 +6,23 @@ use anyhow::{anyhow, bail, Result};
 use as_bytes::AsBytes;
 use common::{
     config::beeline::Config,
-    net::{get_gw_ip, SocketBinder, TryIntoRawOctets},
+    net::{get_gw_ip, TryIntoRawOctets},
     Compiler,
 };
+use ktls::{CorkStream, KtlsCipherSuite, KtlsCipherType, KtlsVersion};
 use libbpf_rs::{
     set_print,
     skel::{OpenSkel, SkelBuilder},
     Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
 use libc::exit;
+use rcgen::generate_simple_self_signed;
+use rustls::ServerConfig;
 use std::{
     env,
     io::Cursor,
     mem::MaybeUninit,
-    net::{SocketAddr, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, SocketAddrV4, ToSocketAddrs},
     os::{
         fd::{AsFd, AsRawFd, IntoRawFd},
         unix::fs::OpenOptionsExt,
@@ -27,10 +30,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::{
-    io::{self, AsyncWriteExt},
+    io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
     signal::unix::{signal, SignalKind},
 };
+use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, trace, warn, Level};
 
 pub mod bpf;
@@ -96,7 +100,7 @@ fn add_pqueue_to_fib<M: MapCore>(map: &M, addr: addr_key) -> Result<()> {
     }
 }
 
-fn fib_insert_downstream<M: MapCore>(map: &M, key: addr_key, val: &sock_key) -> Result<()> {
+fn update_map<M: MapCore, K: AsBytes, V: AsBytes>(map: &M, key: &K, val: &V) -> Result<()> {
     let key = unsafe { key.as_bytes() };
     let val = unsafe { val.as_bytes() };
 
@@ -116,13 +120,12 @@ fn print(level: PrintLevel, msg: String) {
 
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
+    pub tls_port: Option<u16>,
     pub config: Config,
 
     skel: ProxySkel<'obj>,
     #[allow(dead_code)]
     sockops: Link,
-
-    binder: Arc<SocketBinder>,
 
     upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
 }
@@ -134,6 +137,7 @@ unsafe impl<'obj> Sync for Proxy<'obj> {}
 impl<'obj> Proxy<'obj> {
     pub fn attach<A: ToSocketAddrs>(
         address: A,
+        tls_port: Option<u16>,
         config: Config,
         open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>,
     ) -> Result<Self> {
@@ -191,53 +195,76 @@ impl<'obj> Proxy<'obj> {
 
         open_skel.maps.rodata_data.ip4 = address.try_into_ne_octets()?;
         open_skel.maps.rodata_data.port = address.port() as u32;
+        open_skel.maps.rodata_data.tls_port = tls_port.unwrap_or_default() as u32;
 
         let skel = open_skel.load()?;
 
         let sock_map_fd = skel.maps.sock_map.as_fd().as_raw_fd();
+        skel.progs.msg_verdict.attach_sockmap(sock_map_fd)?;
+
+        // let egress_fd = skel.maps.egress.as_fd().as_raw_fd();
+        skel.progs.skb_parser.attach_sockmap(sock_map_fd)?;
+        skel.progs.skb_verdict.attach_sockmap(sock_map_fd)?;
 
         let cgroup_fd = std::fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY)
             .open("/sys/fs/cgroup")?
             .into_raw_fd();
-
         let sockops = skel.progs.monitor_sockets.attach_cgroup(cgroup_fd)?;
 
-        skel.progs.msg_verdict.attach_sockmap(sock_map_fd)?;
+        // let crypto = &skel.progs.crypto_setup;
+        // let input = libbpf_rs::ProgramInput::default();
 
-        let dests = config
-            .hosts
-            .iter()
-            .flat_map(|h| h.instances.clone())
-            .map(|addr| match addr.ip() {
-                std::net::IpAddr::V4(ip) => Ok(ip),
-                _ => Err(anyhow!("Only IPv4 addresses are supported")),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        // let res = crypto.test_run(input)?;
+        // if res.return_value != 0 {
+        //     let err = std::io::Error::from_raw_os_error(res.return_value as i32);
+        //     bail!("Crypto setup failed {:?}", err);
+        // }
 
-        let binder = SocketBinder::new(12345, dests)?;
-
-        let crypto = &skel.progs.crypto_setup;
-        let input = libbpf_rs::ProgramInput::default();
-
-        let res = crypto.test_run(input)?;
-        if res.return_value != 0 {
-            let err = std::io::Error::from_raw_os_error(res.return_value as i32);
-            error!("Crypto setup failed: {:?}", err);
-            bail!("Crypto setup failed");
-        }
-
-        debug!("Crypto setup successful");
+        // debug!("Crypto setup successful");
 
         Ok(Self {
             address,
+            tls_port,
             config,
             skel,
             sockops,
-            binder: Arc::new(binder),
             upstream_pool: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+
+    fn new_tls_acceptor(&self) -> Result<TlsAcceptor> {
+        let mut subject_alt_names = vec![self.address.ip().to_string()];
+        if self.address.ip().is_loopback() {
+            subject_alt_names.push("localhost".to_string());
+        }
+
+        let ckey = generate_simple_self_signed(subject_alt_names)?;
+
+        let cipher_suite = KtlsCipherSuite {
+            version: KtlsVersion::TLS12,
+            typ: KtlsCipherType::AesGcm128,
+        };
+
+        let mut provider = rustls::crypto::ring::default_provider();
+        provider.cipher_suites.clear();
+        provider
+            .cipher_suites
+            .push(cipher_suite.as_supported_cipher_suite());
+
+        let mut server_config = ServerConfig::builder_with_provider(Arc::new(provider))
+            .with_protocol_versions(&[cipher_suite.version.as_supported_version()])?
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![ckey.cert.der().clone()],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(ckey.signing_key.serialize_der())
+                    .into(),
+            )?;
+        server_config.enable_secret_extraction = true;
+        server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+        Ok(TlsAcceptor::from(Arc::new(server_config)))
     }
 
     pub async fn listen(self) -> Result<()> {
@@ -260,13 +287,6 @@ impl<'obj> Proxy<'obj> {
             let proxy_addr = addr_key::try_from(&proxy)?;
             add_pqueue_to_fib(&fib, proxy_addr)?;
         }
-
-        info!("Listening on {}", self.address);
-
-        let socket = TcpSocket::new_v4()?;
-        socket.set_reuseaddr(true)?;
-        socket.bind(self.address)?;
-        let listener = socket.listen(8192)?;
 
         let profile = env::var("BPF_PROFILE").unwrap_or("0".to_string());
         let stats = self.config.stats;
@@ -292,8 +312,45 @@ impl<'obj> Proxy<'obj> {
             }
         });
 
+        fn listen(addr: SocketAddr) -> Result<TcpListener> {
+            let socket = TcpSocket::new_v4()?;
+            socket.set_reuseaddr(true)?;
+            socket.bind(addr)?;
+            let listener = socket.listen(8192)?;
+            Ok(listener)
+        }
+
+        let plain_addr = self.address;
+        let plain_listener = listen(plain_addr)?;
+        info!("Listening on {}", plain_addr);
+
+        let tls: Option<(TcpListener, TlsAcceptor)> = if let Some(port) = self.tls_port {
+            let tls_addr = SocketAddr::new(plain_addr.ip(), port);
+            let tls_listener = listen(tls_addr)?;
+            let tls_acceptor = self.new_tls_acceptor()?;
+
+            info!("Listening for TLS on {}", tls_addr);
+
+            Some((tls_listener, tls_acceptor))
+        } else {
+            None
+        };
+
         loop {
-            self.accept(&listener).await?;
+            if let Some((tls_listener, tls_acceptor)) = &tls {
+                tokio::select! {
+                    res = self.accept_tls(&tls_listener, &tls_acceptor) => if let Err(e) = res {
+                        error!("Error handling TLS downstream connection: {:?}", e);
+                    },
+                    res = self.accept_plain(&plain_listener) => if let Err(e) = res {
+                        error!("Error handling downstream connection: {:?}", e);
+                    }
+                };
+            } else {
+                if let Err(e) = self.accept_plain(&plain_listener).await {
+                    error!("Error handling downstream connection: {:?}", e);
+                };
+            }
         }
     }
 
@@ -349,34 +406,66 @@ impl<'obj> Proxy<'obj> {
         info!("Traffic Stats:\n{}", stats.trim());
     }
 
-    async fn accept(&self, listener: &TcpListener) -> Result<()> {
-        let (downstream, ds_remote_addr) = listener.accept().await?;
-        debug!("Accepted connection {:?}", ds_remote_addr);
+    async fn accept_plain(&self, listener: &TcpListener) -> Result<()> {
+        let (stream, ds_remote_addr) = listener.accept().await?;
+        let ds_local_addr = stream.local_addr()?;
 
-        if let Err(e) = self.handle_downstream(downstream, ds_remote_addr) {
-            error!("Error handling downstream connection: {:?}", e);
-        }
+        debug!(
+            "Accepting connection from {} to {}",
+            ds_local_addr, ds_remote_addr
+        );
+
+        self.handle_downstream(stream, ds_local_addr, ds_remote_addr)?;
 
         Ok(())
     }
 
-    fn handle_downstream(
+    async fn accept_tls(&self, listener: &TcpListener, acceptor: &TlsAcceptor) -> Result<()> {
+        let (stream, ds_remote_addr) = listener.accept().await?;
+        let fd = stream.as_raw_fd();
+        let ds_local_addr = stream.local_addr()?;
+
+        debug!(
+            "Accepting TLS connection from {} to {}",
+            ds_local_addr, ds_remote_addr
+        );
+
+        let stream = CorkStream::new(stream);
+        let stream = acceptor.accept(stream).await?;
+        debug!("Completed TLS handshake");
+
+        let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
+        update_map(&self.skel.maps.sock_map, &ds_remote_addr_key, &fd)?;
+
+        let stream = ktls::config_ktls_server(stream).await?;
+        debug!("Configured kTLS");
+
+        self.handle_downstream(stream, ds_local_addr, ds_remote_addr)?;
+
+        Ok(())
+    }
+
+    fn handle_downstream<S>(
         &self,
-        mut downstream: TcpStream,
+        mut downstream: S,
+        ds_local_addr: SocketAddr,
         ds_remote_addr: SocketAddr,
-    ) -> Result<()> {
-        let addr = self.address.clone();
+    ) -> Result<()>
+    where
+        S: AsyncReadExt + AsyncWriteExt + std::marker::Unpin + std::marker::Send + 'static,
+    {
         let utrn_wait_list = self.get_utrn_wait_list()?;
+        let sock_map_wait_list = self.get_sock_map_wait_list()?;
         let fib_downstream = self.get_downstream_fib()?;
-        let binder = self.binder.clone();
+
         let upstream_pool = self.upstream_pool.clone();
+        let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
         tokio::spawn(async move {
-            let dkey = sock_key::try_from((&ds_remote_addr, &addr)).unwrap();
             let mut buf = Vec::with_capacity(8192);
             let mut upstreams = Vec::new();
 
-            let send_error = async |stream: &mut TcpStream| {
+            let send_error = async |stream: &mut S| {
                 error!("Sending 500 to {:?}", ds_remote_addr);
                 stream
                     .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
@@ -385,18 +474,11 @@ impl<'obj> Proxy<'obj> {
             };
 
             let res = loop {
-                // wait until the downstream connection is readable
-                match downstream.readable().await {
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-                    Err(e) => break Err(anyhow!(e)),
-                    Ok(()) => {}
-                }
-
-                match downstream.try_read_buf(&mut buf) {
+                match downstream.read_buf(&mut buf).await {
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                     Err(e) => break Err(anyhow!(e)),
                     Ok(0) => {
-                        trace!("Connection to {:?} closed", downstream.peer_addr());
+                        trace!("Connection to {:?} closed", ds_remote_addr);
                         break Ok(());
                     }
                     Ok(len) => len,
@@ -432,47 +514,61 @@ impl<'obj> Proxy<'obj> {
 
                 // check if there is a forwarding token in the waiting list
                 let us_remote_addr: Option<addr_key> = utrn_wait_list
-                    .lookup_and_delete_as(&dkey)
+                    .lookup_and_delete_as(&ds_remote_addr_key)
                     .expect("Failed to lookup utrn_wait_list");
 
-                let Some(us_remote_addr) = us_remote_addr else {
+                // check if the request has already been processed in the kernel and we only
+                // have to establish a new connection. In the case of TLS, the traffic
+                // was still encrypted, so we have to parse it now
+                let processed_in_kernel = us_remote_addr.is_some();
+                let us_remote_addr: SocketAddr = if !processed_in_kernel {
                     warn!(
                         "No address found in wait list for downstream connection: {:?}",
                         &ds_remote_addr,
                     );
-                    send_error(&mut downstream).await;
-                    continue;
-                };
 
-                if us_remote_addr.ip4 == 0 && us_remote_addr.port == 0 {
-                    error!("Unknown upstream address {:?}", us_remote_addr);
-                    send_error(&mut downstream).await;
-                    continue;
+                    "127.0.0.1:8001".parse().unwrap()
+                } else {
+                    us_remote_addr.unwrap().into()
+                };
+                debug!("Opening upstream connection to {}", us_remote_addr);
+
+                let socket = TcpSocket::new_v4().unwrap();
+                let gw_ip = match us_remote_addr.ip() {
+                    IpAddr::V4(ip) => get_gw_ip(ip),
+                    _ => panic!("Unexpected IP version"),
+                };
+                let us_local_addr = SocketAddr::V4(SocketAddrV4::new(gw_ip, 0));
+                match socket.bind(us_local_addr) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        error!("Failed to bind socket: {}", e);
+                        continue;
+                    }
                 }
 
-                let us_remote_addr: SocketAddr = us_remote_addr.into();
-                let us_sock = binder.bind(us_remote_addr.ip()).unwrap();
-                let us_local_addr = us_sock.local_addr().unwrap();
+                // TODO: check if this wait list is still needed
+                let us_local_addr = socket.local_addr().unwrap();
+                let us_sock_inv_key =
+                    sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap();
+                update_map(&sock_map_wait_list, &us_sock_inv_key, &1)
+                    .expect("Failed to insert into sock_map_wait_list");
 
-                debug!("Bound to socket: {}", us_local_addr);
+                debug!("Bound socket to {}", us_local_addr);
 
-                fib_insert_downstream(
-                    &fib_downstream,
-                    addr_key::try_from(&us_local_addr).unwrap(),
-                    &dkey,
-                )
-                .expect("Failed to insert into FIB");
-
-                debug!(
-                    "Opening upstream connection [{}->{}] for port {}",
-                    us_local_addr,
-                    us_remote_addr,
-                    ds_remote_addr.port()
-                );
-                let Ok(mut upstream) = us_sock.connect(us_remote_addr).await else {
+                let Ok(mut upstream) = socket.connect(us_remote_addr).await else {
                     send_error(&mut downstream).await;
                     continue;
                 };
+
+                let us_local_addr_key = addr_key::try_from(&us_local_addr).unwrap();
+                debug!(
+                    "Opened upstream connection: [{} -> {}]",
+                    us_local_addr, us_remote_addr
+                );
+
+                update_map(&fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
+                    .expect("Failed to insert into FIB");
 
                 let msg = buf.drain(..req_len).collect::<Vec<u8>>();
                 let mut req_buf = Cursor::new(&msg);
@@ -514,6 +610,16 @@ impl<'obj> Proxy<'obj> {
 
     fn get_traffic_stats(&self) -> Result<MapHandle> {
         let id = self.skel.maps.traffic_stats.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_sock_map(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.sock_map.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_sock_map_wait_list(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.sock_map_wait_list.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 }

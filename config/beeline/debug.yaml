@@ -18,16 +18,16 @@ routes:
           # headers:
           #     backend: server1
       dest: server1
-      filters:
-          - type: jwt
-            secret: "testtest12345678"
-            audience: echo
-            issuer: beeline
-          - type: mutate
-            # add:
-            #     x-processed-by: beeline
-            remove:
-                - authorization
+      # filters:
+      #     - type: jwt
+      #       secret: "testtest12345678"
+      #       audience: echo
+      #       issuer: beeline
+      #     - type: mutate
+      # add:
+      #     x-processed-by: beeline
+      # remove:
+      #     - authorization
     - match:
           path: "*"
           headers:

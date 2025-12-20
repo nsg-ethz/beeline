@@ -14,6 +14,9 @@ struct Args {
 
     #[arg(short, long, action)]
     validate: bool,
+
+    #[arg(long)]
+    tls: Option<u16>,
 }
 
 #[tokio::main]
@@ -38,7 +41,7 @@ async fn main() -> Result<()> {
         .unwrap_or("127.0.0.1:3000".parse().unwrap());
 
     let mut open_obj = MaybeUninit::uninit();
-    let proxy = Proxy::attach(&addr, config, &mut open_obj)?;
+    let proxy = Proxy::attach(&addr, args.tls, config, &mut open_obj)?;
 
     if !args.validate {
         proxy.listen().await
