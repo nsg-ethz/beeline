@@ -460,6 +460,7 @@ impl<'obj> Proxy<'obj> {
 
         let upstream_pool = self.upstream_pool.clone();
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
+        let use_skmsg = ds_local_addr.ip().is_loopback();
 
         tokio::spawn(async move {
             let mut buf = Vec::with_capacity(8192);
@@ -543,11 +544,13 @@ impl<'obj> Proxy<'obj> {
                     }
                 }
 
-                // TODO: check if this wait list is still needed
                 let us_local_addr = socket.local_addr().unwrap();
-                let us_sock_inv_key =
-                    sock_key::try_from((&us_local_addr, &us_remote_addr)).unwrap();
-                update_map(&sock_map_wait_list, &us_sock_inv_key, &1)
+                let us_sock_key = if use_skmsg {
+                    sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap()
+                } else {
+                    sock_key::try_from((&us_local_addr, &us_remote_addr)).unwrap()
+                };
+                update_map(&sock_map_wait_list, &us_sock_key, &(use_skmsg as u32))
                     .expect("Failed to insert into sock_map_wait_list");
 
                 debug!("Bound socket to {}", us_local_addr);

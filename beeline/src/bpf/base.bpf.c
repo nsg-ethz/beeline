@@ -444,6 +444,10 @@ static __always_inline bool _cmp_proxy_addr(struct addr_key *addr) {
     return (ip4 == 0 || addr->ip4 == ip4) && (addr->port == port || addr->port == tls_port);
 }
 
+static __always_inline bool _is_loopback(struct addr_key *addr) {
+    return addr->ip4 == 16777343;
+}
+
 {{FILTERS}}
 
 // ----------------------------------------------
@@ -773,21 +777,12 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_DROP;
     }
     else if (res == PR_PASS) {
-        // TODO: Implement TLS redirection logic
-        int dir = BPF_F_INGRESS;
-        void *map = &sock_map;
-        if (_cmp_proxy_addr(&ekey.remote)) {
-            bpf_log("Redirecting to egress socket");
-            map = &egress;
-            dir = 0;
-        }
-
-        if (bpf_msg_redirect_hash(msg, map, &ekey, dir) == SK_DROP) {
+        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
             bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             res = PR_UTRN;
         }
         else {
-            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u] dir: %d", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port, dir);
+            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             return SK_PASS;
         }
     }
@@ -829,32 +824,25 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
         bool local_in_network = bpf_ntohl(skey.local.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(skey.local.ip4) <= bpf_ntohl(ip4_end);
         bool remote_in_network = bpf_ntohl(skey.remote.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(skey.remote.ip4) <= bpf_ntohl(ip4_end);
         bool in_network = local_in_network && remote_in_network;
-        bool remote_is_proxy = _cmp_proxy_addr(&skey.remote);
-        bool local_is_proxy = _cmp_proxy_addr(&skey.local);
-        bool is_proxy = remote_is_proxy || local_is_proxy;
+        bool is_proxy = _cmp_proxy_addr(&skey.remote);
 
-        if (!in_network && !is_proxy) {
-            int* wait = bpf_map_lookup_elem(&sock_map_wait_list, &skey);
-            if (wait != NULL) {
-                bpf_map_delete_elem(&sock_map_wait_list, &skey);
-            }
-            else {
-                return SK_PASS;
-            }
-        }
-
-        if (local_is_proxy) {
-            // bpf_log("Add egress socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
-
-            // if (bpf_sock_hash_update(ops, &egress, &skey, BPF_ANY) < 0) {
-            //     bpf_err("ERROR: Failed to add proxy socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
-            //     return SK_PASS;
-            // }
+        void *map = NULL;
+        if (in_network) map = &sock_map;
+        else if (is_proxy) {
+            map = (_is_loopback(&skey.remote)) ? (void*)&sock_map : (void*)&egress;
         }
         else {
+            int* use_skmsg = bpf_map_lookup_elem(&sock_map_wait_list, &skey);
+            if (use_skmsg != NULL) {
+                map = (*use_skmsg == 1) ? (void*)&sock_map : (void*)&egress;
+                bpf_map_delete_elem(&sock_map_wait_list, &skey);
+            }
+        }
+
+        if (map) {
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
 
-            if (bpf_sock_hash_update(ops, &egress, &skey, BPF_ANY) < 0) {
+            if (bpf_sock_hash_update(ops, map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
