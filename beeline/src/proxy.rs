@@ -150,8 +150,9 @@ impl<'obj> Proxy<'obj> {
 
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
-        if tracing::event_enabled!(Level::DEBUG) {
+        if tracing::event_enabled!(Level::TRACE) {
             open_skel.progs.msg_verdict.set_log_level(1);
+            open_skel.progs.skb_verdict.set_log_level(1);
         }
 
         let compiler = Compiler::new(config.clone());
@@ -199,12 +200,12 @@ impl<'obj> Proxy<'obj> {
 
         let skel = open_skel.load()?;
 
-        let sock_map_fd = skel.maps.sock_map.as_fd().as_raw_fd();
-        skel.progs.msg_verdict.attach_sockmap(sock_map_fd)?;
+        let msg_sock_map_fd = skel.maps.msg_sock_map.as_fd().as_raw_fd();
+        skel.progs.msg_verdict.attach_sockmap(msg_sock_map_fd)?;
 
-        let egress_fd = skel.maps.egress.as_fd().as_raw_fd();
-        skel.progs.skb_parser.attach_sockmap(egress_fd)?;
-        skel.progs.skb_verdict.attach_sockmap(egress_fd)?;
+        let skb_sock_map_fd = skel.maps.skb_sock_map.as_fd().as_raw_fd();
+        skel.progs.skb_parser.attach_sockmap(skb_sock_map_fd)?;
+        skel.progs.skb_verdict.attach_sockmap(skb_sock_map_fd)?;
 
         let cgroup_fd = std::fs::OpenOptions::new()
             .read(true)
@@ -435,7 +436,7 @@ impl<'obj> Proxy<'obj> {
         debug!("Completed TLS handshake");
 
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
-        update_map(&self.skel.maps.egress, &ds_remote_addr_key, &fd)?;
+        update_map(&self.skel.maps.skb_sock_map, &ds_remote_addr_key, &fd)?;
 
         let stream = ktls::config_ktls_server(stream).await?;
         debug!("Configured kTLS");
@@ -609,11 +610,6 @@ impl<'obj> Proxy<'obj> {
 
     fn get_traffic_stats(&self) -> Result<MapHandle> {
         let id = self.skel.maps.traffic_stats.info()?.info.id;
-        Ok(MapHandle::from_map_id(id)?)
-    }
-
-    fn get_sock_map(&self) -> Result<MapHandle> {
-        let id = self.skel.maps.sock_map.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 

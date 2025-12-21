@@ -104,14 +104,14 @@ struct {
     __uint(max_entries, 32768);
     __type(key, struct sock_key);
     __type(value, int);
-} egress SEC(".maps");
+} skb_sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, 32768);
     __type(key, struct sock_key);
     __type(value, int);
-} sock_map SEC(".maps");
+} msg_sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -598,8 +598,6 @@ int skb_verdict(struct __sk_buff *skb) {
 
     int done_idx = _parse_skb(skb, pranges, true);
 
-    bpf_log("done_idx: %d", done_idx);
-
     struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
     if (ctx == NULL) {
         bpf_err("ERROR: Failed to init filter context");
@@ -641,7 +639,7 @@ int skb_verdict(struct __sk_buff *skb) {
     bpf_profile_end(sk_skb);
 
     u64 dir = is_downstream ? BPF_F_INGRESS : 0;
-    if (bpf_sk_redirect_hash(skb, &egress, &ekey, dir) == SK_DROP) {
+    if (bpf_sk_redirect_hash(skb, &skb_sock_map, &ekey, dir) == SK_DROP) {
         bpf_err("ERROR: Failed to redirect skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
         res = PR_UTRN;
     }
@@ -683,18 +681,6 @@ int msg_verdict(struct sk_msg_md *msg) {
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
-    bool is_proxy = _cmp_proxy_addr(&ikey.local);
-    if (is_proxy) {
-        // struct sock_key ekey = _invert_sock_key(&ikey);
-        // if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-        //     bpf_err("ERROR: Failed to accelerate msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        // }
-
-        bpf_log("Passing msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-
-        return SK_PASS;
-    }
-
     // check if this is a connection we need to redirect without parsing
     // i.e. L4 acceleration
     bool local_in_network = bpf_ntohl(ikey.local.ip4) >= bpf_ntohl(ip4_start) && bpf_ntohl(ikey.local.ip4) <= bpf_ntohl(ip4_end);
@@ -703,7 +689,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         if (ikey.remote.ip4 == gw) return SK_PASS;
         struct sock_key ekey = _invert_sock_key(&ikey);
 
-        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+        if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
             bpf_err("ERROR: Failed to accelerate msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
         }
         else {
@@ -777,7 +763,7 @@ int msg_verdict(struct sk_msg_md *msg) {
         return SK_DROP;
     }
     else if (res == PR_PASS) {
-        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+        if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
             bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             res = PR_UTRN;
         }
@@ -827,20 +813,20 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
         bool is_proxy = _cmp_proxy_addr(&skey.remote);
 
         void *map = NULL;
-        if (in_network) map = &sock_map;
+        if (in_network) map = &msg_sock_map;
         else if (is_proxy) {
-            map = (_is_loopback(&skey.remote)) ? (void*)&sock_map : (void*)&egress;
+            map = (_is_loopback(&skey.remote)) ? (void*)&msg_sock_map : (void*)&skb_sock_map;
         }
         else {
             int* use_skmsg = bpf_map_lookup_elem(&sock_map_wait_list, &skey);
             if (use_skmsg != NULL) {
-                map = (*use_skmsg == 1) ? (void*)&sock_map : (void*)&egress;
+                map = (*use_skmsg == 1) ? (void*)&msg_sock_map : (void*)&skb_sock_map;
                 bpf_map_delete_elem(&sock_map_wait_list, &skey);
             }
         }
 
         if (map) {
-            bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+            bpf_log("Add socket [%pI4:%u->%pI4:%u], sk_msg: %d", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port, map == &msg_sock_map);
 
             if (bpf_sock_hash_update(ops, map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
