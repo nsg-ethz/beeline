@@ -9,5 +9,7 @@ static __always_inline enum pr_action _load_balance_{idx}(struct filter_ctx *ctx
     bpf_clamp_uminmax(idx, 0, {ring_len});
     ctx->dest = ring_{idx}[idx];
 
-        bpf_log("Load balancing packet to destination {%pI4:%u}", &ctx->dest.ip4, ctx->dest.port);
+    bpf_log("Load balancing packet to destination {%pI4:%u}", &ctx->dest.ip4, ctx->dest.port);
+
+    return PR_PASS;
 }

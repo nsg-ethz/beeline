@@ -114,6 +114,20 @@ struct {
 } msg_sock_map SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct sock_key);
+    __type(value, struct addr_key);
+} utrn_wait_list SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct sock_key);
+    __type(value, struct addr_key);
+} skb_verdict SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 32768);
     __type(key, struct sock_key);
@@ -158,13 +172,6 @@ struct {
     __type(key, struct addr_key);
     __type(value, struct sock_key);
 } fib_downstream SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 16384);
-    __type(key, struct sock_key);
-    __type(value, struct addr_key);
-} utrn_wait_list SEC(".maps");
 
 const u32 percpu_key = 0;
 
@@ -405,8 +412,8 @@ static __always_inline enum pr_action forward_us_conn(const struct sock_key *uke
     return PR_PASS;
 }
 
-static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, struct filter_ctx *ctx) {
-    if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
+static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey) {
+    if (dkey == NULL || ukey == NULL) return PR_DROP;
     if (ukey->local.ip4 == 0 && ukey->remote.ip4 == 0) return PR_PASS;
 
     // at this point we have to ask the plugin how it wants to route
@@ -421,8 +428,8 @@ static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key
     return PR_PASS;
 }
 
-static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, struct filter_ctx *ctx) {
-    if (dkey == NULL || ukey == NULL || ctx == NULL) return PR_DROP;
+static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey) {
+    if (dkey == NULL || ukey == NULL) return PR_DROP;
 
     // make upstream connection available for new requests
     if (_fib_insert(&ukey->local, false, ukey) < 0) {
@@ -567,17 +574,10 @@ static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pran
     return res;
 }
 
+// this function will only be called if kTLS is not active for this socket
 bpf_profile_def(sk_skb);
 SEC("sk_skb/stream_parser")
-int skb_parser(struct __sk_buff *skb)
-{
-	return skb->len;
-}
-
-SEC("sk_skb/stream_verdict")
-int skb_verdict(struct __sk_buff *skb) {
-    bpf_profile_start(sk_skb);
-
+int parse_skb(struct __sk_buff *skb) {
     // socket identifier of the ingress connection
     struct sock_key ikey = {
         .local = {
@@ -591,12 +591,16 @@ int skb_verdict(struct __sk_buff *skb) {
     };
 
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
-    bpf_log("Processing %dB skb from [%pI4:%u->%pI4:%u] (downstream: %d)", skb->len, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
+    bpf_log("Parsing %dB skb from [%pI4:%u->%pI4:%u] (downstream: %d)", skb->len, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
 
     int done_idx = _parse_skb(skb, pranges, true);
+    if (done_idx < 0) {
+        bpf_log("Could not parse header after %dB. Corking...", skb->len);
+        return 0;
+    }
 
     struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
     if (ctx == NULL) {
@@ -617,23 +621,84 @@ int skb_verdict(struct __sk_buff *skb) {
         bpf_stats_add(downstream_cx_tx_bytes_total, msg_len);
     }
 
-    if (res == PR_DROP) {
-        bpf_log("WARN: Drop skb from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        return SK_DROP;
+    if (bpf_map_update_elem(&skb_verdict, &ikey, &ctx->dest, BPF_ANY) < 0) {
+        bpf_err("ERROR: Failed to save verdict");
     }
-    if (res == PR_UTRN) {
-        bpf_err("ERROR: Invalid UTRN");
-        return SK_DROP;
+
+    return msg_len;
+}
+
+SEC("sk_skb/stream_verdict")
+int process_skb(struct __sk_buff *skb) {
+    bpf_profile_start(sk_skb);
+
+    // socket identifier of the ingress connection
+    struct sock_key ikey = {
+        .local = {
+            .ip4 = skb->remote_ip4,
+            .port = bpf_ntohl(skb->remote_port)
+        },
+        .remote = {
+            .ip4 = skb->local_ip4,
+            .port = skb->local_port
+        }
+    };
+
+    bool is_downstream = _cmp_proxy_addr(&ikey.remote);
+    bpf_log("Processing %dB skb from [%pI4:%u->%pI4:%u] (downstream: %d)", skb->len, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
+
+    enum pr_action res = PR_PASS;
+    struct addr_key *dest = bpf_map_lookup_elem(&skb_verdict, &ikey);
+
+    // skb_parser is only called for unencrypted (no kTLS) sockets
+    if (dest == NULL) {
+        bpf_log("No skb verdict found, parsing now...");
+
+        struct prange pranges[MAX_MATCHES] = { 0 };
+        int done_idx = _parse_skb(skb, pranges, true);
+
+        struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
+        if (ctx == NULL) {
+            bpf_err("ERROR: Failed to init filter context");
+            return SK_DROP;
+        }
+        _init_filter_ctx((char*)(long)skb->data, ctx, done_idx, pranges);
+
+        res = _match(skb, ctx, &ikey, is_downstream);
+
+        u32 msg_len = ctx->content_length+ctx->done_idx+2;
+        bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
+
+        if (is_downstream) {
+            bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
+        }
+        else {
+            bpf_stats_add(downstream_cx_tx_bytes_total, msg_len);
+        }
+
+        if (res == PR_DROP) {
+            bpf_log("WARN: Drop skb from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+            return SK_DROP;
+        }
+        if (res == PR_UTRN) {
+            bpf_err("ERROR: Invalid UTRN");
+            return SK_DROP;
+        }
+
+        dest = &ctx->dest;
+    }
+    else {
+        bpf_map_delete_elem(&skb_verdict, &ikey);
     }
 
     struct sock_key ekey = { 0 };
-    res = _fib_query(&ctx->dest, !is_downstream, &ekey);
+    res = _fib_query(dest, !is_downstream, &ekey);
 
     if (is_downstream) {
-        post_forward_ds_conn(&ikey, &ekey, ctx);
+        post_forward_ds_conn(&ikey, &ekey);
     }
     else {
-        post_forward_us_conn(&ikey, &ekey, ctx);
+        post_forward_us_conn(&ikey, &ekey);
     }
 
     bpf_profile_end(sk_skb);
@@ -649,7 +714,7 @@ int skb_verdict(struct __sk_buff *skb) {
     }
 
     if (res == PR_UTRN) {
-        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
+        if (bpf_map_update_elem(&utrn_wait_list, &ikey, dest, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }
         else {
@@ -663,7 +728,7 @@ int skb_verdict(struct __sk_buff *skb) {
 bpf_profile_def(sk_msg);
 bpf_profile_def(sk_msg_cork);
 SEC("sk_msg")
-int msg_verdict(struct sk_msg_md *msg) {
+int process_msg(struct sk_msg_md *msg) {
     bpf_profile_start(sk_msg);
 
     // socket identifier of the ingress connection
@@ -750,10 +815,10 @@ int msg_verdict(struct sk_msg_md *msg) {
     res = _fib_query(&ctx->dest, !is_downstream, &ekey);
 
     if (is_downstream) {
-        post_forward_ds_conn(&ikey, &ekey, ctx);
+        post_forward_ds_conn(&ikey, &ekey);
     }
     else {
-        post_forward_us_conn(&ikey, &ekey, ctx);
+        post_forward_us_conn(&ikey, &ekey);
     }
 
     bpf_profile_end(sk_msg);

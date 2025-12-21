@@ -151,8 +151,9 @@ impl<'obj> Proxy<'obj> {
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
         if tracing::event_enabled!(Level::TRACE) {
-            open_skel.progs.msg_verdict.set_log_level(1);
-            open_skel.progs.skb_verdict.set_log_level(1);
+            open_skel.progs.process_msg.set_log_level(1);
+            open_skel.progs.parse_skb.set_log_level(1);
+            open_skel.progs.process_skb.set_log_level(1);
         }
 
         let compiler = Compiler::new(config.clone());
@@ -201,11 +202,11 @@ impl<'obj> Proxy<'obj> {
         let skel = open_skel.load()?;
 
         let msg_sock_map_fd = skel.maps.msg_sock_map.as_fd().as_raw_fd();
-        skel.progs.msg_verdict.attach_sockmap(msg_sock_map_fd)?;
+        skel.progs.process_msg.attach_sockmap(msg_sock_map_fd)?;
 
         let skb_sock_map_fd = skel.maps.skb_sock_map.as_fd().as_raw_fd();
-        skel.progs.skb_parser.attach_sockmap(skb_sock_map_fd)?;
-        skel.progs.skb_verdict.attach_sockmap(skb_sock_map_fd)?;
+        skel.progs.parse_skb.attach_sockmap(skb_sock_map_fd)?;
+        skel.progs.process_skb.attach_sockmap(skb_sock_map_fd)?;
 
         let cgroup_fd = std::fs::OpenOptions::new()
             .read(true)
