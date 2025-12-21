@@ -202,9 +202,9 @@ impl<'obj> Proxy<'obj> {
         let sock_map_fd = skel.maps.sock_map.as_fd().as_raw_fd();
         skel.progs.msg_verdict.attach_sockmap(sock_map_fd)?;
 
-        // let egress_fd = skel.maps.egress.as_fd().as_raw_fd();
-        skel.progs.skb_parser.attach_sockmap(sock_map_fd)?;
-        skel.progs.skb_verdict.attach_sockmap(sock_map_fd)?;
+        let egress_fd = skel.maps.egress.as_fd().as_raw_fd();
+        skel.progs.skb_parser.attach_sockmap(egress_fd)?;
+        skel.progs.skb_verdict.attach_sockmap(egress_fd)?;
 
         let cgroup_fd = std::fs::OpenOptions::new()
             .read(true)
@@ -435,7 +435,7 @@ impl<'obj> Proxy<'obj> {
         debug!("Completed TLS handshake");
 
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
-        update_map(&self.skel.maps.sock_map, &ds_remote_addr_key, &fd)?;
+        update_map(&self.skel.maps.egress, &ds_remote_addr_key, &fd)?;
 
         let stream = ktls::config_ktls_server(stream).await?;
         debug!("Configured kTLS");
@@ -517,20 +517,16 @@ impl<'obj> Proxy<'obj> {
                     .lookup_and_delete_as(&ds_remote_addr_key)
                     .expect("Failed to lookup utrn_wait_list");
 
-                // check if the request has already been processed in the kernel and we only
-                // have to establish a new connection. In the case of TLS, the traffic
-                // was still encrypted, so we have to parse it now
-                let processed_in_kernel = us_remote_addr.is_some();
-                let us_remote_addr: SocketAddr = if !processed_in_kernel {
+                let Some(us_remote_addr) = us_remote_addr else {
                     warn!(
                         "No address found in wait list for downstream connection: {:?}",
                         &ds_remote_addr,
                     );
-
-                    "127.0.0.1:8001".parse().unwrap()
-                } else {
-                    us_remote_addr.unwrap().into()
+                    send_error(&mut downstream).await;
+                    continue;
                 };
+
+                let us_remote_addr: SocketAddr = us_remote_addr.into();
                 debug!("Opening upstream connection to {}", us_remote_addr);
 
                 let socket = TcpSocket::new_v4().unwrap();
@@ -550,7 +546,7 @@ impl<'obj> Proxy<'obj> {
                 // TODO: check if this wait list is still needed
                 let us_local_addr = socket.local_addr().unwrap();
                 let us_sock_inv_key =
-                    sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap();
+                    sock_key::try_from((&us_local_addr, &us_remote_addr)).unwrap();
                 update_map(&sock_map_wait_list, &us_sock_inv_key, &1)
                     .expect("Failed to insert into sock_map_wait_list");
 

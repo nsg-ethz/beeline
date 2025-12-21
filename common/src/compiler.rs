@@ -373,7 +373,7 @@ impl Compiler {
         filter.replace_code("ring_len", ring_len);
         filter.replace_defs("ring", ring);
 
-        let call = format!("_load_balance_{}(msg, ctx, ikey);", idx);
+        let call = format!("_load_balance_{}(ctx, ikey);", idx);
 
         (filter, call)
     }

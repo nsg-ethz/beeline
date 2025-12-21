@@ -448,24 +448,6 @@ static __always_inline bool _cmp_proxy_addr(struct addr_key *addr) {
 
 // ----------------------------------------------
 
-static __always_inline int _skip_tls(const struct __sk_buff *skb, bool tls) {
-    char *data = (char *)(long)skb->data;
-    char *data_end = (char *)(long)skb->data_end;
-    u32 len = (u32)(data_end - data) & MAX_BYTES;
-
-    if (len == 0) {
-        return 0;
-    }
-
-    u32 i;
-    bpf_for(i, 0, len + 1) {
-        if (data + i + 1 > data_end) return -1;
-        if (data[i] != 0) return i;
-    }
-
-    return -1;
-}
-
 static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *action) {
     state &= 0x1FF;
     input &= 0x7F;
@@ -484,7 +466,7 @@ static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *act
     *action = t.action;
 }
 
-static __always_inline int _parse_from(const char *data, const char *data_end, u16 start, struct prange *pranges, u32* cidx, u16* s) {
+static __always_inline int _parse_from(const char *data, const char *data_end, u16 start, struct prange *pranges, u32* cidx, u16* s, bool tls) {
     u32 len = (u32)(data_end - data) & MAX_BYTES;
 
     if (len-start == 0) {
@@ -495,6 +477,10 @@ static __always_inline int _parse_from(const char *data, const char *data_end, u
     bpf_for(i, start, len+1) {
         if (data + i + 1 > data_end) break;
         char c = data[i];
+
+        // skb clears the TLS header, but does not remove it
+        if (tls && c == '\0') continue;
+        tls = false;
 
         u16 a = 0;
         _next(*s, c, s, &a);
@@ -532,7 +518,7 @@ static __always_inline int _parse_from(const char *data, const char *data_end, u
 }
 
 static __always_inline int _parse_msg_from(const struct sk_msg_md *msg, u16 start, struct prange *pranges, u32* cidx, u16* s) {
-    return _parse_from(msg->data, msg->data_end, start, pranges, cidx, s);
+    return _parse_from(msg->data, msg->data_end, start, pranges, cidx, s, false);
 }
 
 bpf_profile_def(parse);
@@ -556,8 +542,8 @@ static __always_inline int _parse_msg(struct sk_msg_md *msg, struct prange *pran
     return res;
 }
 
-static __always_inline int _parse_skb_from(const struct __sk_buff *skb, u16 start, struct prange *pranges, u32* cidx, u16* s) {
-    return _parse_from((char *)(long)skb->data, (char *)(long)skb->data_end, start, pranges, cidx, s);
+static __always_inline int _parse_skb_from(const struct __sk_buff *skb, u16 start, struct prange *pranges, u32* cidx, u16* s, bool tls) {
+    return _parse_from((char *)(long)skb->data, (char *)(long)skb->data_end, start, pranges, cidx, s, tls);
 }
 
 static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pranges, bool tls) {
@@ -570,21 +556,14 @@ static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pran
         return -1;
     }
 
-    int offset = 0;
-    if (tls) {
-        // TODO: skip TLS header here
-        offset = 13;
-        // offset = _skip_tls(skb, tls);
-        if (offset < 0) return offset;
-    }
-
-    int res = _parse_skb_from(skb, offset, pranges, cidx, &s);
+    int res = _parse_skb_from(skb, 0, pranges, cidx, &s, tls);
 
     bpf_profile_end(parse);
 
     return res;
 }
 
+bpf_profile_def(sk_skb);
 SEC("sk_skb/stream_parser")
 int skb_parser(struct __sk_buff *skb)
 {
@@ -592,17 +571,18 @@ int skb_parser(struct __sk_buff *skb)
 }
 
 SEC("sk_skb/stream_verdict")
-int skb_verdict(struct __sk_buff *skb)
-{
+int skb_verdict(struct __sk_buff *skb) {
+    bpf_profile_start(sk_skb);
+
     // socket identifier of the ingress connection
     struct sock_key ikey = {
         .local = {
-            .ip4 = skb->local_ip4,
-            .port = skb->local_port
-        },
-        .remote = {
             .ip4 = skb->remote_ip4,
             .port = bpf_ntohl(skb->remote_port)
+        },
+        .remote = {
+            .ip4 = skb->local_ip4,
+            .port = skb->local_port
         }
     };
 
@@ -616,15 +596,6 @@ int skb_verdict(struct __sk_buff *skb)
 
     bpf_log("done_idx: %d", done_idx);
 
-    // TODO: actually parse the payload
-    struct addr_key dest = {
-        .ip4 = 16777343,
-        .port = 8001
-    };
-
-    struct sock_key ekey = { 0 };
-    res = _fib_query(&dest, !is_downstream, &ekey);
-
     struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
     if (ctx == NULL) {
         bpf_err("ERROR: Failed to init filter context");
@@ -632,22 +603,59 @@ int skb_verdict(struct __sk_buff *skb)
     }
     _init_filter_ctx((char*)(long)skb->data, ctx, done_idx, pranges);
 
-    if (bpf_sk_redirect_hash(skb, &sock_map, &ekey, 0) == SK_DROP) {
+    res = _match(skb, ctx, &ikey, is_downstream);
+
+    u32 msg_len = ctx->content_length+ctx->done_idx+2;
+    bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
+
+    if (is_downstream) {
+        bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
+    }
+    else {
+        bpf_stats_add(downstream_cx_tx_bytes_total, msg_len);
+    }
+
+    if (res == PR_DROP) {
+        bpf_log("WARN: Drop skb from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        return SK_DROP;
+    }
+    if (res == PR_UTRN) {
+        bpf_err("ERROR: Invalid UTRN");
+        return SK_DROP;
+    }
+
+    struct sock_key ekey = { 0 };
+    res = _fib_query(&ctx->dest, !is_downstream, &ekey);
+
+    if (is_downstream) {
+        post_forward_ds_conn(&ikey, &ekey, ctx);
+    }
+    else {
+        post_forward_us_conn(&ikey, &ekey, ctx);
+    }
+
+    bpf_profile_end(sk_skb);
+
+    u64 dir = is_downstream ? BPF_F_INGRESS : 0;
+    if (bpf_sk_redirect_hash(skb, &egress, &ekey, dir) == SK_DROP) {
         bpf_err("ERROR: Failed to redirect skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-
-        // Somehow, the kernel sometimes crashes if we don't redirect
-        // struct sock_key ikey_inv = _invert_sock_key(&ikey);
-        // if (bpf_sk_redirect_hash(skb, &sock_map, &ikey_inv, BPF_F_INGRESS) == SK_DROP) {
-        //     bpf_err("ERROR: Fallback failed, dropping...");
-        //     return SK_DROP;
-        // }
-
-        return SK_PASS;
+        res = PR_UTRN;
     }
     else {
         bpf_log("Redirecting skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
         return SK_PASS;
     }
+
+    if (res == PR_UTRN) {
+        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add uturn token to wait list");
+        }
+        else {
+            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        }
+    }
+
+    return SK_PASS;
 }
 
 bpf_profile_def(sk_msg);
@@ -726,7 +734,7 @@ int msg_verdict(struct sk_msg_md *msg) {
     }
     _init_filter_ctx(msg->data, ctx, done_idx, pranges);
 
-    res = _match(msg, ctx, &ikey);
+    res = _match(msg, ctx, &ikey, is_downstream);
 
     u32 msg_len = ctx->content_length+ctx->done_idx+2;
     bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
@@ -770,11 +778,11 @@ int msg_verdict(struct sk_msg_md *msg) {
         void *map = &sock_map;
         if (_cmp_proxy_addr(&ekey.remote)) {
             bpf_log("Redirecting to egress socket");
-            // map = &egress;
+            map = &egress;
             dir = 0;
         }
 
-        if (bpf_msg_redirect_hash(msg, &sock_map, &ekey, dir) == SK_DROP) {
+        if (bpf_msg_redirect_hash(msg, map, &ekey, dir) == SK_DROP) {
             bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             res = PR_UTRN;
         }
@@ -846,7 +854,7 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
         else {
             bpf_log("Add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
 
-            if (bpf_sock_hash_update(ops, &sock_map, &skey, BPF_ANY) < 0) {
+            if (bpf_sock_hash_update(ops, &egress, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
             }
