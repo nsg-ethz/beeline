@@ -159,6 +159,7 @@ struct fib_pqueue {
     __type(value, struct sock_key);
 };
 
+// TODO: this should be split between skb and sk_msg hooks
 struct {
     __uint(type, BPF_MAP_TYPE_HASH_OF_MAPS);
     __uint(max_entries, 8192);
@@ -703,14 +704,20 @@ int process_skb(struct __sk_buff *skb) {
 
     bpf_profile_end(sk_skb);
 
-    u64 dir = is_downstream ? BPF_F_INGRESS : 0;
-    if (bpf_sk_redirect_hash(skb, &skb_sock_map, &ekey, dir) == SK_DROP) {
-        bpf_err("ERROR: Failed to redirect skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        res = PR_UTRN;
+    if (res == PR_DROP) {
+        bpf_err("No FIB entry found for %pI4:%u. Dropping.", &dest->ip4, dest->port);
+        return SK_DROP;
     }
-    else {
-        bpf_log("Redirecting skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-        return SK_PASS;
+    else if (res == PR_PASS) {
+        u64 dir = is_downstream ? BPF_F_INGRESS : 0;
+        if (bpf_sk_redirect_hash(skb, &skb_sock_map, &ekey, dir) == SK_DROP) {
+            bpf_err("ERROR: Failed to redirect skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            res = PR_UTRN;
+        }
+        else {
+            bpf_log("Redirecting skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            return SK_PASS;
+        }
     }
 
     if (res == PR_UTRN) {

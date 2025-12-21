@@ -215,16 +215,16 @@ impl<'obj> Proxy<'obj> {
             .into_raw_fd();
         let sockops = skel.progs.monitor_sockets.attach_cgroup(cgroup_fd)?;
 
-        // let crypto = &skel.progs.crypto_setup;
-        // let input = libbpf_rs::ProgramInput::default();
+        let crypto = &skel.progs.crypto_setup;
+        let input = libbpf_rs::ProgramInput::default();
 
-        // let res = crypto.test_run(input)?;
-        // if res.return_value != 0 {
-        //     let err = std::io::Error::from_raw_os_error(res.return_value as i32);
-        //     bail!("Crypto setup failed {:?}", err);
-        // }
+        let res = crypto.test_run(input)?;
+        if res.return_value != 0 {
+            let err = std::io::Error::from_raw_os_error(res.return_value as i32);
+            bail!("Crypto setup failed {:?}", err);
+        }
 
-        // debug!("Crypto setup successful");
+        debug!("Crypto setup successful");
 
         Ok(Self {
             address,
@@ -525,6 +525,7 @@ impl<'obj> Proxy<'obj> {
                         "No address found in wait list for downstream connection: {:?}",
                         &ds_remote_addr,
                     );
+                    buf.clear();
                     send_error(&mut downstream).await;
                     continue;
                 };
@@ -538,15 +539,16 @@ impl<'obj> Proxy<'obj> {
                     _ => panic!("Unexpected IP version"),
                 };
                 let us_local_addr = SocketAddr::V4(SocketAddrV4::new(gw_ip, 0));
-                match socket.bind(us_local_addr) {
-                    Ok(_) => (),
+                let us_local_addr = match socket.bind(us_local_addr) {
+                    Ok(_) => socket.local_addr().unwrap(),
                     Err(e) => {
                         error!("Failed to bind socket: {}", e);
+                        buf.clear();
+                        send_error(&mut downstream).await;
                         continue;
                     }
-                }
+                };
 
-                let us_local_addr = socket.local_addr().unwrap();
                 let us_sock_key = if use_skmsg {
                     sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap()
                 } else {
@@ -557,9 +559,17 @@ impl<'obj> Proxy<'obj> {
 
                 debug!("Bound socket to {}", us_local_addr);
 
-                let Ok(mut upstream) = socket.connect(us_remote_addr).await else {
-                    send_error(&mut downstream).await;
-                    continue;
+                let mut upstream = match socket.connect(us_remote_addr).await {
+                    Ok(upstream) => upstream,
+                    Err(err) => {
+                        warn!(
+                            "Failed to connect from {} to {}: {}",
+                            us_local_addr, us_remote_addr, err
+                        );
+                        buf.clear();
+                        send_error(&mut downstream).await;
+                        continue;
+                    }
                 };
 
                 let us_local_addr_key = addr_key::try_from(&us_local_addr).unwrap();
@@ -574,6 +584,7 @@ impl<'obj> Proxy<'obj> {
                 let msg = buf.drain(..req_len).collect::<Vec<u8>>();
                 let mut req_buf = Cursor::new(&msg);
                 if upstream.write_all_buf(&mut req_buf).await.is_err() {
+                    buf.clear();
                     send_error(&mut downstream).await;
                     continue;
                 }
