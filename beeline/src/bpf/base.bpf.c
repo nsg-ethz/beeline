@@ -111,6 +111,13 @@ struct {
     __uint(max_entries, 32768);
     __type(key, struct sock_key);
     __type(value, int);
+} tls_msg_sock_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_SOCKHASH);
+    __uint(max_entries, 32768);
+    __type(key, struct sock_key);
+    __type(value, int);
 } msg_sock_map SEC(".maps");
 
 struct {
@@ -126,6 +133,18 @@ struct {
     __type(key, struct sock_key);
     __type(value, struct addr_key);
 } skb_verdict SEC(".maps");
+
+struct tls_size {
+    u16 header;
+    u16 trailer;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct sock_key);
+    __type(value, struct tls_size);
+} tls_sizes SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -478,7 +497,7 @@ static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *act
     *action = t.action;
 }
 
-static __always_inline int _parse_from(const char *data, const char *data_end, u16 start, struct prange *pranges, u32* cidx, u16* s, bool tls) {
+static __always_inline int _parse_from(const char *data, const char *data_end, u16 start, struct prange *pranges, u32* cidx, u16 *s, u16 *null_prefix) {
     u32 len = (u32)(data_end - data) & MAX_BYTES;
 
     if (len-start == 0) {
@@ -491,8 +510,10 @@ static __always_inline int _parse_from(const char *data, const char *data_end, u
         char c = data[i];
 
         // skb clears the TLS header, but does not remove it
-        if (tls && c == '\0') continue;
-        tls = false;
+        if (null_prefix && c == '\0' && i == *null_prefix) {
+            *null_prefix = i + 1;
+            continue;
+        }
 
         u16 a = 0;
         _next(*s, c, s, &a);
@@ -530,7 +551,7 @@ static __always_inline int _parse_from(const char *data, const char *data_end, u
 }
 
 static __always_inline int _parse_msg_from(const struct sk_msg_md *msg, u16 start, struct prange *pranges, u32* cidx, u16* s) {
-    return _parse_from(msg->data, msg->data_end, start, pranges, cidx, s, false);
+    return _parse_from(msg->data, msg->data_end, start, pranges, cidx, s, NULL);
 }
 
 bpf_profile_def(parse);
@@ -554,11 +575,11 @@ static __always_inline int _parse_msg(struct sk_msg_md *msg, struct prange *pran
     return res;
 }
 
-static __always_inline int _parse_skb_from(const struct __sk_buff *skb, u16 start, struct prange *pranges, u32* cidx, u16* s, bool tls) {
-    return _parse_from((char *)(long)skb->data, (char *)(long)skb->data_end, start, pranges, cidx, s, tls);
+static __always_inline int _parse_skb_from(const struct __sk_buff *skb, u16 start, struct prange *pranges, u32* cidx, u16* s, u16 *null_prefix) {
+    return _parse_from((char *)(long)skb->data, (char *)(long)skb->data_end, start, pranges, cidx, s, null_prefix);
 }
 
-static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pranges, bool tls) {
+static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pranges, u16 *null_prefix) {
     bpf_profile_start(parse);
     u32 cidx[MAX_MATCHES] = { 0 };
     u16 s = s_init;
@@ -568,7 +589,7 @@ static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pran
         return -1;
     }
 
-    int res = _parse_skb_from(skb, 0, pranges, cidx, &s, tls);
+    int res = _parse_skb_from(skb, 0, pranges, cidx, &s, null_prefix);
 
     bpf_profile_end(parse);
 
@@ -576,6 +597,7 @@ static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pran
 }
 
 // this function will only be called if kTLS is not active for this socket
+// that's also the reason why we don't set the tls_size info for this msg
 bpf_profile_def(sk_skb);
 SEC("sk_skb/stream_parser")
 int parse_skb(struct __sk_buff *skb) {
@@ -597,7 +619,7 @@ int parse_skb(struct __sk_buff *skb) {
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
 
-    int done_idx = _parse_skb(skb, pranges, true);
+    int done_idx = _parse_skb(skb, pranges, NULL);
     if (done_idx < 0) {
         bpf_log("Could not parse header after %dB. Corking...", skb->len);
         return 0;
@@ -651,12 +673,24 @@ int process_skb(struct __sk_buff *skb) {
     enum pr_action res = PR_PASS;
     struct addr_key *dest = bpf_map_lookup_elem(&skb_verdict, &ikey);
 
-    // skb_parser is only called for unencrypted (no kTLS) sockets
+    // skb_parser is only called for non-kTLS sockets
+    struct tls_size tls = { 0 };
     if (dest == NULL) {
         bpf_log("No skb verdict found, parsing now...");
 
         struct prange pranges[MAX_MATCHES] = { 0 };
-        int done_idx = _parse_skb(skb, pranges, true);
+        int done_idx = _parse_skb(skb, pranges, &tls.header);
+
+        if (done_idx < 0) {
+            if (done_idx == -skb->len || done_idx == -skb->len + 1) {
+                bpf_log("Could not parse header after %dB. Corking...", skb->len);
+
+                return 0;
+            }
+
+            bpf_err("ERROR: Failed to parse message (%d, %d): %s", skb->len, done_idx, skb->data);
+            return SK_PASS;
+        }
 
         struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
         if (ctx == NULL) {
@@ -668,7 +702,8 @@ int process_skb(struct __sk_buff *skb) {
         res = _match(skb, ctx, &ikey, is_downstream);
 
         u32 msg_len = ctx->content_length+ctx->done_idx+2;
-        bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
+        tls.trailer = skb->len - msg_len;
+        bpf_log("tls header: %d trailer: %d", tls.header, tls.trailer);
 
         if (is_downstream) {
             bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
@@ -709,12 +744,20 @@ int process_skb(struct __sk_buff *skb) {
         return SK_DROP;
     }
     else if (res == PR_PASS) {
-        u64 dir = is_downstream ? BPF_F_INGRESS : 0;
-        if (bpf_sk_redirect_hash(skb, &skb_sock_map, &ekey, dir) == SK_DROP) {
+        if (is_downstream) {
+            ekey = _invert_sock_key(&ekey);
+        }
+
+        if (bpf_sk_redirect_hash(skb, &skb_sock_map, &ekey, 0) == SK_DROP) {
             bpf_err("ERROR: Failed to redirect skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             res = PR_UTRN;
         }
         else {
+            bool remove_tls = (tls.header + tls.trailer) != 0;
+            if (remove_tls && bpf_map_update_elem(&tls_sizes, &ekey, &tls, BPF_ANY) < 0) {
+                bpf_err("ERROR: Failed to update TLS size for [%pI4:%u->%pI4:%u]", &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            }
+
             bpf_log("Redirecting skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             return SK_PASS;
         }
@@ -727,6 +770,36 @@ int process_skb(struct __sk_buff *skb) {
         else {
             bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
         }
+    }
+
+    return SK_PASS;
+}
+
+SEC("sk_msg")
+int remove_tls(struct sk_msg_md *msg) {
+    // socket identifier of the ingress connection
+    struct sock_key ikey = {
+        .local = {
+            .ip4 = msg->local_ip4,
+            .port = msg->local_port
+        },
+        .remote = {
+            .ip4 = msg->remote_ip4,
+            .port = bpf_ntohl(msg->remote_port)
+        }
+    };
+
+    struct tls_size *tls = bpf_map_lookup_elem(&tls_sizes, &ikey);
+    if (!tls) return SK_PASS;
+
+    bpf_map_delete_elem(&tls_sizes, &ikey);
+    bpf_log("Removing tls from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+
+    if (bpf_msg_pop_data(msg, 0, tls->header, 0) < 0) {
+        bpf_err("ERROR: Failed to remove tls header");
+    }
+    if (bpf_msg_pop_data(msg, msg->size-tls->trailer, tls->trailer, 0) < 0) {
+        bpf_err("ERROR: Failed to remove tls trailer");
     }
 
     return SK_PASS;
@@ -903,6 +976,13 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             if (bpf_sock_hash_update(ops, map, &skey, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                 return SK_PASS;
+            }
+
+            if (map == &skb_sock_map) {
+                if (bpf_sock_hash_update(ops, &tls_msg_sock_map, &skey, BPF_ANY) < 0) {
+                    bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
+                    return SK_PASS;
+                }
             }
         }
     }

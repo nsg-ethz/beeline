@@ -8,6 +8,10 @@ description = "A simple HTTP server that echoes the request body. It optionally 
 anyhow = "1.0.89"
 axum = "0.8.1"
 clap = { version = "4.5.3", features = ["derive"] }
+hyper = "1.8.1"
+hyper-util = { version = "0.1.19", features = ["tokio", "server-auto", "http1"] }
 log = "0.4.25"
 tokio = { version = "1.36.0", features = ["full"] }
+tower = { version = "0.5.2", features = ["util"] }
+tracing = "0.1.44"
 tracing-subscriber = { version = "^0.3.16", features = ["env-filter"] }

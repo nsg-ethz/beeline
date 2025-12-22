@@ -204,6 +204,9 @@ impl<'obj> Proxy<'obj> {
         let msg_sock_map_fd = skel.maps.msg_sock_map.as_fd().as_raw_fd();
         skel.progs.process_msg.attach_sockmap(msg_sock_map_fd)?;
 
+        let tls_msg_sock_map_fd = skel.maps.tls_msg_sock_map.as_fd().as_raw_fd();
+        skel.progs.remove_tls.attach_sockmap(tls_msg_sock_map_fd)?;
+
         let skb_sock_map_fd = skel.maps.skb_sock_map.as_fd().as_raw_fd();
         skel.progs.parse_skb.attach_sockmap(skb_sock_map_fd)?;
         skel.progs.process_skb.attach_sockmap(skb_sock_map_fd)?;
