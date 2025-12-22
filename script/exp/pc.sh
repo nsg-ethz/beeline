@@ -35,7 +35,7 @@ function validate_policy {
 }
 
 function frontend_args {
-    alphabet=({a..z})
+    alphabet=(a b c d e f g h i j k l m o p q r s t u v w x y z)
     args="-H"
 
     for i in "${!alphabet[@]}"; do
@@ -137,8 +137,11 @@ fi
 if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
     echo Running policy 2
 
-    for n1 in $(seq 1 10); do
-        for m1 in $(seq 1000 1000 16000); do
+    n1=1
+    m1=7000
+
+    # for n1 in $(seq 1 10); do
+    #     for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
             if [[ ${LEN} -gt 24000 ]]; then
                 continue
@@ -162,10 +165,10 @@ if [[ -z "${POLICY}" || ${POLICY} == "2" ]]; then
             FRONTEND_ARGS=$(frontend_args $n1)
 
             script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p2-n1-${n1}-m1-${m1}-n2-${n2} -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO}
-            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p2-n1-${n1}-m1-${m1}-n2-${n2} -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}
-            script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p2-n1-${n1}-m1-${m1}-n2-${n2} -p envoy_l4fp -s ${SCRIPT} -f ${FROM} -t ${TO}
-        done
-    done
+            # script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p2-n1-${n1}-m1-${m1}-n2-${n2} -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}
+            # script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${REPLICAS} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p2-n1-${n1}-m1-${m1}-n2-${n2} -p envoy_l4fp -s ${SCRIPT} -f ${FROM} -t ${TO}
+    #     done
+    # done
 fi
 
 if [[ -z "${POLICY}" || ${POLICY} == "3" ]]; then
@@ -212,18 +215,21 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
     P4_REPLICAS=$(echo "3 * ${REPLICAS}" | bc)
     P4_SERVICES=${REPLICAS}
 
-    for n1 in $(seq 1 10); do
-        for m1 in $(seq 1000 1000 16000); do
+    n1=1
+    m1=16000
+
+    # for n1 in $(seq 1 10); do
+    #     for m1 in $(seq 1000 1000 16000); do
             LEN=$(echo "${n1} * ${m1}" | bc)
             if [[ ${LEN} -gt 24000 ]]; then
                 continue
             fi
             compute_complexity ${LEN}
 
-            if [[ -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/envoy-k6-e1-summary.json && -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/envoy_l4fp-k6-e1-summary.json && -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/beeline-k6-e1-summary.json ]]; then
-                echo -e "${COLOR_GREEN}Found existing results${COLOR_OFF}"
-                continue
-            fi
+            # if [[ -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/envoy-k6-e1-summary.json && -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/envoy_l4fp-k6-e1-summary.json && -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/beeline-k6-e1-summary.json ]]; then
+            #     echo -e "${COLOR_GREEN}Found existing results${COLOR_OFF}"
+            #     continue
+            # fi
 
             ${POLGEN_BIN} -t beeline --n1 ${n1} --m1 ${m1} --n2 ${n2} --n3 ${n3} --m3 ${m3} --n4 ${n4} -o ${CONFIG}
             scp -q ${CONFIG} ${DEST_HOST}:${ROOT}/../../config/beeline/pc.yaml
@@ -246,23 +252,23 @@ if [[ -z "${POLICY}" || ${POLICY} == "4" ]]; then
             PAYLOAD=$(eval "printf 'a%.0s' {1..$m1}")
             FRONTEND_ARGS=$(echo \'$(frontend_args $n1),Authorization: Bearer ${JWT}\')
 
-            if [[ -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/beeline-k6-e1-summary.json ]]; then
-                echo "Beeline exists"
-            else
-                script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO}
-            fi
+            # if [[ -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/beeline-k6-e1-summary.json ]]; then
+            #     echo "Beeline exists"
+            # else
+                # script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-beeline.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p beeline -s ${SCRIPT} -f ${FROM} -t ${TO}
+            # fi
 
-            if [[ -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/envoy-k6-e1-summary.json ]]; then
-                echo "Envoy exists"
-            else
+            # if [[ -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/envoy-k6-e1-summary.json ]]; then
+            #     echo "Envoy exists"
+            # else
                 script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy -s ${SCRIPT} -f ${FROM} -t ${TO}
-            fi
+            # fi
 
-            if [[ -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/envoy_l4fp-k6-e1-summary.json ]]; then
-                echo "L4FP exists"
-            else
-                script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy_l4fp -s ${SCRIPT} -f ${FROM} -t ${TO}
-            fi
-        done
-    done
+            # if [[ -f ${ROOT}/../../res/runs/${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4}/envoy_l4fp-k6-e1-summary.json ]]; then
+            #     echo "L4FP exists"
+            # else
+                # script/bench.sh sm -e "PROXY_CONFIG=pc.yaml REPLICAS=${P4_REPLICAS} SERVICES=${P4_SERVICES} FRONTEND_ARGS=${FRONTEND_ARGS}" -c docker/ssm-envoy.yaml -n ${NAME}/p4-n1-${n1}-m1-${m1}-n2-${n2}-n3-${n3}-m3-${m3}-n4-${n4} -p envoy_l4fp -s ${SCRIPT} -f ${FROM} -t ${TO}
+            # fi
+    #     done
+    # done
 fi
