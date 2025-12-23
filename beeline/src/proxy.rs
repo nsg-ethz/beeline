@@ -64,8 +64,8 @@ fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
     Ok(())
 }
 
-fn add_pqueue_to_fib<M: MapCore>(map: &M, addr: addr_key) -> Result<()> {
-    let key = unsafe { addr.as_bytes() };
+fn add_pqueue_to_fib<M: MapCore>(map: &M, key: fib_key) -> Result<()> {
+    let key = unsafe { key.as_bytes() };
     if map.lookup(&key, MapFlags::empty())?.is_some() {
         return Ok(());
     }
@@ -285,12 +285,26 @@ impl<'obj> Proxy<'obj> {
             .unwrap_or_default();
 
         for addr in addrs {
-            add_pqueue_to_fib(&fib, addr)?;
+            add_pqueue_to_fib(&fib, fib_key { addr, sk_msg: 0 })?;
+            add_pqueue_to_fib(&fib, fib_key { addr, sk_msg: 1 })?;
         }
 
         if let Some(proxy) = self.config.proxy {
             let proxy_addr = addr_key::try_from(&proxy)?;
-            add_pqueue_to_fib(&fib, proxy_addr)?;
+            add_pqueue_to_fib(
+                &fib,
+                fib_key {
+                    addr: proxy_addr,
+                    sk_msg: 0,
+                },
+            )?;
+            add_pqueue_to_fib(
+                &fib,
+                fib_key {
+                    addr: proxy_addr,
+                    sk_msg: 1,
+                },
+            )?;
         }
 
         let profile = env::var("BPF_PROFILE").unwrap_or("0".to_string());
@@ -537,6 +551,7 @@ impl<'obj> Proxy<'obj> {
                 debug!("Opening upstream connection to {}", us_remote_addr);
 
                 let socket = TcpSocket::new_v4().unwrap();
+                socket.set_reuseaddr(true).unwrap();
                 let gw_ip = match us_remote_addr.ip() {
                     IpAddr::V4(ip) => get_gw_ip(ip),
                     _ => panic!("Unexpected IP version"),

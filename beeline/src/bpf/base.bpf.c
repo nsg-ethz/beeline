@@ -178,11 +178,15 @@ struct fib_pqueue {
     __type(value, struct sock_key);
 };
 
-// TODO: this should be split between skb and sk_msg hooks
+struct fib_key {
+    struct addr_key addr;
+    u32 sk_msg;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_HASH_OF_MAPS);
     __uint(max_entries, 8192);
-    __type(key, struct addr_key);
+    __type(key, struct fib_key);
 	__array(values, struct fib_pqueue);
 } fib_upstream SEC(".maps");
 
@@ -381,13 +385,17 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
     return 0;
 }
 
-static __always_inline int _fib_insert(const struct addr_key *addr, bool downstream, const struct sock_key *key) {
+static __always_inline int _fib_insert(const struct addr_key *addr, bool downstream, bool sk_msg, const struct sock_key *key) {
     bpf_log("Insert to FIB {%pI4:%u %d} downstream: %d", addr->ip4, addr->port, downstream);
     if (downstream) {
         return bpf_map_update_elem(&fib_downstream, addr, key, BPF_ANY);
     }
     else {
-        struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, addr);
+        struct fib_key queue_key = {
+            .addr = *addr,
+            .sk_msg = (sk_msg ? 1 : 0)
+        };
+        struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, &queue_key);
         if (pqueue == NULL) {
             bpf_log("WARN: No pqueue found for forwarding token");
             return -1;
@@ -397,7 +405,7 @@ static __always_inline int _fib_insert(const struct addr_key *addr, bool downstr
     }
 }
 
-static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool downstream, struct sock_key *ekey) {
+static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool downstream, bool sk_msg, struct sock_key *ekey) {
     if (downstream) {
         struct sock_key *res_ptr;
         res_ptr = bpf_map_lookup_elem(&fib_downstream, addr);
@@ -409,7 +417,11 @@ static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool dow
         return PR_DROP;
     }
 
-    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, addr);
+    struct fib_key queue_key = {
+        .addr = *addr,
+        .sk_msg = (sk_msg ? 1 : 0)
+    };
+    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, &queue_key);
     if (pqueue == NULL) {
         bpf_err("ERROR: No pqueue found for addr {%pI4:%u}", &addr->ip4, addr->port);
         return PR_UTRN;
@@ -432,13 +444,13 @@ static __always_inline enum pr_action forward_us_conn(const struct sock_key *uke
     return PR_PASS;
 }
 
-static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey) {
+static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key *dkey, const struct sock_key *ukey, bool sk_msg) {
     if (dkey == NULL || ukey == NULL) return PR_DROP;
     if (ukey->local.ip4 == 0 && ukey->remote.ip4 == 0) return PR_PASS;
 
     // at this point we have to ask the plugin how it wants to route
     // this request back to the client
-    if (_fib_insert(&ukey->remote, true, dkey) < 0) {
+    if (_fib_insert(&ukey->remote, true, sk_msg, dkey) < 0) {
         bpf_err("ERROR: Failed to set downstream route");
     }
     else {
@@ -448,11 +460,11 @@ static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key
     return PR_PASS;
 }
 
-static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey) {
+static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, bool sk_msg) {
     if (dkey == NULL || ukey == NULL) return PR_DROP;
 
     // make upstream connection available for new requests
-    if (_fib_insert(&ukey->local, false, ukey) < 0) {
+    if (_fib_insert(&ukey->local, false, sk_msg, ukey) < 0) {
         bpf_log("WARN: Failed to reinsert upstream socket to FIB");
     }
 
@@ -728,13 +740,13 @@ int process_skb(struct __sk_buff *skb) {
     }
 
     struct sock_key ekey = { 0 };
-    res = _fib_query(dest, !is_downstream, &ekey);
+    res = _fib_query(dest, !is_downstream, false, &ekey);
 
     if (is_downstream) {
-        post_forward_ds_conn(&ikey, &ekey);
+        post_forward_ds_conn(&ikey, &ekey, false);
     }
     else {
-        post_forward_us_conn(&ikey, &ekey);
+        post_forward_us_conn(&ikey, &ekey, false);
     }
 
     bpf_profile_end(sk_skb);
@@ -892,13 +904,13 @@ int process_msg(struct sk_msg_md *msg) {
     }
 
     struct sock_key ekey = { 0 };
-    res = _fib_query(&ctx->dest, !is_downstream, &ekey);
+    res = _fib_query(&ctx->dest, !is_downstream, true, &ekey);
 
     if (is_downstream) {
-        post_forward_ds_conn(&ikey, &ekey);
+        post_forward_ds_conn(&ikey, &ekey, true);
     }
     else {
-        post_forward_us_conn(&ikey, &ekey);
+        post_forward_us_conn(&ikey, &ekey, true);
     }
 
     bpf_profile_end(sk_msg);
