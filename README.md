@@ -26,9 +26,9 @@ Generally, the `ms` prefix stands for [Media Service](https://github.com/delimit
 
 ## Build
 
-This project is tested and evaluated on Linux kernel version 6.11.
+This project is tested and evaluated on Linux kernel version 6.16.
 However, older versions should work as well if the `jwt` filter is disabled.
-If you want to install kernel 6.11, make sure to set the `CONFIG_DEBUG_INFO_BTF="y"` config option before compiling.
+If you want to install kernel 6.16, make sure to set the `CONFIG_DEBUG_INFO_BTF="y"` config option before compiling.
 
 Install the following packets:
 
@@ -50,6 +50,7 @@ Finally, load the crypto kernel module that exposes the crypto API to eBPF:
 ```
 ./scripts/reload-lkm.sh
 ```
+Check if the kfuncs have registered correctly. Consult [this tutorial](https://eunomia.dev/tutorials/features/struct_ops/) if an error occurs, .e.g, if `dmesg` logs "missing module BTF, cannot register kfunc".
 
 You should now be able to compile and run Beeline as follows:
 
