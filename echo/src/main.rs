@@ -11,7 +11,7 @@ use clap::Parser;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server;
 use std::{collections::HashMap, str::FromStr, time::Duration};
-use tokio::signal::unix::{signal, SignalKind};
+// use tokio::signal::unix::{signal, SignalKind};
 use tower::Service;
 use tracing::{info, trace};
 
@@ -144,10 +144,10 @@ async fn echo(headers: HeaderMap, body: Bytes) -> Result<impl IntoResponse, Stat
     }
 }
 
-async fn shutdown_signal() {
-    let mut sigterm = signal(SignalKind::terminate()).unwrap();
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {},
-        _ = sigterm.recv() => {},
-    }
-}
+// async fn shutdown_signal() {
+//     let mut sigterm = signal(SignalKind::terminate()).unwrap();
+//     tokio::select! {
+//         _ = tokio::signal::ctrl_c() => {},
+//         _ = sigterm.recv() => {},
+//     }
+// }
