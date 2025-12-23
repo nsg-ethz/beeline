@@ -18,8 +18,11 @@
 static const char base64url_table[65] =
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-// redefinition
-struct bpf_crypto_ctx {
+// bpf_crypto_ctx is not exported, making verification fail
+// because the BTF id does not match. We will cast to
+// bl_crypto_ctx within the kfunc to make this work
+struct bpf_crypto_ctx;
+struct bl_crypto_ctx {
 	const struct bpf_crypto_type *type;
 	void *tfm;
 	u32 siv_len;
@@ -146,14 +149,16 @@ __bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
 								  u8 *dst,
 								  u32 dst__sz)
 {
+    const struct bl_crypto_ctx *bl_ctx = (const struct bl_crypto_ctx *)ctx;
+
 	if (!src__sz || !dst__sz)
 		return -EINVAL;
 
-	if (dst__sz < ctx->siv_len)
+	if (dst__sz < bl_ctx->siv_len)
 		return -EINVAL;
 
-	struct shash_desc *desc = (struct shash_desc *)(dst + dst__sz - ctx->siv_len);
-	desc->tfm = ctx->tfm;
+	struct shash_desc *desc = (struct shash_desc *)(dst + dst__sz - bl_ctx->siv_len);
+	desc->tfm = bl_ctx->tfm;
 
 	return crypto_shash_digest(desc, src, src__sz, dst);
 }
