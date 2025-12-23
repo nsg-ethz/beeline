@@ -527,12 +527,8 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
- "hyper",
- "hyper-util",
  "log",
  "tokio",
- "tower",
- "tracing",
  "tracing-subscriber",
 ]
 
