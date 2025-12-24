@@ -27,6 +27,7 @@ if [ -z "${DOCKER_CONFIG}" ]; then
 fi
 
 ROOT=$(dirname "$(readlink -f "$0")")
+DOCKER_CONFIG=${ROOT}/../${DOCKER_CONFIG}
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 mkdir -p ${SUMMARY_DIR}
 
@@ -35,7 +36,7 @@ source ${ROOT}/../venv/bin/activate
 
 function health_check {
     for i in $(seq 1 20); do
-        curl -s $1
+        curl --connect-timeout 0.5 -s $1
         if [[ $? == 0 ]]; then
             break
         fi

@@ -120,7 +120,7 @@ fn print(level: PrintLevel, msg: String) {
 
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
-    pub tls_port: Option<u16>,
+    pub tls_addr: Option<SocketAddr>,
     pub config: Config,
 
     skel: ProxySkel<'obj>,
@@ -137,16 +137,24 @@ unsafe impl<'obj> Sync for Proxy<'obj> {}
 impl<'obj> Proxy<'obj> {
     pub fn attach<A: ToSocketAddrs>(
         address: A,
-        tls_port: Option<u16>,
+        tls_addr: Option<A>,
         config: Config,
         open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>,
     ) -> Result<Self> {
         set_print(Some((PrintLevel::Debug, print)));
 
         let address = address
-            .to_socket_addrs()?
+            .to_socket_addrs()
+            .expect("Failed to parse address")
             .next()
             .expect("Failed to parse address");
+
+        let tls_addr = tls_addr.map(|addr| {
+            addr.to_socket_addrs()
+                .expect("Failed to parse TLS address")
+                .next()
+                .expect("Failed to parse TLS address")
+        });
 
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
@@ -195,14 +203,20 @@ impl<'obj> Proxy<'obj> {
             open_skel.maps.rodata_data.gw = gw_raw;
         }
 
+        let tls_port = tls_addr.map(|addr| addr.port()).unwrap_or_default();
         open_skel.maps.rodata_data.ip4 = address.try_into_ne_octets()?;
         open_skel.maps.rodata_data.port = address.port() as u32;
-        open_skel.maps.rodata_data.tls_port = tls_port.unwrap_or_default() as u32;
+        open_skel.maps.rodata_data.tls_port = tls_port as u32;
 
         let skel = open_skel.load()?;
 
         let msg_sock_map_fd = skel.maps.msg_sock_map.as_fd().as_raw_fd();
         skel.progs.process_msg.attach_sockmap(msg_sock_map_fd)?;
+
+        let net_sock_map_fd = skel.maps.net_sock_map.as_fd().as_raw_fd();
+        skel.progs
+            .accelerate_network
+            .attach_sockmap(net_sock_map_fd)?;
 
         let tls_msg_sock_map_fd = skel.maps.tls_msg_sock_map.as_fd().as_raw_fd();
         skel.progs.remove_tls.attach_sockmap(tls_msg_sock_map_fd)?;
@@ -231,7 +245,7 @@ impl<'obj> Proxy<'obj> {
 
         Ok(Self {
             address,
-            tls_port,
+            tls_addr,
             config,
             skel,
             sockops,
@@ -275,21 +289,17 @@ impl<'obj> Proxy<'obj> {
     pub async fn listen(self) -> Result<()> {
         let fib = self.get_upstream_fib()?;
 
-        let addrs = self
-            .config
-            .hosts
-            .iter()
-            .flat_map(|h| h.instances.clone())
-            .map(|a| addr_key::try_from(&a))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap_or_default();
+        let addrs = self.config.hosts.iter().flat_map(|h| h.instances.clone());
 
         for addr in addrs {
+            trace!("Adding pqueue for {}", addr);
+            let addr = addr_key::try_from(&addr)?;
             add_pqueue_to_fib(&fib, fib_key { addr, sk_msg: 0 })?;
             add_pqueue_to_fib(&fib, fib_key { addr, sk_msg: 1 })?;
         }
 
         if let Some(proxy) = self.config.proxy {
+            trace!("Adding pqueue for {}", proxy);
             let proxy_addr = addr_key::try_from(&proxy)?;
             add_pqueue_to_fib(
                 &fib,
@@ -302,6 +312,25 @@ impl<'obj> Proxy<'obj> {
                 &fib,
                 fib_key {
                     addr: proxy_addr,
+                    sk_msg: 1,
+                },
+            )?;
+        }
+
+        if let Some(tls) = self.config.tls {
+            trace!("Adding pqueue for {}", tls);
+            let tls_addr = addr_key::try_from(&tls)?;
+            add_pqueue_to_fib(
+                &fib,
+                fib_key {
+                    addr: tls_addr,
+                    sk_msg: 0,
+                },
+            )?;
+            add_pqueue_to_fib(
+                &fib,
+                fib_key {
+                    addr: tls_addr,
                     sk_msg: 1,
                 },
             )?;
@@ -343,8 +372,7 @@ impl<'obj> Proxy<'obj> {
         let plain_listener = listen(plain_addr)?;
         info!("Listening on {}", plain_addr);
 
-        let tls: Option<(TcpListener, TlsAcceptor)> = if let Some(port) = self.tls_port {
-            let tls_addr = SocketAddr::new(plain_addr.ip(), port);
+        let tls: Option<(TcpListener, TlsAcceptor)> = if let Some(tls_addr) = self.tls_addr {
             let tls_listener = listen(tls_addr)?;
             let tls_acceptor = self.new_tls_acceptor()?;
 
@@ -431,10 +459,10 @@ impl<'obj> Proxy<'obj> {
 
         debug!(
             "Accepting connection from {} to {}",
-            ds_local_addr, ds_remote_addr
+            ds_local_addr, ds_remote_addr,
         );
 
-        self.handle_downstream(stream, ds_local_addr, ds_remote_addr)?;
+        self.handle_downstream(stream, ds_local_addr, ds_remote_addr, false)?;
 
         Ok(())
     }
@@ -459,7 +487,7 @@ impl<'obj> Proxy<'obj> {
         let stream = ktls::config_ktls_server(stream).await?;
         debug!("Configured kTLS");
 
-        self.handle_downstream(stream, ds_local_addr, ds_remote_addr)?;
+        self.handle_downstream(stream, ds_local_addr, ds_remote_addr, true)?;
 
         Ok(())
     }
@@ -469,6 +497,7 @@ impl<'obj> Proxy<'obj> {
         mut downstream: S,
         ds_local_addr: SocketAddr,
         ds_remote_addr: SocketAddr,
+        tls: bool,
     ) -> Result<()>
     where
         S: AsyncReadExt + AsyncWriteExt + std::marker::Unpin + std::marker::Send + 'static,
@@ -479,14 +508,13 @@ impl<'obj> Proxy<'obj> {
 
         let upstream_pool = self.upstream_pool.clone();
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
-        let use_skmsg = ds_local_addr.ip().is_loopback();
 
         tokio::spawn(async move {
             let mut buf = Vec::with_capacity(8192);
             let mut upstreams = Vec::new();
 
             let send_error = async |stream: &mut S| {
-                error!("Sending 500 to {:?}", ds_remote_addr);
+                warn!("Sending 500 to {:?}", ds_remote_addr);
                 stream
                     .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
                     .await
@@ -537,6 +565,25 @@ impl<'obj> Proxy<'obj> {
                     .lookup_and_delete_as(&ds_remote_addr_key)
                     .expect("Failed to lookup utrn_wait_list");
 
+                let (ds_remote_addr_key, us_remote_addr) = if us_remote_addr.is_none() {
+                    let gw_ip = match ds_local_addr.ip() {
+                        IpAddr::V4(ip) => get_gw_ip(ip),
+                        _ => panic!("Unexpected IP version"),
+                    };
+                    let ds_gw_addr =
+                        SocketAddr::V4(SocketAddrV4::new(gw_ip, ds_remote_addr.port()));
+                    let ds_remote_addr_key =
+                        sock_key::try_from((&ds_gw_addr, &ds_local_addr)).unwrap();
+
+                    let us_remote_addr: Option<addr_key> = utrn_wait_list
+                        .lookup_and_delete_as(&ds_remote_addr_key)
+                        .expect("Failed to lookup utrn_wait_list");
+
+                    (ds_remote_addr_key, us_remote_addr)
+                } else {
+                    (ds_remote_addr_key, us_remote_addr)
+                };
+
                 let Some(us_remote_addr) = us_remote_addr else {
                     warn!(
                         "No address found in wait list for downstream connection: {:?}",
@@ -560,19 +607,19 @@ impl<'obj> Proxy<'obj> {
                 let us_local_addr = match socket.bind(us_local_addr) {
                     Ok(_) => socket.local_addr().unwrap(),
                     Err(e) => {
-                        error!("Failed to bind socket: {}", e);
+                        warn!("Failed to bind socket: {}", e);
                         buf.clear();
                         send_error(&mut downstream).await;
                         continue;
                     }
                 };
 
-                let us_sock_key = if use_skmsg {
-                    sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap()
-                } else {
+                let us_sock_key = if tls {
                     sock_key::try_from((&us_local_addr, &us_remote_addr)).unwrap()
+                } else {
+                    sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap()
                 };
-                update_map(&sock_map_wait_list, &us_sock_key, &(use_skmsg as u32))
+                update_map(&sock_map_wait_list, &us_sock_key, &(!tls as u32))
                     .expect("Failed to insert into sock_map_wait_list");
 
                 debug!("Bound socket to {}", us_local_addr);

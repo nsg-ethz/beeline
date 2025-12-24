@@ -10,6 +10,7 @@ use std::{
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub socket: Option<SocketAddr>,
+    pub tls: Option<SocketAddr>,
     pub proxy: Option<SocketAddr>,
     #[serde(default)]
     pub stats: bool,

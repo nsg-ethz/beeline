@@ -598,7 +598,7 @@ impl Compiler {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let no_match = format!("else {{ bpf_err(\"No match: %s\", msg->data); }}");
+        let no_match = format!("else {{ bpf_err(\"ERROR: No match\"); }}");
         downstream.push_str(&no_match);
 
         let upstream = upstream
