@@ -277,7 +277,7 @@ impl Compiler {
                         "if (ctx->jwt_claims_range.len > 0) {{
                             remove_range.idx = ctx->jwt_claims_range.idx-7-{key_len};
                             remove_range.len = ctx->jwt_claims_range.len+ctx->jwt_sig_range.len+8+{key_len_crlf};
-                            if (_mutate(msg, remove_range, NULL, 0) < 0) {{
+                            if (_mutate_msg(msg, remove_range, NULL, 0) < 0) {{
                                 bpf_err(\"ERROR: Failed to remove {key}\");
                                 return PR_DROP;
                             }}
@@ -298,7 +298,7 @@ impl Compiler {
                     if (ctx->{key}_range.len > 0) {{
                         remove_range.idx = ctx->{key}_range.idx-{key_len};
                         remove_range.len = ctx->{key}_range.len+{key_len_crlf};
-                        if (_mutate(msg, remove_range, NULL, 0) < 0) {{
+                        if (_mutate_msg(msg, remove_range, NULL, 0) < 0) {{
                             bpf_err(\"ERROR: Failed to remove {key}\");
                             return PR_DROP;
                         }}
@@ -322,7 +322,7 @@ impl Compiler {
                 let hdr_len = new_hdr.len() - 2;
                 let add = format!(
                     "new_hdr = \"{}\";
-                        if (_mutate(msg, append_range, new_hdr, {}) < 0) {{
+                        if (_mutate_msg(msg, append_range, new_hdr, {}) < 0) {{
                             bpf_err(\"ERROR: Failed to add %s\", new_hdr);
                             return PR_DROP;
                         }}

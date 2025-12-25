@@ -6,11 +6,19 @@ use std::{
     str::FromStr,
 };
 
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct TlsConfig {
+    pub socket: SocketAddr,
+    pub cert: String,
+    pub key: String,
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub socket: Option<SocketAddr>,
-    pub tls: Option<SocketAddr>,
+    pub tls: Option<TlsConfig>,
     pub proxy: Option<SocketAddr>,
     #[serde(default)]
     pub stats: bool,

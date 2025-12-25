@@ -2,10 +2,10 @@ use crate::{
     bpf::{types::*, TypedLookUp, *},
     parse::{http::HttpParser, Action},
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use as_bytes::AsBytes;
 use common::{
-    config::beeline::Config,
+    config::beeline::{Config, TlsConfig},
     net::{get_gw_ip, TryIntoRawOctets},
     Compiler,
 };
@@ -16,8 +16,10 @@ use libbpf_rs::{
     Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
 use libc::exit;
-use rcgen::generate_simple_self_signed;
-use rustls::ServerConfig;
+use rustls::{
+    pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
+    ServerConfig,
+};
 use std::{
     env,
     io::Cursor,
@@ -120,7 +122,7 @@ fn print(level: PrintLevel, msg: String) {
 
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
-    pub tls_addr: Option<SocketAddr>,
+    pub tls: Option<TlsConfig>,
     pub config: Config,
 
     skel: ProxySkel<'obj>,
@@ -137,7 +139,7 @@ unsafe impl<'obj> Sync for Proxy<'obj> {}
 impl<'obj> Proxy<'obj> {
     pub fn attach<A: ToSocketAddrs>(
         address: A,
-        tls_addr: Option<A>,
+        tls: Option<TlsConfig>,
         config: Config,
         open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>,
     ) -> Result<Self> {
@@ -149,12 +151,7 @@ impl<'obj> Proxy<'obj> {
             .next()
             .expect("Failed to parse address");
 
-        let tls_addr = tls_addr.map(|addr| {
-            addr.to_socket_addrs()
-                .expect("Failed to parse TLS address")
-                .next()
-                .expect("Failed to parse TLS address")
-        });
+        let tls_addr = tls.clone().map(|c| c.socket);
 
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
@@ -245,7 +242,7 @@ impl<'obj> Proxy<'obj> {
 
         Ok(Self {
             address,
-            tls_addr,
+            tls,
             config,
             skel,
             sockops,
@@ -254,12 +251,18 @@ impl<'obj> Proxy<'obj> {
     }
 
     fn new_tls_acceptor(&self) -> Result<TlsAcceptor> {
-        let mut subject_alt_names = vec![self.address.ip().to_string()];
-        if self.address.ip().is_loopback() {
-            subject_alt_names.push("localhost".to_string());
-        }
+        let Some(ref tls) = self.tls else {
+            bail!("TLS configuration not provided");
+        };
 
-        let ckey = generate_simple_self_signed(subject_alt_names)?;
+        let certs = CertificateDer::pem_file_iter(&tls.cert)
+            .context("failed to read PEM from certificate chain file")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("invalid PEM-encoded certificate")?;
+
+        let cert = certs.first().context("no certificate found")?;
+        let key = PrivateKeyDer::from_pem_file(&tls.key)
+            .context("failed to read PEM from private key file")?;
 
         let cipher_suite = KtlsCipherSuite {
             version: KtlsVersion::TLS12,
@@ -275,11 +278,7 @@ impl<'obj> Proxy<'obj> {
         let mut server_config = ServerConfig::builder_with_provider(Arc::new(provider))
             .with_protocol_versions(&[cipher_suite.version.as_supported_version()])?
             .with_no_client_auth()
-            .with_single_cert(
-                vec![ckey.cert.der().clone()],
-                rustls::pki_types::PrivatePkcs8KeyDer::from(ckey.signing_key.serialize_der())
-                    .into(),
-            )?;
+            .with_single_cert(vec![cert.clone()], key)?;
         server_config.enable_secret_extraction = true;
         server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
@@ -317,9 +316,9 @@ impl<'obj> Proxy<'obj> {
             )?;
         }
 
-        if let Some(tls) = self.config.tls {
-            trace!("Adding pqueue for {}", tls);
-            let tls_addr = addr_key::try_from(&tls)?;
+        if let Some(ref tls) = self.config.tls {
+            trace!("Adding pqueue for {}", tls.socket);
+            let tls_addr = addr_key::try_from(&tls.socket)?;
             add_pqueue_to_fib(
                 &fib,
                 fib_key {
@@ -372,11 +371,11 @@ impl<'obj> Proxy<'obj> {
         let plain_listener = listen(plain_addr)?;
         info!("Listening on {}", plain_addr);
 
-        let tls: Option<(TcpListener, TlsAcceptor)> = if let Some(tls_addr) = self.tls_addr {
-            let tls_listener = listen(tls_addr)?;
+        let tls: Option<(TcpListener, TlsAcceptor)> = if let Some(ref tls) = self.tls {
+            let tls_listener = listen(tls.socket)?;
             let tls_acceptor = self.new_tls_acceptor()?;
 
-            info!("Listening for TLS on {}", tls_addr);
+            info!("Listening for TLS on {}", tls.socket);
 
             Some((tls_listener, tls_acceptor))
         } else {

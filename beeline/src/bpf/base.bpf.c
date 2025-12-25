@@ -335,7 +335,7 @@ bpf_profile_def(mutate_prelinearize);
 bpf_profile_def(mutate_postlinearize);
 bpf_profile_def(mutate_alloc);
 bpf_profile_def(mutate_copy);
-static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
+static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
     bpf_profile_start(mutate);
 
     u16 len = r.len;
