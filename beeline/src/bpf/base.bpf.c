@@ -330,12 +330,7 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
     return PR_PASS;
 }
 
-bpf_profile_def(mutate);
-bpf_profile_def(mutate_prelinearize);
-bpf_profile_def(mutate_postlinearize);
-bpf_profile_def(mutate_alloc);
-bpf_profile_def(mutate_copy);
-static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
+static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
     bpf_profile_start(mutate);
 
     u16 len = r.len;
@@ -391,6 +386,20 @@ static __always_inline int _mutate(struct sk_msg_md *msg, struct prange r, char 
     bpf_profile_end(mutate);
 
     return 0;
+}
+
+bpf_profile_def(mutate);
+bpf_profile_def(mutate_prelinearize);
+bpf_profile_def(mutate_postlinearize);
+bpf_profile_def(mutate_alloc);
+bpf_profile_def(mutate_copy);
+static __always_inline int _mutate(void *msg __arg_ctx, struct prange r, char *str, u16 str_len, bool is_skb) {
+    if (is_skb) {
+        return -1;
+    }
+    else {
+        return _mutate_msg(msg, r, str, str_len);
+    }
 }
 
 static __always_inline int _fib_insert(const struct addr_key *addr, bool downstream, bool sk_msg, const struct sock_key *key) {
@@ -653,7 +662,7 @@ int parse_skb(struct __sk_buff *skb) {
     }
     _init_filter_ctx((char*)(long)skb->data, ctx, done_idx, pranges);
 
-    res = _match(skb, ctx, &ikey, is_downstream);
+    res = _match(skb, ctx, &ikey, is_downstream, true);
 
     u32 msg_len = (ctx->content_length > 0) ? ctx->content_length+ctx->done_idx+2 : skb->len;
     bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
@@ -720,7 +729,7 @@ int process_skb(struct __sk_buff *skb) {
         }
         _init_filter_ctx((char*)(long)skb->data, ctx, done_idx, pranges);
 
-        res = _match(skb, ctx, &ikey, is_downstream);
+        res = _match(skb, ctx, &ikey, is_downstream, true);
 
         u32 msg_len = ctx->content_length+ctx->done_idx+2;
         tls.trailer = skb->len - msg_len;
@@ -900,7 +909,7 @@ int process_msg(struct sk_msg_md *msg) {
     }
     _init_filter_ctx(msg->data, ctx, done_idx, pranges);
 
-    res = _match(msg, ctx, &ikey, is_downstream);
+    res = _match(msg, ctx, &ikey, is_downstream, false);
 
     u32 msg_len = ctx->content_length+ctx->done_idx+2;
     bpf_log("Apply verdict to %dB/%dB (%d + %d)", msg_len, msg->size, ctx->content_length, ctx->done_idx+2);

@@ -1,6 +1,6 @@
 // ---
 
-enum pr_action _mutate_msg_{idx}(struct sk_msg_md *msg, struct filter_ctx *ctx) {
+enum pr_action _mutate_{idx}(void *msg __arg_ctx, struct filter_ctx *ctx, bool is_skb) {
     if (!ctx) return PR_DROP;
 
     struct prange append_range = {

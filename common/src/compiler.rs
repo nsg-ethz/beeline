@@ -322,7 +322,7 @@ impl Compiler {
                 let hdr_len = new_hdr.len() - 2;
                 let add = format!(
                     "new_hdr = \"{}\";
-                        if (_mutate(msg, append_range, new_hdr, {}) < 0) {{
+                        if (_mutate(msg, append_range, new_hdr, {}, is_skb) < 0) {{
                             bpf_err(\"ERROR: Failed to add %s\", new_hdr);
                             return PR_DROP;
                         }}
@@ -338,7 +338,7 @@ impl Compiler {
         filter.replace_code("mutation", mutation);
 
         let call = format!(
-            "if (_mutate_msg_{}(msg, ctx) != PR_PASS) return PR_DROP;",
+            "if (_mutate_{}(msg, ctx, is_skb) != PR_PASS) return PR_DROP;",
             idx
         );
 
@@ -413,7 +413,7 @@ impl Compiler {
                 let else_if = if idx > 0 { "else " } else { "" };
                 let cond = format!(
                     "{}if ({} && {}) {{
-                    if (route_ds_{}(msg, ctx, ikey) != PR_PASS) {{
+                    if (route_ds_{}(msg, ctx, ikey, is_skb) != PR_PASS) {{
                             bpf_err(\"ERROR: route_{} failed.\");
                         }}
                     }}",
