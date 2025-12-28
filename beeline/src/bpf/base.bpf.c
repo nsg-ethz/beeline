@@ -243,6 +243,32 @@ volatile const u32 gw;
 
 {{DEFS}}
 
+static __always_inline struct sock_key new_sock_key_from_msg(const struct sk_msg_md *msg) {
+    return (struct sock_key) {
+        .local = {
+            .ip4 = msg->local_ip4,
+            .port = msg->local_port
+        },
+        .remote = {
+            .ip4 = msg->remote_ip4,
+            .port = bpf_ntohl(msg->remote_port)
+        }
+    };
+}
+
+static __always_inline struct sock_key new_sock_key_from_skb(const struct __sk_buff *skb) {
+    return (struct sock_key) {
+        .local = {
+            .ip4 = skb->remote_ip4,
+            .port = bpf_ntohl(skb->remote_port)
+        },
+        .remote = {
+            .ip4 = skb->local_ip4,
+            .port = skb->local_port
+        }
+    };
+}
+
 static __always_inline struct cctx_val *_cctx_val_lookup(void) {
 	u32 key = 0;
 	return bpf_map_lookup_elem(&cctx_map, &key);
@@ -631,17 +657,7 @@ static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pran
 bpf_profile_def(sk_skb);
 SEC("sk_skb/stream_parser")
 int parse_skb(struct __sk_buff *skb) {
-    // socket identifier of the ingress connection
-    struct sock_key ikey = {
-        .local = {
-            .ip4 = skb->remote_ip4,
-            .port = bpf_ntohl(skb->remote_port)
-        },
-        .remote = {
-            .ip4 = skb->local_ip4,
-            .port = skb->local_port
-        }
-    };
+    struct sock_key ikey = new_sock_key_from_skb(skb);
 
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
     bpf_log("Parsing %dB skb from [%pI4:%u->%pI4:%u] (downstream: %d)", skb->len, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
@@ -685,18 +701,7 @@ SEC("sk_skb/stream_verdict")
 int process_skb(struct __sk_buff *skb) {
     bpf_profile_start(sk_skb);
 
-    // socket identifier of the ingress connection
-    struct sock_key ikey = {
-        .local = {
-            .ip4 = skb->remote_ip4,
-            .port = bpf_ntohl(skb->remote_port)
-        },
-        .remote = {
-            .ip4 = skb->local_ip4,
-            .port = skb->local_port
-        }
-    };
-
+    struct sock_key ikey = new_sock_key_from_skb(skb);
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
     bpf_log("Processing %dB skb from [%pI4:%u->%pI4:%u] (downstream: %d)", skb->len, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
@@ -807,18 +812,7 @@ int process_skb(struct __sk_buff *skb) {
 
 SEC("sk_msg")
 int remove_tls(struct sk_msg_md *msg) {
-    // socket identifier of the ingress connection
-    struct sock_key ikey = {
-        .local = {
-            .ip4 = msg->local_ip4,
-            .port = msg->local_port
-        },
-        .remote = {
-            .ip4 = msg->remote_ip4,
-            .port = bpf_ntohl(msg->remote_port)
-        }
-    };
-
+    struct sock_key ikey = new_sock_key_from_msg(msg);
     struct tls_size *tls = bpf_map_lookup_elem(&tls_sizes, &ikey);
     if (!tls) return SK_PASS;
 
@@ -839,18 +833,7 @@ SEC("sk_msg")
 int accelerate_network(struct sk_msg_md *msg) {
     bpf_profile_start(sk_msg);
 
-    // socket identifier of the ingress connection
-    struct sock_key ikey = {
-        .local = {
-            .ip4 = msg->local_ip4,
-            .port = msg->local_port
-        },
-        .remote = {
-            .ip4 = msg->remote_ip4,
-            .port = bpf_ntohl(msg->remote_port)
-        }
-    };
-
+    struct sock_key ikey = new_sock_key_from_msg(msg);
     struct sock_key ekey = _invert_sock_key(&ikey);
 
     if (bpf_msg_redirect_hash(msg, &net_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
@@ -869,18 +852,7 @@ SEC("sk_msg")
 int process_msg(struct sk_msg_md *msg) {
     bpf_profile_start(sk_msg);
 
-    // socket identifier of the ingress connection
-    struct sock_key ikey = {
-        .local = {
-            .ip4 = msg->local_ip4,
-            .port = msg->local_port
-        },
-        .remote = {
-            .ip4 = msg->remote_ip4,
-            .port = bpf_ntohl(msg->remote_port)
-        }
-    };
-
+    struct sock_key ikey = new_sock_key_from_msg(msg);
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
