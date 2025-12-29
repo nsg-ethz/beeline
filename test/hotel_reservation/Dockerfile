@@ -14,7 +14,6 @@ COPY tls/ tls/
 COPY tracing/ tracing/
 COPY tune/ tune/
 
-COPY config.json config.json
+# COPY config.json config.json
 
 RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on go install -ldflags="-s -w" -mod=vendor ./cmd/...
-

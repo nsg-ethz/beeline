@@ -9,6 +9,8 @@ networks:
 services:
     consul:
         image: hashicorp/consul:latest
+        hostname: consul
+        cgroup_parent: beeline.slice
         ports:
             - "8300:8300"
             - "8400:8400"
@@ -24,6 +26,8 @@ services:
         configs:
             - source: server_config
               target: /config.json
+        cgroup_parent: beeline.slice
+        hostname: frontend
         environment:
             - TLS
             - GC
@@ -47,11 +51,13 @@ services:
         configs:
             - source: server_config
               target: /config.json
+        hostname: profile
         environment:
             - TLS
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -70,11 +76,13 @@ services:
         configs:
             - source: server_config
               target: /config.json
+        hostname: search
         environment:
             - TLS
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -91,11 +99,13 @@ services:
         configs:
             - source: server_config
               target: /config.json
+        hostname: geo
         environment:
             - TLS
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -113,11 +123,13 @@ services:
         configs:
             - source: server_config
               target: /config.json
+        hostname: rate
         environment:
             - TLS
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -133,12 +145,17 @@ services:
                 condition: any
 
     review:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
         environment:
             - TLS
             - GC
             - JAEGER_SAMPLE_RATIO
             - MEMC_TIMEOUT
             - LOG_LEVEL
+        hostname: review
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: hotel_reserv_review_single_node
@@ -157,6 +174,8 @@ services:
             - JAEGER_SAMPLE_RATIO
             - MEMC_TIMEOUT
             - LOG_LEVEL
+        hostname: attractions
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: hotel_reserv_attractions_single_node
@@ -171,11 +190,13 @@ services:
         configs:
             - source: server_config
               target: /config.json
+        hostname: recommendation
         environment:
             - TLS
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -193,11 +214,13 @@ services:
         configs:
             - source: server_config
               target: /config.json
+        hostname: user
         environment:
             - TLS
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -215,11 +238,13 @@ services:
         configs:
             - source: server_config
               target: /config.json
+        hostname: reservation
         environment:
             - TLS
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -246,6 +271,8 @@ services:
             - "6831:6831/udp"
             - "6832:6832/udp"
         restart: always
+        cgroup_parent: beeline.slice
+        hostname: jaeger
         deploy:
             replicas: 1
             restart_policy:
@@ -253,7 +280,8 @@ services:
 
     memcached-rate:
         image: memcached:latest
-        hostname: user-memcached
+        hostname: rate-memcached
+        cgroup_parent: beeline.slice
         environment:
             - MEMCACHED_CACHE_SIZE=128
             - MEMCACHED_THREADS=2
@@ -268,8 +296,9 @@ services:
 
     memcached-review:
         image: memcached
-        # hostname: user-memcached
+        hostname: review-memcached
         container_name: "hotel_reserv_review_mmc"
+        cgroup_parent: beeline.slice
         restart: always
         environment:
             - MEMCACHED_CACHE_SIZE=128
@@ -280,7 +309,8 @@ services:
 
     memcached-profile:
         image: memcached:latest
-        hostname: user-memcached
+        hostname: profile-memcached
+        cgroup_parent: beeline.slice
         environment:
             - MEMCACHED_CACHE_SIZE=128
             - MEMCACHED_THREADS=2
@@ -295,7 +325,8 @@ services:
 
     memcached-reserve:
         image: memcached:latest
-        hostname: user-memcached
+        hostname: reserve-memcached
+        cgroup_parent: beeline.slice
         environment:
             - MEMCACHED_CACHE_SIZE=128
             - MEMCACHED_THREADS=2
@@ -311,6 +342,7 @@ services:
     mongodb-geo:
         image: mongo:5.0
         hostname: geo-db
+        cgroup_parent: beeline.slice
         volumes:
             - geo:/data/db
         restart: always
@@ -322,6 +354,7 @@ services:
     mongodb-profile:
         image: mongo:5.0
         hostname: profile-db
+        cgroup_parent: beeline.slice
         volumes:
             - profile:/data/db
         restart: always
@@ -333,6 +366,7 @@ services:
     mongodb-rate:
         image: mongo:5.0
         hostname: rate-db
+        cgroup_parent: beeline.slice
         volumes:
             - rate:/data/db
         restart: always
@@ -344,6 +378,7 @@ services:
     mongodb-review:
         image: mongo:5.0
         hostname: review-db
+        cgroup_parent: beeline.slice
         volumes:
             - review:/data/db
         restart: always
@@ -354,6 +389,7 @@ services:
 
     mongodb-attractions:
         image: mongo:5.0
+        cgroup_parent: beeline.slice
         hostname: attractions-db
         volumes:
             - attractions:/data/db
@@ -366,6 +402,7 @@ services:
     mongodb-recommendation:
         image: mongo:5.0
         hostname: recommendation-db
+        cgroup_parent: beeline.slice
         volumes:
             - recommendation:/data/db
         restart: always
@@ -377,6 +414,7 @@ services:
     mongodb-reservation:
         image: mongo:5.0
         hostname: reservation-db
+        cgroup_parent: beeline.slice
         volumes:
             - reservation:/data/db
         restart: always
@@ -388,6 +426,7 @@ services:
     mongodb-user:
         image: mongo:5.0
         hostname: user-db
+        cgroup_parent: beeline.slice
         volumes:
             - user:/data/db
         restart: always

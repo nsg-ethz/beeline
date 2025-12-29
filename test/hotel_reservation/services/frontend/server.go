@@ -196,17 +196,19 @@ func (s *Server) getGprcConn(name string) (*grpc.ClientConn, error) {
 	log.Info().Msg(s.KnativeDns)
 	log.Info().Msg(fmt.Sprintf("%s.%s", name, s.KnativeDns))
 
-	if s.KnativeDns != "" {
-		return dialer.Dial(
-			fmt.Sprintf("consul://%s/%s.%s", s.ConsulAddr, name, s.KnativeDns),
-			dialer.WithTracer(s.Tracer))
-	} else {
-		return dialer.Dial(
-			fmt.Sprintf("consul://%s/%s", s.ConsulAddr, name),
-			dialer.WithTracer(s.Tracer),
-			dialer.WithBalancer(s.Registry.Client),
-		)
-	}
+	return dialer.Dial("sidecar:9999", dialer.WithTracer(s.Tracer))
+
+	// if s.KnativeDns != "" {
+	// 	return dialer.Dial(
+	// 		fmt.Sprintf("consul://%s/%s.%s", s.ConsulAddr, name, s.KnativeDns),
+	// 		dialer.WithTracer(s.Tracer))
+	// } else {
+	// 	return dialer.Dial(
+	// 		fmt.Sprintf("consul://%s/%s", s.ConsulAddr, name),
+	// 		dialer.WithTracer(s.Tracer),
+	// 		dialer.WithBalancer(s.Registry.Client),
+	// 	)
+	// }
 }
 
 func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
