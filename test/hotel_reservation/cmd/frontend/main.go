@@ -35,6 +35,7 @@ func main() {
 	servPort, _ := strconv.Atoi(result["FrontendPort"])
 	servIP := result["FrontendIP"]
 	knativeDNS := result["KnativeDomainName"]
+	proxyAddr := result["ProxyAddress"]
 
 	var (
 		jaegerAddr = flag.String("jaegeraddr", result["jaegerAddress"], "Jaeger address")
@@ -62,6 +63,7 @@ func main() {
 		IpAddr:     servIP,
 		ConsulAddr: *consulAddr,
 		Port:       servPort,
+		Proxy:		proxyAddr,
 	}
 
 	log.Info().Msg("Starting server...")

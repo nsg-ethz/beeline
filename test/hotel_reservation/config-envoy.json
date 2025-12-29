@@ -23,5 +23,6 @@
     "SearchPort": "9999",
     "UserPort": "9999",
     "UserMongoAddress": "mongodb-user:27017",
-    "KnativeDomainName": ""
+    "KnativeDomainName": "",
+    "ProxyAddress": "sidecar:9999"
 }

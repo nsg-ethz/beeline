@@ -534,7 +534,6 @@ services:
         restart: always
         volumes:
             - ../config/envoy/hr.yaml:/etc/envoy/envoy.yaml
-        command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "-l", "debug"]
 
 volumes:
     geo:
