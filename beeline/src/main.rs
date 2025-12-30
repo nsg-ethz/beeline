@@ -1,5 +1,5 @@
 use anyhow::Result;
-use beeline::Proxy;
+use beeline_sm::Proxy;
 use clap::Parser;
 use common::config::beeline::Config;
 use std::{env, mem::MaybeUninit, net::SocketAddr};

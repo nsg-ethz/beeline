@@ -1,0 +1,550 @@
+name: hotel-reservation
+
+networks:
+    default:
+        ipam:
+            config:
+                - subnet: 172.18.0.0/24
+
+services:
+    consul:
+        image: hashicorp/consul:latest
+        hostname: consul
+        networks:
+            default:
+                ipv4_address: 172.18.0.2
+        cgroup_parent: beeline.slice
+        ports:
+            - "8300:8300"
+            - "8400:8400"
+            - "8500:8500"
+            - "8600:53/udp"
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    frontend:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        cgroup_parent: beeline.slice
+        hostname: frontend
+        networks:
+            default:
+                ipv4_address: 172.18.0.3
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - LOG_LEVEL
+        build:
+            context: ../test/hotel_reservation
+        image: deathstarbench/hotel-reservation:latest
+        entrypoint: frontend
+        ports:
+            - "5000:5000"
+        depends_on:
+            - sidecar
+            - consul
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    profile:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        hostname: profile
+        networks:
+            default:
+                ipv4_address: 172.18.0.4
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - LOG_LEVEL
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: deathstarbench/hotel-reservation:latest
+        entrypoint: profile
+        depends_on:
+            - sidecar
+            - mongodb-profile
+            - memcached-profile
+            - consul
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    search:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        hostname: search
+        networks:
+            default:
+                ipv4_address: 172.18.0.5
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - LOG_LEVEL
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: deathstarbench/hotel-reservation:latest
+        entrypoint: search
+        depends_on:
+            - sidecar
+            - consul
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    geo:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        hostname: geo
+        networks:
+            default:
+                ipv4_address: 172.18.0.6
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - LOG_LEVEL
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: deathstarbench/hotel-reservation:latest
+        entrypoint: geo
+        depends_on:
+            - sidecar
+            - mongodb-geo
+            - consul
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    rate:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        hostname: rate
+        networks:
+            default:
+                ipv4_address: 172.18.0.7
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - LOG_LEVEL
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: deathstarbench/hotel-reservation:latest
+        entrypoint: rate
+        depends_on:
+            - sidecar
+            - mongodb-rate
+            - memcached-rate
+            - consul
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    review:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - MEMC_TIMEOUT
+            - LOG_LEVEL
+        hostname: review
+        networks:
+            default:
+                ipv4_address: 172.18.0.8
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: hotel_reserv_review_single_node
+        entrypoint: review
+        container_name: "hotel_reserv_review"
+        depends_on:
+            - sidecar
+            - mongodb-review
+            - memcached-review
+            - consul
+        restart: always
+
+    attractions:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - MEMC_TIMEOUT
+            - LOG_LEVEL
+        hostname: attractions
+        networks:
+            default:
+                ipv4_address: 172.18.0.10
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: hotel_reserv_attractions_single_node
+        entrypoint: attractions
+        container_name: "hotel_reserv_attractions"
+        depends_on:
+            - sidecar
+            - mongodb-attractions
+            - consul
+        restart: always
+
+    recommendation:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        hostname: recommendation
+        networks:
+            default:
+                ipv4_address: 172.18.0.11
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - LOG_LEVEL
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: deathstarbench/hotel-reservation:latest
+        entrypoint: recommendation
+        depends_on:
+            - sidecar
+            - mongodb-recommendation
+            - consul
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    user:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        hostname: user
+        networks:
+            default:
+                ipv4_address: 172.18.0.12
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - LOG_LEVEL
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: deathstarbench/hotel-reservation:latest
+        entrypoint: user
+        depends_on:
+            - sidecar
+            - mongodb-user
+            - consul
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    reservation:
+        configs:
+            - source: server_config
+              target: /workspace/config.json
+        hostname: reservation
+        networks:
+            default:
+                ipv4_address: 172.18.0.13
+        environment:
+            - TLS
+            - GC
+            - JAEGER_SAMPLE_RATIO
+            - LOG_LEVEL
+        cgroup_parent: beeline.slice
+        build:
+            context: ../test/hotel_reservation
+        image: deathstarbench/hotel-reservation:latest
+        entrypoint: reservation
+        depends_on:
+            - sidecar
+            - mongodb-reservation
+            - memcached-reserve
+            - consul
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    jaeger:
+        image: jaegertracing/all-in-one:latest
+        ports:
+            - "14269"
+            - "5778:5778"
+            - "14268:14268"
+            - "14267"
+            - "16686:16686"
+            - "5775:5775/udp"
+            - "6831:6831/udp"
+            - "6832:6832/udp"
+        restart: always
+        cgroup_parent: beeline.slice
+        hostname: jaeger
+        networks:
+            default:
+                ipv4_address: 172.18.0.14
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    memcached-rate:
+        image: memcached:latest
+        hostname: rate-memcached
+        networks:
+            default:
+                ipv4_address: 172.18.0.15
+        cgroup_parent: beeline.slice
+        environment:
+            - MEMCACHED_CACHE_SIZE=128
+            - MEMCACHED_THREADS=2
+        logging:
+            options:
+                max-size: 50m
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    memcached-review:
+        image: memcached
+        hostname: review-memcached
+        networks:
+            default:
+                ipv4_address: 172.18.0.16
+        container_name: "hotel_reserv_review_mmc"
+        cgroup_parent: beeline.slice
+        restart: always
+        environment:
+            - MEMCACHED_CACHE_SIZE=128
+            - MEMCACHED_THREADS=2
+        logging:
+            options:
+                max-size: 50m
+
+    memcached-profile:
+        image: memcached:latest
+        hostname: profile-memcached
+        networks:
+            default:
+                ipv4_address: 172.18.0.17
+        cgroup_parent: beeline.slice
+        environment:
+            - MEMCACHED_CACHE_SIZE=128
+            - MEMCACHED_THREADS=2
+        logging:
+            options:
+                max-size: 50m
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    memcached-reserve:
+        image: memcached:latest
+        hostname: reserve-memcached
+        networks:
+            default:
+                ipv4_address: 172.18.0.18
+        cgroup_parent: beeline.slice
+        environment:
+            - MEMCACHED_CACHE_SIZE=128
+            - MEMCACHED_THREADS=2
+        logging:
+            options:
+                max-size: 50m
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    mongodb-geo:
+        image: mongo:5.0
+        hostname: geo-db
+        networks:
+            default:
+                ipv4_address: 172.18.0.19
+        cgroup_parent: beeline.slice
+        volumes:
+            - geo:/data/db
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    mongodb-profile:
+        image: mongo:5.0
+        hostname: profile-db
+        networks:
+            default:
+                ipv4_address: 172.18.0.20
+        cgroup_parent: beeline.slice
+        volumes:
+            - profile:/data/db
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    mongodb-rate:
+        image: mongo:5.0
+        hostname: rate-db
+        networks:
+            default:
+                ipv4_address: 172.18.0.21
+        cgroup_parent: beeline.slice
+        volumes:
+            - rate:/data/db
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    mongodb-review:
+        image: mongo:5.0
+        hostname: review-db
+        networks:
+            default:
+                ipv4_address: 172.18.0.22
+        cgroup_parent: beeline.slice
+        volumes:
+            - review:/data/db
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    mongodb-attractions:
+        image: mongo:5.0
+        cgroup_parent: beeline.slice
+        hostname: attractions-db
+        networks:
+            default:
+                ipv4_address: 172.18.0.23
+        volumes:
+            - attractions:/data/db
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    mongodb-recommendation:
+        image: mongo:5.0
+        hostname: recommendation-db
+        networks:
+            default:
+                ipv4_address: 172.18.0.24
+        cgroup_parent: beeline.slice
+        volumes:
+            - recommendation:/data/db
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    mongodb-reservation:
+        image: mongo:5.0
+        hostname: reservation-db
+        networks:
+            default:
+                ipv4_address: 172.18.0.25
+        cgroup_parent: beeline.slice
+        volumes:
+            - reservation:/data/db
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    mongodb-user:
+        image: mongo:5.0
+        hostname: user-db
+        networks:
+            default:
+                ipv4_address: 172.18.0.26
+        cgroup_parent: beeline.slice
+        volumes:
+            - user:/data/db
+        restart: always
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: any
+
+    # this will not be used, really
+    # it's here to make CPU measurements fair
+    sidecar:
+        image: envoyproxy/envoy:v1.34-latest
+        hostname: sidecar
+        cgroup_parent: beeline.slice
+        extra_hosts:
+            - "beeline:host-gateway"
+        networks:
+            default:
+                ipv4_address: 172.18.0.40
+        restart: always
+        volumes:
+            - ../config/envoy/hr.yaml:/etc/envoy/envoy.yaml
+
+volumes:
+    geo:
+    profile:
+    rate:
+    recommendation:
+    reservation:
+    user:
+    review:
+    attractions:
+
+configs:
+    server_config:
+        file: ../test/hotel_reservation/config-beeline.json

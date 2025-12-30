@@ -49,6 +49,10 @@ unsigned long bpf_xxhash(const u8 *src, u32 src__sz, u64 seed) __ksym;
     #define bpf_profile_print(...)
 #endif
 
+#define __sink(expr) asm volatile("" : "+g"(expr))
+
+#define MAX_CONNS 32768
+
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 100);
@@ -99,44 +103,49 @@ struct prange {
     u16 len;
 };
 
+struct hdr_str {
+    u32 len;
+    u8* ptr;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 32768);
+    __uint(max_entries, MAX_CONNS);
     __type(key, struct sock_key);
     __type(value, int);
 } skb_sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 32768);
+    __uint(max_entries, MAX_CONNS);
     __type(key, struct sock_key);
     __type(value, int);
 } tls_msg_sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 32768);
+    __uint(max_entries, MAX_CONNS);
     __type(key, struct sock_key);
     __type(value, int);
 } msg_sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
-    __uint(max_entries, 32768);
+    __uint(max_entries, MAX_CONNS);
     __type(key, struct sock_key);
     __type(value, int);
 } net_sock_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_CONNS/2);
     __type(key, struct sock_key);
     __type(value, struct addr_key);
 } utrn_wait_list SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, MAX_CONNS/2);
     __type(key, struct sock_key);
     __type(value, struct addr_key);
 } skb_verdict SEC(".maps");
@@ -148,14 +157,14 @@ struct tls_size {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 8192);
+    __uint(max_entries, MAX_CONNS/2);
     __type(key, struct sock_key);
     __type(value, struct tls_size);
 } tls_sizes SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 32768);
+    __uint(max_entries, MAX_CONNS);
     __type(key, struct sock_key);
     __type(value, int);
 } sock_map_wait_list SEC(".maps");
@@ -166,6 +175,13 @@ struct {
     __type(key, u32);
     __type(value, struct filter_ctx);
 } ctx_percpu SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_CONNS/2);
+    __type(key, struct sock_key);
+    __type(value, int);
+} upgraded_conns SEC(".maps");
 
 enum pr_action {
     PR_DROP=0,
@@ -697,6 +713,28 @@ int parse_skb(struct __sk_buff *skb) {
     return msg_len;
 }
 
+__noinline int extract_h2_match(const struct sk_msg_md *msg, u8 idx, struct hdr_str* str __arg_nonnull) {
+    int ret = -1;
+
+	__sink(msg);
+	__sink(idx);
+	__sink(str);
+	__sink(ret);
+
+	return ret;
+}
+
+__noinline int parse_h2(struct sk_msg_md *msg) {
+    int ret = -1;
+
+	__sink(msg);
+	__sink(ret);
+
+	bpf_msg_pull_data(msg, 0, msg->size, 0);
+
+	return ret;
+}
+
 SEC("sk_skb/stream_verdict")
 int process_skb(struct __sk_buff *skb) {
     bpf_profile_start(sk_skb);
@@ -859,84 +897,106 @@ int process_msg(struct sk_msg_md *msg) {
     enum pr_action res = PR_PASS;
     struct prange pranges[MAX_MATCHES] = { 0 };
 
-    int done_idx = _parse_msg(msg, pranges);
-    if (done_idx < 0) {
-        if (done_idx == -msg->size || done_idx == -msg->size + 1) {
-            bpf_log("Could not parse header after %dB. Corking...", msg->size);
+    bool is_h2 = (bpf_map_lookup_elem(&upgraded_conns, &ikey) != NULL);
+    bool store_matches = false;
+    int done_idx = -1;
 
-            bpf_profile_start(sk_msg_cork);
-            bpf_msg_cork_bytes(msg, msg->size + 1);
-            bpf_profile_end(sk_msg_cork);
+    if (is_h2) {
+        done_idx = parse_h2(msg);
+        store_matches = (done_idx > 9);
 
-            return SK_PASS;
+        struct hdr_str str = { 0 };
+        int res = -1;
+        if (is_h2) {
+            struct hdr_str str = { 0 };
+            res = extract_h2_match(msg, 0, &str);
+            if (res == 0) {
+                bpf_log("Matched header: %s", str.ptr);
+            }
         }
-        bpf_err("ERROR: Failed to parse message (%d, %d): %s", msg->size, done_idx, msg->data);
-        return SK_PASS;
-    }
-
-    struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
-    if (ctx == NULL) {
-        bpf_err("ERROR: Failed to init filter context");
-        return SK_DROP;
-    }
-    _init_filter_ctx(msg->data, ctx, done_idx, pranges);
-
-    res = _match(msg, ctx, &ikey, is_downstream, false);
-
-    u32 msg_len = ctx->content_length+ctx->done_idx+2;
-    bpf_log("Apply verdict to %dB/%dB (%d + %d)", msg_len, msg->size, ctx->content_length, ctx->done_idx+2);
-    bpf_msg_apply_bytes(msg, msg_len);
-
-    if (is_downstream) {
-        bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
     }
     else {
-        bpf_stats_add(downstream_cx_tx_bytes_total, msg_len);
+        done_idx = _parse_msg(msg, pranges);
+        store_matches = true;
     }
 
-    if (res == PR_DROP) {
-        bpf_log("WARN: Drop msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        return SK_DROP;
-    }
-    if (res == PR_UTRN) {
-        bpf_err("ERROR: Invalid UTRN");
-        return SK_DROP;
-    }
+    // if (done_idx < 0) {
+    //     if (done_idx == -msg->size || done_idx == -msg->size + 1) {
+    //         bpf_log("Could not parse header after %dB. Corking...", msg->size);
 
-    struct sock_key ekey = { 0 };
-    res = _fib_query(&ctx->dest, !is_downstream, true, &ekey);
+    //         bpf_profile_start(sk_msg_cork);
+    //         bpf_msg_cork_bytes(msg, msg->size + 1);
+    //         bpf_profile_end(sk_msg_cork);
 
-    if (is_downstream) {
-        post_forward_ds_conn(&ikey, &ekey, true);
-    }
-    else {
-        post_forward_us_conn(&ikey, &ekey, true);
-    }
+    //         return SK_PASS;
+    //     }
+    //     bpf_err("ERROR: Failed to parse message (%d, %d): %s", msg->size, done_idx, msg->data);
+    //     return SK_PASS;
+    // }
 
-    bpf_profile_end(sk_msg);
+    // struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
+    // if (ctx == NULL) {
+    //     bpf_err("ERROR: Failed to init filter context");
+    //     return SK_DROP;
+    // }
+    // _init_filter_ctx(msg->data, ctx, done_idx, pranges);
 
-    if (res == PR_DROP) {
-        bpf_err("No FIB entry found for %pI4:%u. Dropping.", &ctx->dest.ip4, ctx->dest.port);
-        return SK_DROP;
-    }
-    else if (res == PR_PASS) {
-        if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-            bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            res = PR_UTRN;
-        }
-        else {
-            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            return SK_PASS;
-        }
-    }
-    if (res == PR_UTRN) {
-        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
-            bpf_err("ERROR: Failed to add uturn token to wait list");
-        }
-        else {
-            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        }
-    }
+    // res = _match(msg, ctx, &ikey, is_downstream, false);
+
+    // u32 msg_len = ctx->content_length+ctx->done_idx+2;
+    // bpf_log("Apply verdict to %dB/%dB (%d + %d)", msg_len, msg->size, ctx->content_length, ctx->done_idx+2);
+    // bpf_msg_apply_bytes(msg, msg_len);
+
+    // if (is_downstream) {
+    //     bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
+    // }
+    // else {
+    //     bpf_stats_add(downstream_cx_tx_bytes_total, msg_len);
+    // }
+
+    // if (res == PR_DROP) {
+    //     bpf_log("WARN: Drop msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+    //     return SK_DROP;
+    // }
+    // if (res == PR_UTRN) {
+    //     bpf_err("ERROR: Invalid UTRN");
+    //     return SK_DROP;
+    // }
+
+    // struct sock_key ekey = { 0 };
+    // res = _fib_query(&ctx->dest, !is_downstream, true, &ekey);
+
+    // if (is_downstream) {
+    //     post_forward_ds_conn(&ikey, &ekey, true);
+    // }
+    // else {
+    //     post_forward_us_conn(&ikey, &ekey, true);
+    // }
+
+    // bpf_profile_end(sk_msg);
+
+    // if (res == PR_DROP) {
+    //     bpf_err("No FIB entry found for %pI4:%u. Dropping.", &ctx->dest.ip4, ctx->dest.port);
+    //     return SK_DROP;
+    // }
+    // else if (res == PR_PASS) {
+    //     if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+    //         bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+    //         res = PR_UTRN;
+    //     }
+    //     else {
+    //         bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+    //         return SK_PASS;
+    //     }
+    // }
+    // if (res == PR_UTRN) {
+    //     if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
+    //         bpf_err("ERROR: Failed to add uturn token to wait list");
+    //     }
+    //     else {
+    //         bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+    //     }
+    // }
 
     return SK_PASS;
 }
@@ -1011,33 +1071,33 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 u32 key_len = 16;
 u8 key[16] = "testtest12345678";
 
-SEC("syscall")
-int crypto_setup() {
-    struct bpf_crypto_ctx *cctx;
-    struct bpf_crypto_params params = {
-        .type = "shash",
-        .algo = "hmac(sha256)",
-        .key_len = key_len,
-        .authsize = 0,
-    };
-    int err = -EINVAL;
-    if (!key_len || key_len > 256) {
-        return err;
-    }
+// SEC("syscall")
+// int crypto_setup() {
+//     struct bpf_crypto_ctx *cctx;
+//     struct bpf_crypto_params params = {
+//         .type = "shash",
+//         .algo = "hmac(sha256)",
+//         .key_len = key_len,
+//         .authsize = 0,
+//     };
+//     int err = -EINVAL;
+//     if (!key_len || key_len > 256) {
+//         return err;
+//     }
 
-    __builtin_memcpy(&params.key, key, 16);
-    cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
+//     __builtin_memcpy(&params.key, key, 16);
+//     cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
 
-    if (!cctx) {
-        return -err;
-    }
+//     if (!cctx) {
+//         return -err;
+//     }
 
-    err = _crypto_ctx_insert(cctx);
-    if (err && err != -EEXIST)
-        return -err;
+//     err = _crypto_ctx_insert(cctx);
+//     if (err && err != -EEXIST)
+//         return -err;
 
-    return 0;
-}
+//     return 0;
+// }
 
 SEC("syscall")
 int print_profile_stats() {

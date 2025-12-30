@@ -1,0 +1,38 @@
+socket: 172.17.0.1:9999
+accelerate: 172.18.0.0/24
+hosts:
+    - name: profile
+      instances:
+          - 172.18.0.4:9999
+    - name: search
+      instances:
+          - 172.18.0.5:9999
+    - name: geo
+      instances:
+          - 172.18.0.6:9999
+    - name: rate
+      instances:
+          - 172.18.0.7:9999
+    - name: review
+      instances:
+          - 172.18.0.8:9999
+    - name: attractions
+      instances:
+          - 172.18.0.10:9999
+    - name: recommendation
+      instances:
+          - 172.18.0.11:9999
+    - name: user
+      instances:
+          - 172.18.0.12:9999
+    - name: reservation
+      instances:
+          - 172.18.0.13:9999
+routes:
+    - match:
+          path: "/search.Search/"
+      # filters:
+      #     - type: mutate
+      #       add:
+      #           x-processed-by: beeline
+      dest: search

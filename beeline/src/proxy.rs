@@ -2,8 +2,9 @@ use crate::{
     bpf::{types::*, TypedLookUp, *},
     parse::{http::HttpParser, Action},
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use as_bytes::AsBytes;
+use beeline::h2;
 use common::{
     config::beeline::Config,
     net::{get_gw_ip, TryIntoRawOctets},
@@ -54,11 +55,11 @@ fn new_transition(state: u16, action: Action, rodata: &rodata) -> trans {
     trans { state, action }
 }
 
-fn inject_parser(parser: HttpParser, skel: &mut OpenProxySkel) -> Result<()> {
+fn inject_parser(parser: HttpParser, rodata: &mut rodata) -> Result<()> {
     for (from, to, input, action) in parser.iter_transitions() {
         let s = *from as usize;
-        let t = new_transition(*to, *action, skel.maps.rodata_data);
-        skel.maps.rodata_data.s2ts[s][*input as usize] = t;
+        let t = new_transition(*to, *action, rodata);
+        rodata.s2ts[s][*input as usize] = t;
     }
 
     Ok(())
@@ -126,6 +127,8 @@ pub struct Proxy<'obj> {
     skel: ProxySkel<'obj>,
     #[allow(dead_code)]
     sockops: Link,
+    #[allow(dead_code)]
+    h2: (Option<Link>, Option<Link>, Option<Link>),
 
     upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
 }
@@ -164,13 +167,10 @@ impl<'obj> Proxy<'obj> {
             open_skel.progs.process_skb.set_log_level(1);
         }
 
+        let mut rodata = open_skel.maps.rodata_data.as_mut().context("rodata")?;
         let compiler = Compiler::new(config.clone());
         let vars = compiler.get_ctx_vars();
-
-        let mut parser = HttpParser::new(
-            open_skel.maps.rodata_data.s_init,
-            open_skel.maps.rodata_data.s_any,
-        );
+        let mut parser = HttpParser::new(rodata.s_init, rodata.s_any);
 
         for hdr in vars.iter() {
             match hdr.name() {
@@ -192,21 +192,21 @@ impl<'obj> Proxy<'obj> {
         }
 
         info!("Injecting HTTP parser with {} states", parser.num_states());
-        inject_parser(parser, &mut open_skel)?;
+        inject_parser(parser, &mut rodata)?;
 
         if let Some(network) = &config.network {
             let addr_raw = network.addr.try_into_ne_octets()?;
-            open_skel.maps.rodata_data.ip4_start = addr_raw;
-            open_skel.maps.rodata_data.ip4_end = addr_raw + network.len();
+            rodata.ip4_start = addr_raw;
+            rodata.ip4_end = addr_raw + network.len();
 
             let gw_raw = get_gw_ip(network.addr).try_into_ne_octets()?;
-            open_skel.maps.rodata_data.gw = gw_raw;
+            rodata.gw = gw_raw;
         }
 
         let tls_port = tls_addr.map(|addr| addr.port()).unwrap_or_default();
-        open_skel.maps.rodata_data.ip4 = address.try_into_ne_octets()?;
-        open_skel.maps.rodata_data.port = address.port() as u32;
-        open_skel.maps.rodata_data.tls_port = tls_port as u32;
+        rodata.ip4 = address.try_into_ne_octets()?;
+        rodata.port = address.port() as u32;
+        rodata.tls_port = tls_port as u32;
 
         let skel = open_skel.load()?;
 
@@ -225,6 +225,13 @@ impl<'obj> Proxy<'obj> {
         skel.progs.parse_skb.attach_sockmap(skb_sock_map_fd)?;
         skel.progs.process_skb.attach_sockmap(skb_sock_map_fd)?;
 
+        let process_msg_fd = skel.progs.process_msg.as_fd().as_raw_fd();
+        let h2 = h2::Parser::new()
+            .capture_http_hdr("path")?
+            .replace_parse("parse_h2")
+            .replace_extract("extract_h2_match")
+            .attach(process_msg_fd)?;
+
         let cgroup_fd = std::fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY)
@@ -232,16 +239,16 @@ impl<'obj> Proxy<'obj> {
             .into_raw_fd();
         let sockops = skel.progs.monitor_sockets.attach_cgroup(cgroup_fd)?;
 
-        let crypto = &skel.progs.crypto_setup;
-        let input = libbpf_rs::ProgramInput::default();
+        // let crypto = &skel.progs.crypto_setup;
+        // let input = libbpf_rs::ProgramInput::default();
 
-        let res = crypto.test_run(input)?;
-        if res.return_value != 0 {
-            let err = std::io::Error::from_raw_os_error(res.return_value as i32);
-            bail!("Crypto setup failed {:?}", err);
-        }
+        // let res = crypto.test_run(input)?;
+        // if res.return_value != 0 {
+        //     let err = std::io::Error::from_raw_os_error(res.return_value as i32);
+        //     bail!("Crypto setup failed {:?}", err);
+        // }
 
-        debug!("Crypto setup successful");
+        // debug!("Crypto setup successful");
 
         Ok(Self {
             address,
@@ -249,6 +256,7 @@ impl<'obj> Proxy<'obj> {
             config,
             skel,
             sockops,
+            h2,
             upstream_pool: Arc::new(Mutex::new(Vec::new())),
         })
     }
