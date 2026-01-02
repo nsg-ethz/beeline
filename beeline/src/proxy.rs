@@ -1,15 +1,17 @@
 use crate::{
     bpf::{types::*, TypedLookUp, *},
-    parse::{http::HttpParser, Action},
+    parse::h1::{Action as H1Action, Parser as H1Parser},
+    parse::h2::{populate_static_table, Action as H2Action, Parser as H2Parser},
 };
 use anyhow::{anyhow, bail, Context, Result};
 use as_bytes::AsBytes;
-use beeline::h2;
 use common::{
     config::beeline::Config,
     net::{get_gw_ip, TryIntoRawOctets},
     Compiler,
 };
+use http::{Request, Response, StatusCode};
+use http2::{client, server};
 use ktls::{CorkStream, KtlsCipherSuite, KtlsCipherType, KtlsVersion};
 use libbpf_rs::{
     set_print,
@@ -31,7 +33,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
     signal::unix::{signal, SignalKind},
 };
@@ -41,28 +43,31 @@ use tracing::{debug, error, info, trace, warn, Level};
 pub mod bpf;
 pub mod parse;
 
-fn new_transition(state: u16, action: Action, rodata: &rodata) -> trans {
+fn new_h1_transition(state: u16, action: H1Action, rodata: &rodata) -> trans {
     let action = match action {
-        Action::StartCapture(mid) => rodata.a_start_capture | (mid as u16) & rodata.a_id_mask,
-        Action::EndCapture(cid, mid) => {
+        H1Action::StartCapture(mid) => rodata.a_start_capture | (mid as u16) & rodata.a_id_mask,
+        H1Action::EndCapture(cid, mid) => {
             let id = (cid as u16) << 6 | (mid as u16);
             rodata.a_end_capture | id & rodata.a_id_mask
         }
-        Action::Done => rodata.a_done,
-        Action::None => 0,
+        H1Action::Done => rodata.a_done,
+        H1Action::None => 0,
     };
 
     trans { state, action }
 }
 
-fn inject_parser(parser: HttpParser, rodata: &mut rodata) -> Result<()> {
-    for (from, to, input, action) in parser.iter_transitions() {
-        let s = *from as usize;
-        let t = new_transition(*to, *action, rodata);
-        rodata.s2ts[s][*input as usize] = t;
-    }
+fn new_h2_transition(state: u16, action: H2Action, rodata: &rodata) -> trans {
+    let action = match action {
+        H2Action::CaptureFieldValue(cid) => {
+            rodata.a_start_capture | (cid as u16) & rodata.a_id_mask
+        }
+        // H2Action::EndCapturing(rid) => rodata.a_end_capture | (rid as u16) & rodata.a_id_mask,
+        H2Action::Done => rodata.a_done,
+        H2Action::None => 0,
+    };
 
-    Ok(())
+    trans { state, action }
 }
 
 fn add_pqueue_to_fib<M: MapCore>(map: &M, key: fib_key) -> Result<()> {
@@ -109,6 +114,69 @@ fn update_map<M: MapCore, K: AsBytes, V: AsBytes>(map: &M, key: &K, val: &V) -> 
     Ok(())
 }
 
+fn init_dataplane(config: Config, rodata: &mut rodata) -> Result<()> {
+    let compiler = Compiler::new(config.clone());
+    let vars = compiler.get_ctx_vars();
+    let mut h1 = H1Parser::new(rodata.s_init, rodata.s_any);
+
+    for hdr in vars.iter() {
+        match hdr.name() {
+            "preface" => h1.match_preface()?,
+            "method" => h1.match_http_req_status_line()?,
+            "path" => (),
+            "status_code" => h1.match_http_status_code()?,
+            "jwt_claims" => h1.match_http_hdr_auth()?,
+            "jwt_sig" => (),
+            name => h1.match_http_hdr(name)?,
+        }
+    }
+
+    // this is necessary so that the DFA won't
+    // parse beyond the HTTP header
+    h1.done_on_http_hdr_end()?;
+
+    if h1.num_captures() >= 15 {
+        bail!("Parsing too many patterns.")
+    }
+
+    info!("Injecting HTTP parser with {} states", h1.num_states());
+    for (from, to, input, action) in h1.iter_transitions() {
+        let s = *from as usize;
+        let t = new_h1_transition(*to, *action, rodata);
+        rodata.s2ts_h1[s][*input as usize] = t;
+    }
+
+    let mut h2 = H2Parser::new(rodata.s_init, rodata.s_any);
+
+    for hdr in vars.iter() {
+        match hdr.name() {
+            name => h2.capture_http_hdr(name)?,
+        }
+    }
+
+    if h2.num_captures() >= 15 {
+        bail!("Parsing too many patterns.")
+    }
+
+    info!("Injecting HTTP parser with {} states", h2.num_states());
+    for (from, to, input, action) in h2.iter_transitions() {
+        let s = *from as usize;
+        let t = new_h2_transition(*to, *action, rodata);
+        rodata.s2ts_h2[s][*input as usize] = t;
+    }
+
+    if let Some(network) = &config.network {
+        let addr_raw = network.addr.try_into_ne_octets()?;
+        rodata.ip4_start = addr_raw;
+        rodata.ip4_end = addr_raw + network.len();
+
+        let gw_raw = get_gw_ip(network.addr).try_into_ne_octets()?;
+        rodata.gw = gw_raw;
+    }
+
+    Ok(())
+}
+
 fn print(level: PrintLevel, msg: String) {
     let msg = msg.trim_start_matches("libbpf:").trim();
 
@@ -127,8 +195,6 @@ pub struct Proxy<'obj> {
     skel: ProxySkel<'obj>,
     #[allow(dead_code)]
     sockops: Link,
-    #[allow(dead_code)]
-    h2: (Option<Link>, Option<Link>, Option<Link>),
 
     upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
 }
@@ -168,40 +234,7 @@ impl<'obj> Proxy<'obj> {
         }
 
         let mut rodata = open_skel.maps.rodata_data.as_mut().context("rodata")?;
-        let compiler = Compiler::new(config.clone());
-        let vars = compiler.get_ctx_vars();
-        let mut parser = HttpParser::new(rodata.s_init, rodata.s_any);
-
-        for hdr in vars.iter() {
-            match hdr.name() {
-                "method" => parser.match_http_req_status_line()?,
-                "path" => (),
-                "status_code" => parser.match_http_status_code()?,
-                "jwt_claims" => parser.match_http_hdr_auth()?,
-                "jwt_sig" => (),
-                name => parser.match_http_hdr(name)?,
-            }
-        }
-
-        // this is necessary so that the DFA won't
-        // parse beyond the HTTP header
-        parser.done_on_http_hdr_end()?;
-
-        if parser.num_captures() >= 31 {
-            bail!("Parsing too many patterns.")
-        }
-
-        info!("Injecting HTTP parser with {} states", parser.num_states());
-        inject_parser(parser, &mut rodata)?;
-
-        if let Some(network) = &config.network {
-            let addr_raw = network.addr.try_into_ne_octets()?;
-            rodata.ip4_start = addr_raw;
-            rodata.ip4_end = addr_raw + network.len();
-
-            let gw_raw = get_gw_ip(network.addr).try_into_ne_octets()?;
-            rodata.gw = gw_raw;
-        }
+        init_dataplane(config.clone(), &mut rodata)?;
 
         let tls_port = tls_addr.map(|addr| addr.port()).unwrap_or_default();
         rodata.ip4 = address.try_into_ne_octets()?;
@@ -209,6 +242,10 @@ impl<'obj> Proxy<'obj> {
         rodata.tls_port = tls_port as u32;
 
         let skel = open_skel.load()?;
+
+        let static_table = skel.maps.static_table.info()?.info.id;
+        let static_table = MapHandle::from_map_id(static_table)?;
+        populate_static_table(&static_table)?;
 
         let msg_sock_map_fd = skel.maps.msg_sock_map.as_fd().as_raw_fd();
         skel.progs.process_msg.attach_sockmap(msg_sock_map_fd)?;
@@ -224,13 +261,6 @@ impl<'obj> Proxy<'obj> {
         let skb_sock_map_fd = skel.maps.skb_sock_map.as_fd().as_raw_fd();
         skel.progs.parse_skb.attach_sockmap(skb_sock_map_fd)?;
         skel.progs.process_skb.attach_sockmap(skb_sock_map_fd)?;
-
-        let process_msg_fd = skel.progs.process_msg.as_fd().as_raw_fd();
-        let h2 = h2::Parser::new()
-            .capture_http_hdr("path")?
-            .replace_parse("parse_h2")
-            .replace_extract("extract_h2_match")
-            .attach(process_msg_fd)?;
 
         let cgroup_fd = std::fs::OpenOptions::new()
             .read(true)
@@ -256,7 +286,6 @@ impl<'obj> Proxy<'obj> {
             config,
             skel,
             sockops,
-            h2,
             upstream_pool: Arc::new(Mutex::new(Vec::new())),
         })
     }
@@ -518,55 +547,22 @@ impl<'obj> Proxy<'obj> {
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
         tokio::spawn(async move {
-            let mut buf = Vec::with_capacity(8192);
             let mut upstreams = Vec::new();
+            let mut http2 = server::handshake(downstream).await.unwrap();
 
-            let send_error = async |stream: &mut S| {
-                warn!("Sending 500 to {:?}", ds_remote_addr);
-                stream
-                    .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
-                    .await
-                    .ok();
-            };
+            while let Some(request) = http2.accept().await {
+                let (mut request, mut respond) = request.unwrap();
+                println!("Received request: {:?}", request);
 
-            let res = loop {
-                match downstream.read_buf(&mut buf).await {
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-                    Err(e) => break Err(anyhow!(e)),
-                    Ok(0) => {
-                        trace!("Connection to {:?} closed", ds_remote_addr);
-                        break Ok(());
-                    }
-                    Ok(len) => len,
+                let mut send_error = || {
+                    warn!("Sending 500 to {:?}", ds_remote_addr);
+                    let response = Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(())
+                        .unwrap();
+
+                    respond.send_response(response, true).unwrap();
                 };
-
-                trace!(
-                    "Received request: {}",
-                    String::from_utf8_lossy(&buf).escape_debug()
-                );
-
-                let mut headers = [httparse::EMPTY_HEADER; 64];
-                let mut req = httparse::Request::new(&mut headers);
-                let hdr_len = req.parse(&buf).expect("Failed to parse HTTP request");
-
-                let con_len = req
-                    .headers
-                    .iter()
-                    .find(|h| h.name.eq_ignore_ascii_case("content-length"))
-                    .and_then(|h| std::str::from_utf8(h.value).ok())
-                    .and_then(|v| v.parse::<usize>().ok())
-                    .unwrap_or(0);
-
-                let hdr_len = match hdr_len {
-                    httparse::Status::Complete(len) => len,
-                    httparse::Status::Partial => continue,
-                };
-
-                let req_len = hdr_len + con_len;
-                if buf.len() < req_len {
-                    debug!("Request not fully read: {}/{}", buf.len(), req_len);
-                    continue;
-                }
 
                 // check if there is a forwarding token in the waiting list
                 let us_remote_addr: Option<addr_key> = utrn_wait_list
@@ -597,8 +593,7 @@ impl<'obj> Proxy<'obj> {
                         "No address found in wait list for downstream connection: {:?}",
                         &ds_remote_addr,
                     );
-                    buf.clear();
-                    send_error(&mut downstream).await;
+                    send_error();
                     continue;
                 };
 
@@ -616,8 +611,7 @@ impl<'obj> Proxy<'obj> {
                     Ok(_) => socket.local_addr().unwrap(),
                     Err(e) => {
                         warn!("Failed to bind socket: {}", e);
-                        buf.clear();
-                        send_error(&mut downstream).await;
+                        send_error();
                         continue;
                     }
                 };
@@ -632,15 +626,14 @@ impl<'obj> Proxy<'obj> {
 
                 debug!("Bound socket to {}", us_local_addr);
 
-                let mut upstream = match socket.connect(us_remote_addr).await {
+                let upstream = match socket.connect(us_remote_addr).await {
                     Ok(upstream) => upstream,
                     Err(err) => {
                         warn!(
                             "Failed to connect from {} to {}: {}",
                             us_local_addr, us_remote_addr, err
                         );
-                        buf.clear();
-                        send_error(&mut downstream).await;
+                        send_error();
                         continue;
                     }
                 };
@@ -654,26 +647,203 @@ impl<'obj> Proxy<'obj> {
                 update_map(&fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
                     .expect("Failed to insert into FIB");
 
-                let msg = buf.drain(..req_len).collect::<Vec<u8>>();
-                let mut req_buf = Cursor::new(&msg);
-                if upstream.write_all_buf(&mut req_buf).await.is_err() {
-                    buf.clear();
-                    send_error(&mut downstream).await;
-                    continue;
+                let (http2, connection) = client::handshake(upstream).await.unwrap();
+                // tokio::spawn(async move {
+                //     connection.await.unwrap();
+                // });
+
+                // connection.await.unwrap();
+                let mut http2 = http2.ready().await.unwrap();
+
+                let forward = Request::builder()
+                    .method(request.method())
+                    .uri(request.uri())
+                    .body(())
+                    .unwrap();
+                let (_, mut stream) = http2.send_request(forward, true).unwrap();
+
+                while let Some(Ok(chunk)) = request.body_mut().data().await {
+                    stream.send_data(chunk, false).unwrap();
                 }
 
                 // upstream connections are automatically reused by the eBPF program
                 // adding them to this shared vector allows us to keep them alive
-                upstreams.push(upstream);
-            };
-
-            if let Err(e) = res {
-                error!("Error handling downstream connection: {:?}", e);
+                upstreams.push(connection);
             }
 
-            let mut upstream_pool = upstream_pool.lock().unwrap();
-            upstream_pool.extend(upstreams.into_iter());
+            // let mut upstream_pool = upstream_pool.lock().unwrap();
+            // upstream_pool.extend(upstreams.into_iter());
         });
+
+        // tokio::spawn(async move {
+        //     let mut buf = Vec::with_capacity(8192);
+        //     let mut upstreams = Vec::new();
+        //     let mut is_h2 = false;
+
+        //     let send_error = async |stream: &mut S| {
+        //         warn!("Sending 500 to {:?}", ds_remote_addr);
+        //         stream
+        //             .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
+        //             .await
+        //             .ok();
+        //     };
+
+        //     let res = loop {
+        //         match downstream.read_buf(&mut buf).await {
+        //             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+        //             Err(e) => break Err(anyhow!(e)),
+        //             Ok(0) => {
+        //                 trace!("Connection to {:?} closed", ds_remote_addr);
+        //                 break Ok(());
+        //             }
+        //             Ok(len) => len,
+        //         };
+
+        //         trace!(
+        //             "Received request: {}",
+        //             String::from_utf8_lossy(&buf).escape_debug()
+        //         );
+
+        //         if buf.starts_with(H2_PREFACE) {
+        //             is_h2 = true;
+        //             trace!("Upgrading connection to HTTP/2");
+        //         }
+
+        //         let req_len = if is_h2 {
+        //             trace!("msg: {}", String::from_utf8_lossy(&buf).escape_debug());
+        //             33
+        //         } else {
+        //             let mut headers = [httparse::EMPTY_HEADER; 64];
+        //             let mut req = httparse::Request::new(&mut headers);
+        //             let hdr_len = req.parse(&buf).expect("Failed to parse HTTP request");
+
+        //             let con_len = req
+        //                 .headers
+        //                 .iter()
+        //                 .find(|h| h.name.eq_ignore_ascii_case("content-length"))
+        //                 .and_then(|h| std::str::from_utf8(h.value).ok())
+        //                 .and_then(|v| v.parse::<usize>().ok())
+        //                 .unwrap_or(0);
+
+        //             let hdr_len = match hdr_len {
+        //                 httparse::Status::Complete(len) => len,
+        //                 httparse::Status::Partial => continue,
+        //             };
+
+        //             hdr_len + con_len
+        //         };
+
+        //         if buf.len() < req_len {
+        //             debug!("Request not fully read: {}/{}", buf.len(), req_len);
+        //             continue;
+        //         }
+
+        //         // check if there is a forwarding token in the waiting list
+        //         let us_remote_addr: Option<addr_key> = utrn_wait_list
+        //             .lookup_and_delete_as(&ds_remote_addr_key)
+        //             .expect("Failed to lookup utrn_wait_list");
+
+        //         let (ds_remote_addr_key, us_remote_addr) = if us_remote_addr.is_none() {
+        //             let gw_ip = match ds_local_addr.ip() {
+        //                 IpAddr::V4(ip) => get_gw_ip(ip),
+        //                 _ => panic!("Unexpected IP version"),
+        //             };
+        //             let ds_gw_addr =
+        //                 SocketAddr::V4(SocketAddrV4::new(gw_ip, ds_remote_addr.port()));
+        //             let ds_remote_addr_key =
+        //                 sock_key::try_from((&ds_gw_addr, &ds_local_addr)).unwrap();
+
+        //             let us_remote_addr: Option<addr_key> = utrn_wait_list
+        //                 .lookup_and_delete_as(&ds_remote_addr_key)
+        //                 .expect("Failed to lookup utrn_wait_list");
+
+        //             (ds_remote_addr_key, us_remote_addr)
+        //         } else {
+        //             (ds_remote_addr_key, us_remote_addr)
+        //         };
+
+        //         let Some(us_remote_addr) = us_remote_addr else {
+        //             warn!(
+        //                 "No address found in wait list for downstream connection: {:?}",
+        //                 &ds_remote_addr,
+        //             );
+        //             buf.clear();
+        //             send_error(&mut downstream).await;
+        //             continue;
+        //         };
+
+        //         let us_remote_addr: SocketAddr = us_remote_addr.into();
+        //         debug!("Opening upstream connection to {}", us_remote_addr);
+
+        //         let socket = TcpSocket::new_v4().unwrap();
+        //         socket.set_reuseaddr(true).unwrap();
+        //         let gw_ip = match us_remote_addr.ip() {
+        //             IpAddr::V4(ip) => get_gw_ip(ip),
+        //             _ => panic!("Unexpected IP version"),
+        //         };
+        //         let us_local_addr = SocketAddr::V4(SocketAddrV4::new(gw_ip, 0));
+        //         let us_local_addr = match socket.bind(us_local_addr) {
+        //             Ok(_) => socket.local_addr().unwrap(),
+        //             Err(e) => {
+        //                 warn!("Failed to bind socket: {}", e);
+        //                 buf.clear();
+        //                 send_error(&mut downstream).await;
+        //                 continue;
+        //             }
+        //         };
+
+        //         let us_sock_key = if tls {
+        //             sock_key::try_from((&us_local_addr, &us_remote_addr)).unwrap()
+        //         } else {
+        //             sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap()
+        //         };
+        //         update_map(&sock_map_wait_list, &us_sock_key, &(!tls as u32))
+        //             .expect("Failed to insert into sock_map_wait_list");
+
+        //         debug!("Bound socket to {}", us_local_addr);
+
+        //         let mut upstream = match socket.connect(us_remote_addr).await {
+        //             Ok(upstream) => upstream,
+        //             Err(err) => {
+        //                 warn!(
+        //                     "Failed to connect from {} to {}: {}",
+        //                     us_local_addr, us_remote_addr, err
+        //                 );
+        //                 buf.clear();
+        //                 send_error(&mut downstream).await;
+        //                 continue;
+        //             }
+        //         };
+
+        //         let us_local_addr_key = addr_key::try_from(&us_local_addr).unwrap();
+        //         debug!(
+        //             "Opened upstream connection: [{} -> {}]",
+        //             us_local_addr, us_remote_addr
+        //         );
+
+        //         update_map(&fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
+        //             .expect("Failed to insert into FIB");
+
+        //         let msg = buf.drain(..req_len).collect::<Vec<u8>>();
+        //         let mut req_buf = Cursor::new(&msg);
+        //         if upstream.write_all_buf(&mut req_buf).await.is_err() {
+        //             buf.clear();
+        //             send_error(&mut downstream).await;
+        //             continue;
+        //         }
+
+        //         // upstream connections are automatically reused by the eBPF program
+        //         // adding them to this shared vector allows us to keep them alive
+        //         upstreams.push(upstream);
+        //     };
+
+        //     if let Err(e) = res {
+        //         error!("Error handling downstream connection: {:?}", e);
+        //     }
+
+        //     let mut upstream_pool = upstream_pool.lock().unwrap();
+        //     upstream_pool.extend(upstreams.into_iter());
+        // });
 
         Ok(())
     }

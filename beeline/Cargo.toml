@@ -1,11 +1,11 @@
 [package]
-name = "beeline_sm"
+name = "beeline"
 version = "0.1.0"
 edition = "2021"
 description = "An experiment to explore the feasibility of composing valid BPF code snippets."
 
 [lib]
-name = "beeline_sm"
+name = "beeline"
 path = "src/proxy.rs"
 
 [[bin]]
@@ -14,7 +14,6 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.86"
-beeline = { path = "../../beeline-rs/beeline" }
 clap = { version = "4.5.17", features = ["derive"] }
 common = { path = "../common" }
 libbpf-rs = "0.25.0"
@@ -25,6 +24,7 @@ serde_yaml = "0.9.34"
 serde = { version = "1.0.213", features = ["derive"] }
 tokio = { version = "1.41.0", features = ["full"] }
 httparse = "1.9.5"
+httlib-huffman = "0.3.4"
 sha2 = "0.10.8"
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
@@ -32,6 +32,8 @@ ktls = "6.0.2"
 rcgen = "0.14.6"
 rustls = { version = "0.23.35", features = ["ring"] }
 tokio-rustls = { version = "0.26.4", features = ["ring"] }
+http2 = "0.5.10"
+http = "1.4.0"
 
 [build-dependencies]
 common = { path = "../common" }

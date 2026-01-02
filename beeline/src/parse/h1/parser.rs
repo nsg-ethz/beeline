@@ -1,9 +1,9 @@
-use crate::parse::{dfa::Dfa, Action};
+use crate::parse::h1::{dfa::Dfa, Action};
 use anyhow::{Ok, Result};
 
 const CRLF: &str = "\r\n";
 
-pub struct HttpParser {
+pub struct Parser {
     pub s_init: u16,
     pub s_any: u16,
 
@@ -11,11 +11,11 @@ pub struct HttpParser {
 }
 
 #[allow(dead_code)]
-impl HttpParser {
-    pub fn new(s_init: u16, s_any: u16) -> HttpParser {
+impl Parser {
+    pub fn new(s_init: u16, s_any: u16) -> Parser {
         let states = vec![s_init, s_any];
 
-        HttpParser {
+        Parser {
             s_init,
             s_any,
             dfa: Dfa::new(states.into_iter()),
@@ -69,6 +69,20 @@ impl HttpParser {
             .start_capturing()
             .push_optional('*')?
             .end_caputuring_and_restart_with(CRLF, self.s_any)?;
+
+        Ok(())
+    }
+
+    pub fn match_preface(&mut self) -> Result<()> {
+        self.dfa
+            .start_pattern(self.s_init)
+            .start_capturing()
+            .push("PRI * HTTP/2.0")?
+            .push(CRLF)?
+            .push(CRLF)?
+            .end_capturing("SM")?
+            .push(CRLF)?
+            .done_on(CRLF)?;
 
         Ok(())
     }

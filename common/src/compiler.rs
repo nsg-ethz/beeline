@@ -106,20 +106,20 @@ impl Compiler {
                 &Variable::Buffer(name, ty, size) => {
                     if ty == "char" {
                         format!(
-                            "struct prange {name}_range;\nchar {name}[{size}];",
+                            "struct hdr_match {name}_range;\nchar {name}[{size}];",
                             name = sanitize_var_name(name),
                             size = size.unwrap()
                         )
                     } else {
                         format!(
-                            "struct prange {name}_range;\n{ty} {name};",
+                            "struct hdr_match {name}_range;\n{ty} {name};",
                             name = sanitize_var_name(name),
                             ty = ty
                         )
                     }
                 }
                 &Variable::Range(name) => {
-                    format!("struct prange {}_range;", sanitize_var_name(name))
+                    format!("struct hdr_match {}_range;", sanitize_var_name(name))
                 }
             })
             .collect::<Vec<String>>()
@@ -127,7 +127,7 @@ impl Compiler {
 
         filter.replace_defs("vars", var_defs);
 
-        let inits = vars
+        let init_h1 = vars
             .iter()
             .enumerate()
             .map(|(i, var)| {
@@ -146,22 +146,22 @@ impl Compiler {
                             let mask = mask - 1;
 
                             format!(
-                                "r = pranges[{idx}];
-                            r.len &= {mask};
-                            bpf_probe_read_kernel(ctx->{name}, r.len, data + r.idx);
-                            ctx->{name}_range = r;
-                            bpf_log(\"{name} inited to %s\", ctx->{name});",
-                            idx=i, name=name, mask=mask
+                                "m = pres->ms[{idx}];
+                                m.len &= {mask};
+                                bpf_probe_read_kernel(ctx->{name}, m.len, data + m.idx);
+                                ctx->{name}_range = m;
+                                bpf_log(\"{name} inited to %s\", ctx->{name});",
+                                idx=i, name=name, mask=mask
                             )
                         } else if ty == "u32" {
                             format!(
-                                "r = pranges[{}];
-                                r.len &= 0x3f;
-                                bpf_probe_read_kernel(buf, r.len, data + r.idx);
-                                buf[r.len] = '\\0'; // this way, we don't need an if-clause
-                                bpf_strtoul(buf, r.len + 1, 10, &tmp);
+                                "m = pres->ms[{}];
+                                m.len &= 0x3f;
+                                bpf_probe_read_kernel(buf, m.len, data + m.idx);
+                                buf[m.len] = '\\0'; // this way, we don't need an if-clause
+                                bpf_strtoul(buf, m.len + 1, 10, &tmp);
                                 ctx->{} = tmp;
-                                ctx->{}_range = r;
+                                ctx->{}_range = m;
                                 bpf_log(\"{} inited to %d\", ctx->{});",
                                 i, name, name, name, name
                             )
@@ -184,7 +184,68 @@ impl Compiler {
             })
             .collect::<Vec<String>>()
             .join("\n");
-        filter.replace_code("init", inits);
+        filter.replace_code("init_h1", init_h1);
+
+        let init_h2 = vars
+            .iter()
+            .enumerate()
+            .map(|(i, var)| {
+                // TODO: let the initialization fail if len < size
+                match &var {
+                    &Variable::Buffer(name, ty, len) => {
+                        let name = sanitize_var_name(name);
+                        let code = if ty == "char" {
+                            let mut mask = 1;
+                            loop {
+                                mask = mask << 1;
+                                if (mask - 1) >= len.unwrap() {
+                                    break;
+                                }
+                            }
+                            let mask = mask - 1;
+
+                            format!(
+                                "m = pres->ms[{idx}];
+                                m.len &= {mask};
+                                ptr = _extract_match(data, data_end, skey, &m, false);
+                                bpf_probe_read_kernel(ctx->{name}, m.len, ptr);
+                                ctx->{name}_range = m;
+                                bpf_log(\"{name} inited to %s\", ctx->{name});",
+                            idx=i, name=name
+                            )
+                        } else if ty == "u32" {
+                            format!(
+                                "m = pres->ms[{idx}];
+                                m.len &= 0x3f;
+                                ptr = _extract_match(data, data_end, skey, &m, false);
+                                bpf_probe_read_kernel(buf, m.len, ptr);
+                                buf[m.len] = '\\0'; // this way, we don't need an if-clause
+                                bpf_strtoul(buf, m.len + 1, 10, &tmp);
+                                ctx->{name} = tmp;
+                                ctx->{name}_range = m;
+                                bpf_log(\"{name} inited to %s\", ctx->{name});",
+                                idx=i, name=name
+                            )
+                        } else {
+                            unimplemented!("{}", ty)
+                        };
+
+                        if name == "status_code" {
+                            format!("#if STATS == 1\n{}\n#endif", code)
+                        } else {
+                            code
+                        }
+                    }
+                    &Variable::Range(name) => {
+                        let name = sanitize_var_name(name);
+                        format!("ctx->{}_range = pranges[{}];
+                            bpf_log(\"{} inited to (%d, %d)\", ctx->{}_range.idx, ctx->{}_range.len);", name, i, name, name, name)
+                    }
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+        filter.replace_code("init_h2", init_h2);
 
         filter
     }
@@ -275,6 +336,7 @@ impl Compiler {
                 let rmv_auth = if key == "authorization" {
                     format!(
                         "if (ctx->jwt_claims_range.len > 0) {{
+                            remove_range.in_msg = true;
                             remove_range.idx = ctx->jwt_claims_range.idx-7-{key_len};
                             remove_range.len = ctx->jwt_claims_range.len+ctx->jwt_sig_range.len+8+{key_len_crlf};
                             if (_mutate(msg, remove_range, NULL, 0) < 0) {{
@@ -296,6 +358,7 @@ impl Compiler {
                 let rmv_hdr = format!(
                     "{rmv_auth}
                     if (ctx->{key}_range.len > 0) {{
+                        remove_range.in_msg = true;
                         remove_range.idx = ctx->{key}_range.idx-{key_len};
                         remove_range.len = ctx->{key}_range.len+{key_len_crlf};
                         if (_mutate(msg, remove_range, NULL, 0) < 0) {{
@@ -703,6 +766,7 @@ impl Compiler {
             }
         }
 
+        insert(Variable::buffer("preface", "char", Some(24)));
         insert(Variable::buffer("method", "char", Some(7)));
         insert(Variable::buffer("path", "char", Some(max_path_len)));
         insert(Variable::buffer("status_code", "u32", None));

@@ -9,7 +9,7 @@ use std::{
     mem::size_of,
     net::{IpAddr, SocketAddr},
 };
-use types::*;
+pub use types::*;
 
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),

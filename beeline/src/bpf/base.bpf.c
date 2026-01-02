@@ -49,8 +49,6 @@ unsigned long bpf_xxhash(const u8 *src, u32 src__sz, u64 seed) __ksym;
     #define bpf_profile_print(...)
 #endif
 
-#define __sink(expr) asm volatile("" : "+g"(expr))
-
 #define MAX_CONNS 32768
 
 struct {
@@ -96,16 +94,6 @@ struct addr_key {
 struct sock_key {
     struct addr_key local;
     struct addr_key remote;
-};
-
-struct prange {
-    u16 idx;
-    u16 len;
-};
-
-struct hdr_str {
-    u32 len;
-    u8* ptr;
 };
 
 struct {
@@ -242,12 +230,13 @@ struct trans {
 
 // these restrictions are needed to make the verifier happy
 #define MAX_BYTES 0xFFFE
-#define MAX_MATCHES 32
-#define MAX_MATCH_MASK 31
+#define MAX_MATCHES 16
+#define MAX_MATCH_MASK 15
 #define MAX_STATES 512
-#define MAX_TRANS 128
+#define MAX_TRANS 256
 
-volatile const struct trans s2ts[MAX_STATES][MAX_TRANS];
+volatile const struct trans s2ts_h1[MAX_STATES][MAX_TRANS];
+volatile const struct trans s2ts_h2[MAX_STATES][MAX_TRANS];
 
 volatile const u32 ip4;
 volatile const u32 ip4_start;
@@ -257,9 +246,19 @@ volatile const u32 tls_ip4;
 volatile const u32 tls_port;
 volatile const u32 gw;
 
+struct hdr_match {
+    u16 idx;
+    u16 len;
+    bool in_msg;
+};
+
+struct parse_res {
+    struct hdr_match ms[MAX_MATCHES];
+};
+
 {{DEFS}}
 
-static __always_inline struct sock_key new_sock_key_from_msg(const struct sk_msg_md *msg) {
+static __always_inline struct sock_key _new_sock_key_from_msg(const struct sk_msg_md *msg) {
     return (struct sock_key) {
         .local = {
             .ip4 = msg->local_ip4,
@@ -272,7 +271,7 @@ static __always_inline struct sock_key new_sock_key_from_msg(const struct sk_msg
     };
 }
 
-static __always_inline struct sock_key new_sock_key_from_skb(const struct __sk_buff *skb) {
+static __always_inline struct sock_key _new_sock_key_from_skb(const struct __sk_buff *skb) {
     return (struct sock_key) {
         .local = {
             .ip4 = skb->remote_ip4,
@@ -372,11 +371,11 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
     return PR_PASS;
 }
 
-static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct prange r, char *str, u16 str_len) {
+static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m, char *str, u16 str_len) {
     bpf_profile_start(mutate);
 
-    u16 len = r.len;
-    u16 idx = r.idx;
+    u16 len = m.len;
+    u16 idx = m.idx;
 
     if (len > 0xFFFF) return -1;
     len &= 0xFFFF;
@@ -435,12 +434,12 @@ bpf_profile_def(mutate_prelinearize);
 bpf_profile_def(mutate_postlinearize);
 bpf_profile_def(mutate_alloc);
 bpf_profile_def(mutate_copy);
-static __always_inline int _mutate(void *msg __arg_ctx, struct prange r, char *str, u16 str_len, bool is_skb) {
+static __always_inline int _mutate(void *msg __arg_ctx, struct hdr_match m, char *str, u16 str_len, bool is_skb) {
     if (is_skb) {
         return -1;
     }
     else {
-        return _mutate_msg(msg, r, str, str_len);
+        return _mutate_msg(msg, m, str, str_len);
     }
 }
 
@@ -547,17 +546,107 @@ static __always_inline bool _is_loopback(struct addr_key *addr) {
     return addr->ip4 == 16777343;
 }
 
-{{FILTERS}}
-
 // ----------------------------------------------
 
-static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *action) {
-    state &= 0x1FF;
-    input &= 0x7F;
+struct hdr_str {
+    u32 len;
+    u8* ptr;
+};
 
-    struct trans t = s2ts[state][input];
+enum h2_parse_state {
+    // integers
+    H2_IDX = 0,
+    H2_KEY_LEN = 1,
+    H2_VAL_LEN = 2,
+
+    // strings
+    H2_KEY = 3,
+    H2_VAL = 4,
+};
+
+#define H2_IS_STR(ps) (ps > H2_VAL_LEN)
+
+struct header_field {
+    u8 key[32];
+    u8 val[32];
+};
+
+#define STATIC_TABLE_SIZE 61
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, STATIC_TABLE_SIZE+1);
+    __type(key, u32);
+    __type(value, struct header_field);
+} static_table SEC(".maps");
+
+struct dynamic_table_key {
+    struct sock_key conn;
+    u32 idx;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct dynamic_table_key);
+	__type(value, struct header_field);
+} dynamic_table SEC(".maps");
+
+struct dynamic_table_info {
+    u16 size;
+    u16 max_size;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct sock_key);
+	__type(value, struct dynamic_table_info);
+} dynamic_table_info SEC(".maps");
+
+static __always_inline struct dynamic_table_key _new_table_key(const struct sk_msg_md *msg, u32 idx) {
+    const struct sock_key skey = _new_sock_key_from_msg(msg);
+    return (struct dynamic_table_key) {
+        .conn = skey,
+        .idx = idx
+    };
+}
+
+static __always_inline const u8* _extract_match(const char *data, const char *data_end, const struct sock_key *skey, const struct hdr_match *m, bool is_key) {
+    if (m->in_msg) {
+        if (data + m->idx + m->len > data_end) return NULL;
+        return data + m->idx;
+    }
+
+    struct header_field *hf = NULL;
+    if (m->idx > STATIC_TABLE_SIZE) {
+        struct dynamic_table_key key = (struct dynamic_table_key) {
+            .conn = *skey,
+            .idx = m->idx
+        };
+
+        // struct dynamic_table_info *dt_info = bpf_map_lookup_elem(&dynamic_table_info, &key.conn);
+        // if (dt_info == NULL) return NULL;
+        // key.idx = dt_info->size - m->idx;
+        hf = bpf_map_lookup_elem(&dynamic_table, &key);
+    }
+    else {
+        u32 key = m->idx;
+        hf = bpf_map_lookup_elem(&static_table, &key);
+    }
+
+    if (hf == NULL) return NULL;
+    barrier(); // this is needed so that clang doesn't reorder the null check
+    return (is_key) ? hf->key : hf->val;
+}
+
+static __always_inline void _next_h2(u16 state, u8 input, u16 *next_state, u16 *action) {
+    state &= 0xFF;
+    input &= 0xFF;
+
+    struct trans t = s2ts_h2[state][input];
     if (t.state == 0 && t.action == 0) {
-        t = s2ts[state]['*'];
+        t = s2ts_h2[state]['*'];
         if (t.state == 0 && t.action == 0) {
             *next_state = s_any;
             *action = 0;
@@ -569,7 +658,274 @@ static __always_inline void _next(u16 state, u8 input, u16 *next_state, u16 *act
     *action = t.action;
 }
 
-static __always_inline int _parse_from(const char *data, const char *data_end, u16 start, struct prange *pranges, u32* cidx, u16 *s, u16 *null_prefix) {
+__noinline __weak int _next_h2_hpack(u8 c, enum h2_parse_state *ps __arg_nonnull, u32 *n __arg_nonnull, u32 *k __arg_nonnull, u8 *j __arg_nonnull) {
+    if (*ps == H2_KEY_LEN) {
+        *ps = H2_KEY;
+        *j = *k-1;
+        *k = 0;
+        *n = 0;
+    }
+    else if (*ps == H2_VAL_LEN) {
+        *ps = H2_VAL;
+        *j = *k-1;
+        *k = 0;
+        *n = 0;
+    }
+    else if (*ps == H2_IDX && (*n == 6 || *n == 4) && (*k == 64 || *k == 0)) {
+        *ps = H2_KEY_LEN;
+        *j = 0;
+        *k = 0;
+        *n = 7;
+    }
+    else if (*ps == H2_IDX && (*n == 6 || *n == 4)) {
+        *ps = H2_VAL_LEN;
+        *j = 0;
+        *k = 0;
+        *n = 7;
+    }
+    else {
+        *ps = H2_IDX;
+        *j = 0;
+        *k = 0;
+        *n = 4;
+
+        if ((c & 128) == 128) {
+            *n = 7;
+        }
+        else if ((c & 192) == 64) {
+            *n = 6;
+        }
+    }
+
+    return 0;
+}
+
+static __always_inline void _parse_h2_hpack(u8 c, enum h2_parse_state *ps, u32 *n, u32 *m, u32 *k, u8 *j) {
+    // bpf_log("parse_hpack: c=%d, ps=%d, n=%d, m=%d, k=%d, j=%d", c, *ps, *n, *m, *k, *j);
+
+    if (*j > 0) {
+        if (H2_IS_STR(*ps)) {
+            *j -= 1;
+        }
+        else {
+            *k += (c & 127) * (1 << *m);
+            *m += 7;
+            *j = ((c & 128) == 128);
+        }
+
+        return;
+    }
+
+    _next_h2_hpack(c, ps, n, k, j);
+    *m = 0;
+    // bpf_log("next: c=%d, ps=%d, n=%d, m=%d, k=%d, j=%d", c, *ps, *n, *m, *k, *j);
+
+    if (!H2_IS_STR(*ps)) {
+        u8 mask = (1 << *n) - 1;
+        *k = c & mask;
+        *j = (*k == mask);
+    }
+}
+
+__noinline __weak s8 _parse_h2_table_entry(const struct sk_msg_md *msg, u16 *s __arg_nonnull, u32 idx, u16 dt_size, struct parse_res *pres __arg_nonnull) {
+    struct header_field *hf = NULL;
+    if (idx > STATIC_TABLE_SIZE) {
+        idx = STATIC_TABLE_SIZE + dt_size - (idx - STATIC_TABLE_SIZE);
+
+        struct dynamic_table_key key = _new_table_key(msg, idx);
+        hf = bpf_map_lookup_elem(&dynamic_table, &key);
+    }
+    else {
+        hf = bpf_map_lookup_elem(&static_table, &idx);
+    }
+
+    if (!hf) return -1;
+    bpf_log("start parsing table entry: %s/%s", hf->key, hf->val);
+
+    u8 j = 0;
+    u16 a = 0;
+    bpf_for(j, 0, 32) {
+        u8 c = hf->key[j & 0x1F];
+        if (c == 0) return -1;
+
+        _next_h2(*s, c, s, &a);
+
+        if ((a & a_start_capture) != 0) {
+            u8 cid = a & a_id_mask & MAX_MATCH_MASK;
+
+            if (hf->val[0] != 0) {
+                bpf_log("capture: %d {%d}", cid, idx);
+                pres->ms[cid] = (struct hdr_match) {
+                    .idx = idx,
+                    .len = 31,
+                    .in_msg = false,
+                };
+                a = 0;
+                return -1;
+            }
+            else {
+                return cid;
+            }
+        }
+    }
+
+    return -1;
+}
+
+__noinline __weak int _add_h2_table_entry(const struct sk_msg_md *msg, u32 idx, const struct hdr_match *key __arg_nonnull, const struct hdr_match *val __arg_nonnull) {
+    struct dynamic_table_key dt_key = _new_table_key(msg, idx);
+    const u8 *key_ptr = _extract_match(msg->data, msg->data_end, &dt_key.conn, key, true);
+    const u8 *val_ptr = _extract_match(msg->data, msg->data_end, &dt_key.conn, val, false);
+    if (!key_ptr || !val_ptr) return 0;
+
+    struct header_field dt_val = { 0 };
+    u16 key_len = (key->in_msg) ? key->len & 0x1F : 0x1F;
+    bpf_probe_read_kernel(dt_val.key, key_len, key_ptr);
+    bpf_probe_read_kernel(dt_val.val, val->len & 0x1F, val_ptr);
+
+    bpf_map_update_elem(&dynamic_table, &dt_key, &dt_val, BPF_ANY);
+    bpf_log("add to dynamic table: %d", idx);
+    bpf_log("key { %d %d %d}", key->idx, key->len, key->in_msg);
+    bpf_log("val { %d %d %d}", val->idx, val->len, val->in_msg);
+
+    return 1;
+}
+
+static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start, u16* s, struct parse_res *pres) {
+    const struct sock_key skey = _new_sock_key_from_msg(msg);
+    const u8 *data = msg->data;
+    const u8 *data_end = msg->data_end;
+    u32 len = (u32)(data_end - data) & MAX_BYTES;
+
+    if (len-start == 0) {
+        return 0;
+    }
+
+    if (data + 9 > data_end) return -1;
+
+    // u32 len = data[0] << 16 | data[1] << 8 | data[2];
+    u8 type = data[3];
+    u8 flags = data[4];
+    u32 stream_id = data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
+
+    struct dynamic_table_info *dt_info = bpf_map_lookup_elem(&dynamic_table_info, &skey);
+    if (!dt_info) {
+        struct dynamic_table_info new_info = {
+            .size = 0,
+            .max_size = 100,
+        };
+        bpf_map_update_elem(&dynamic_table_info, &skey, &new_info, BPF_ANY);
+
+        dt_info = bpf_map_lookup_elem(&dynamic_table_info, &skey);
+        if (!dt_info) return -1;
+    }
+
+    u32 n = 0, m = 0;
+    u32 i = 0, k = 0;
+    u8 j = 0;
+    s8 cid = -1;
+    enum h2_parse_state ps = H2_IDX;
+    struct hdr_match key = {
+        .idx = 0,
+        .len = 0,
+        .in_msg = true,
+    };
+
+    bpf_for(i, start, len+1) {
+        if (data + i + 1 > data_end) break;
+        u8 c = data[i];
+
+        _parse_h2_hpack(c, &ps, &n, &m, &k, &j);
+        if (j != 0) continue;
+
+        if (ps == H2_IDX) {
+            bpf_log("%d: parsed idx: %d, dt_size: %d", i, k, dt_info->size);
+
+            *s = s_any;
+            cid = _parse_h2_table_entry(msg, s, k, dt_info->size, pres);
+            key.idx = k;
+            key.in_msg = false;
+        }
+        else if (ps == H2_KEY_LEN) {
+            key.len = k;
+            key.in_msg = true;
+        }
+        else if (ps == H2_VAL_LEN) {
+            if (cid >= 0) {
+                struct hdr_match val = (struct hdr_match) {
+                    .idx = i + 1,
+                    .len = k,
+                    .in_msg = true,
+                };
+
+                _add_h2_table_entry(msg, dt_info->size + STATIC_TABLE_SIZE, &key, &val);
+
+                bpf_log("capture: %d {%d, %d}", cid, i, k);
+                pres->ms[cid & MAX_MATCH_MASK] = val;
+                cid = -1;
+            }
+
+            dt_info->size +=1;
+        }
+    }
+
+    return i;
+}
+
+static __always_inline int _parse_h2_msg_from(const struct sk_msg_md *msg, u16 start, u16* s, struct parse_res *pres) {
+    return _parse_h2_from(msg, start, s, pres);
+}
+
+static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res *pres, u8 *type) {
+    u8 *data = (u8 *)(long)msg->data;
+    u8 *data_end = (u8 *)(long)msg->data_end;
+
+    if (data + 9 > data_end) return -1;
+
+    u32 len = data[0] << 16 | data[1] << 8 | data[2];
+    *type = data[3];
+
+    bpf_log("Parsing HTTP/2 message with length %d, type %d", len, *type);
+
+    if (*type != 0x01) {
+        return len + 9;
+    }
+
+    u16 s = s_any;
+    int res = _parse_h2_msg_from(msg, 9, &s, pres);
+
+    if (res < 0 && msg->size > -res) {
+        if (bpf_msg_pull_data(msg, 0, msg->size, 0) < 0) {
+            return res;
+        }
+
+        res = _parse_h2_msg_from(msg, -res, &s, pres);
+    }
+
+    return res;
+}
+
+// ----------------------------------------------
+
+static __always_inline void _next_h1(u16 state, u8 input, u16 *next_state, u16 *action) {
+    state &= 0x1FF;
+    input &= 0x7F;
+
+    struct trans t = s2ts_h1[state][input];
+    if (t.state == 0 && t.action == 0) {
+        t = s2ts_h1[state]['*'];
+        if (t.state == 0 && t.action == 0) {
+            *next_state = s_any;
+            *action = 0;
+            return;
+        }
+    }
+
+    *next_state = t.state;
+    *action = t.action;
+}
+
+static __always_inline int _parse_h1_from(const char *data, const char *data_end, u16 start, struct parse_res *pres, u32* cidx, u16 *s, u16 *null_prefix) {
     u32 len = (u32)(data_end - data) & MAX_BYTES;
 
     if (len-start == 0) {
@@ -588,10 +944,10 @@ static __always_inline int _parse_from(const char *data, const char *data_end, u
         }
 
         u16 a = 0;
-        _next(*s, c, s, &a);
+        _next_h1(*s, c, s, &a);
 
         if (*s == s_any) {
-            _next(s_any, c, s, &a);
+            _next_h1(s_any, c, s, &a);
         }
 
         // it should never happen that any of these cases are true simultaneously
@@ -606,7 +962,8 @@ static __always_inline int _parse_from(const char *data, const char *data_end, u
             u16 rid = a & a_id_2_mask & MAX_MATCH_MASK;
             bpf_log("End capture range (%d, %d) in [%d, %d]", cid, rid, cidx[cid], i - cidx[cid]);
 
-            pranges[rid] = (struct prange) {
+            pres->ms[rid] = (struct hdr_match) {
+                .in_msg = true,
                 .idx = cidx[cid],
                 .len = i - cidx[cid]
             };
@@ -615,23 +972,23 @@ static __always_inline int _parse_from(const char *data, const char *data_end, u
         }
         if ((a & a_done) != 0) {
             bpf_log("Done parsing at %d", i);
-            return i-1;
+            return i+1;
         }
     }
 
     return -len;
 }
 
-static __always_inline int _parse_msg_from(const struct sk_msg_md *msg, u16 start, struct prange *pranges, u32* cidx, u16* s) {
-    return _parse_from(msg->data, msg->data_end, start, pranges, cidx, s, NULL);
+static __always_inline int _parse_h1_msg_from(const struct sk_msg_md *msg, u16 start, struct parse_res *pres, u32* cidx, u16* s) {
+    return _parse_h1_from(msg->data, msg->data_end, start, pres, cidx, s, NULL);
 }
 
 bpf_profile_def(parse);
-static __always_inline int _parse_msg(struct sk_msg_md *msg, struct prange *pranges) {
+static __always_inline int _parse_h1_msg(struct sk_msg_md *msg, struct parse_res *pres) {
     bpf_profile_start(parse);
     u32 cidx[MAX_MATCHES] = { 0 };
     u16 s = s_init;
-    int res = _parse_msg_from(msg, 0, pranges, cidx, &s);
+    int res = _parse_h1_msg_from(msg, 0, pres, cidx, &s);
 
     // check if we can pull data
     if (res < 0 && msg->size > -res) {
@@ -639,7 +996,7 @@ static __always_inline int _parse_msg(struct sk_msg_md *msg, struct prange *pran
             return res;
         }
 
-        res = _parse_msg_from(msg, -res, pranges, cidx, &s);
+        res = _parse_h1_msg_from(msg, -res, pres, cidx, &s);
     }
 
     bpf_profile_end(parse);
@@ -647,11 +1004,11 @@ static __always_inline int _parse_msg(struct sk_msg_md *msg, struct prange *pran
     return res;
 }
 
-static __always_inline int _parse_skb_from(const struct __sk_buff *skb, u16 start, struct prange *pranges, u32* cidx, u16* s, u16 *null_prefix) {
-    return _parse_from((char *)(long)skb->data, (char *)(long)skb->data_end, start, pranges, cidx, s, null_prefix);
+static __always_inline int _parse_h1_skb_from(const struct __sk_buff *skb, u16 start, struct parse_res *pres, u32* cidx, u16* s, u16 *null_prefix) {
+    return _parse_h1_from((char *)(long)skb->data, (char *)(long)skb->data_end, start, pres, cidx, s, null_prefix);
 }
 
-static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pranges, u16 *null_prefix) {
+static __always_inline int _parse_h1_skb(struct __sk_buff *skb, struct parse_res *pres, u16 *null_prefix) {
     bpf_profile_start(parse);
     u32 cidx[MAX_MATCHES] = { 0 };
     u16 s = s_init;
@@ -661,27 +1018,31 @@ static __always_inline int _parse_skb(struct __sk_buff *skb, struct prange *pran
         return -1;
     }
 
-    int res = _parse_skb_from(skb, 0, pranges, cidx, &s, null_prefix);
+    int res = _parse_h1_skb_from(skb, 0, pres, cidx, &s, null_prefix);
 
     bpf_profile_end(parse);
 
     return res;
 }
 
+// ----------------------------------------------
+
+{{FILTERS}}
+
 // this function will only be called if kTLS is not active for this socket
 // that's also the reason why we don't set the tls_size info for this msg
 bpf_profile_def(sk_skb);
 SEC("sk_skb/stream_parser")
 int parse_skb(struct __sk_buff *skb) {
-    struct sock_key ikey = new_sock_key_from_skb(skb);
+    struct sock_key ikey = _new_sock_key_from_skb(skb);
 
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
     bpf_log("Parsing %dB skb from [%pI4:%u->%pI4:%u] (downstream: %d)", skb->len, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
     enum pr_action res = PR_PASS;
-    struct prange pranges[MAX_MATCHES] = { 0 };
+    struct parse_res pres = { 0 };
 
-    int done_idx = _parse_skb(skb, pranges, NULL);
+    int done_idx = _parse_h1_skb(skb, &pres, NULL);
     if (done_idx < 0) {
         bpf_log("Could not parse header after %dB. Corking...", skb->len);
         return 0;
@@ -692,12 +1053,12 @@ int parse_skb(struct __sk_buff *skb) {
         bpf_err("ERROR: Failed to init filter context");
         return SK_DROP;
     }
-    _init_filter_ctx((char*)(long)skb->data, ctx, done_idx, pranges);
+    _init_h1_filter_ctx((char*)(long)skb->data, (char*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
 
     res = _match(skb, ctx, &ikey, is_downstream, true);
 
-    u32 msg_len = (ctx->content_length > 0) ? ctx->content_length+ctx->done_idx+2 : skb->len;
-    bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx+2);
+    u32 msg_len = (ctx->content_length > 0) ? ctx->content_length+ctx->done_idx : skb->len;
+    bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx);
 
     if (is_downstream) {
         bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
@@ -713,33 +1074,11 @@ int parse_skb(struct __sk_buff *skb) {
     return msg_len;
 }
 
-__noinline int extract_h2_match(const struct sk_msg_md *msg, u8 idx, struct hdr_str* str __arg_nonnull) {
-    int ret = -1;
-
-	__sink(msg);
-	__sink(idx);
-	__sink(str);
-	__sink(ret);
-
-	return ret;
-}
-
-__noinline int parse_h2(struct sk_msg_md *msg) {
-    int ret = -1;
-
-	__sink(msg);
-	__sink(ret);
-
-	bpf_msg_pull_data(msg, 0, msg->size, 0);
-
-	return ret;
-}
-
 SEC("sk_skb/stream_verdict")
 int process_skb(struct __sk_buff *skb) {
     bpf_profile_start(sk_skb);
 
-    struct sock_key ikey = new_sock_key_from_skb(skb);
+    struct sock_key ikey = _new_sock_key_from_skb(skb);
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
     bpf_log("Processing %dB skb from [%pI4:%u->%pI4:%u] (downstream: %d)", skb->len, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
@@ -751,8 +1090,8 @@ int process_skb(struct __sk_buff *skb) {
     if (dest == NULL) {
         bpf_log("No skb verdict found, parsing now...");
 
-        struct prange pranges[MAX_MATCHES] = { 0 };
-        int done_idx = _parse_skb(skb, pranges, &tls.header);
+        struct parse_res pres = { 0 };
+        int done_idx = _parse_h1_skb(skb, &pres, &tls.header);
 
         if (done_idx < 0) {
             if (done_idx == -skb->len || done_idx == -skb->len + 1) {
@@ -770,11 +1109,11 @@ int process_skb(struct __sk_buff *skb) {
             bpf_err("ERROR: Failed to init filter context");
             return SK_DROP;
         }
-        _init_filter_ctx((char*)(long)skb->data, ctx, done_idx, pranges);
+        _init_h1_filter_ctx((char*)(long)skb->data, (char*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
 
         res = _match(skb, ctx, &ikey, is_downstream, true);
 
-        u32 msg_len = ctx->content_length+ctx->done_idx+2;
+        u32 msg_len = ctx->content_length+ctx->done_idx;
         tls.trailer = skb->len - msg_len;
         bpf_log("tls header: %d trailer: %d", tls.header, tls.trailer);
 
@@ -850,7 +1189,7 @@ int process_skb(struct __sk_buff *skb) {
 
 SEC("sk_msg")
 int remove_tls(struct sk_msg_md *msg) {
-    struct sock_key ikey = new_sock_key_from_msg(msg);
+    struct sock_key ikey = _new_sock_key_from_msg(msg);
     struct tls_size *tls = bpf_map_lookup_elem(&tls_sizes, &ikey);
     if (!tls) return SK_PASS;
 
@@ -871,7 +1210,7 @@ SEC("sk_msg")
 int accelerate_network(struct sk_msg_md *msg) {
     bpf_profile_start(sk_msg);
 
-    struct sock_key ikey = new_sock_key_from_msg(msg);
+    struct sock_key ikey = _new_sock_key_from_msg(msg);
     struct sock_key ekey = _invert_sock_key(&ikey);
 
     if (bpf_msg_redirect_hash(msg, &net_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
@@ -890,113 +1229,123 @@ SEC("sk_msg")
 int process_msg(struct sk_msg_md *msg) {
     bpf_profile_start(sk_msg);
 
-    struct sock_key ikey = new_sock_key_from_msg(msg);
+    struct sock_key ikey = _new_sock_key_from_msg(msg);
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
     enum pr_action res = PR_PASS;
-    struct prange pranges[MAX_MATCHES] = { 0 };
+    struct parse_res pres = { 0 };
 
     bool is_h2 = (bpf_map_lookup_elem(&upgraded_conns, &ikey) != NULL);
-    bool store_matches = false;
     int done_idx = -1;
 
     if (is_h2) {
-        done_idx = parse_h2(msg);
-        store_matches = (done_idx > 9);
+        u8 type = 0;
+        done_idx = _parse_h2_msg(msg, &pres, &type);
 
-        struct hdr_str str = { 0 };
-        int res = -1;
-        if (is_h2) {
-            struct hdr_str str = { 0 };
-            res = extract_h2_match(msg, 0, &str);
-            if (res == 0) {
-                bpf_log("Matched header: %s", str.ptr);
-            }
+        // check if it's a data or header frame
+        // if it isn't, the userspace will forward
+        // the relevant frames to the next service
+        if (type > 1) {
+            bpf_msg_apply_bytes(msg, done_idx);
+            return SK_PASS;
         }
     }
     else {
-        done_idx = _parse_msg(msg, pranges);
-        store_matches = true;
+        done_idx = _parse_h1_msg(msg, &pres);
+        if (pres.ms[0].len > 0) {
+            int flag = 1;
+            bpf_map_update_elem(&upgraded_conns, &ikey, &flag, BPF_ANY);
+            bpf_log("Upgraded [%pI4:%u->%pI4:%u] to HTTP/2", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+
+            bpf_msg_apply_bytes(msg, 24);
+            return SK_PASS;
+        }
     }
 
-    // if (done_idx < 0) {
-    //     if (done_idx == -msg->size || done_idx == -msg->size + 1) {
-    //         bpf_log("Could not parse header after %dB. Corking...", msg->size);
+    if (done_idx < 0) {
+        if (done_idx == -msg->size || done_idx == -msg->size + 1) {
+            bpf_log("Could not parse header after %dB. Corking...", msg->size);
 
-    //         bpf_profile_start(sk_msg_cork);
-    //         bpf_msg_cork_bytes(msg, msg->size + 1);
-    //         bpf_profile_end(sk_msg_cork);
+            bpf_profile_start(sk_msg_cork);
+            bpf_msg_cork_bytes(msg, msg->size + 1);
+            bpf_profile_end(sk_msg_cork);
 
-    //         return SK_PASS;
-    //     }
-    //     bpf_err("ERROR: Failed to parse message (%d, %d): %s", msg->size, done_idx, msg->data);
-    //     return SK_PASS;
-    // }
+            return SK_PASS;
+        }
+        bpf_err("ERROR: Failed to parse message (%d, %d): %s", msg->size, done_idx, msg->data);
+        return SK_PASS;
+    }
 
-    // struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
-    // if (ctx == NULL) {
-    //     bpf_err("ERROR: Failed to init filter context");
-    //     return SK_DROP;
-    // }
-    // _init_filter_ctx(msg->data, ctx, done_idx, pranges);
+    struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
+    if (ctx == NULL) {
+        bpf_err("ERROR: Failed to init filter context");
+        return SK_DROP;
+    }
 
-    // res = _match(msg, ctx, &ikey, is_downstream, false);
+    if (is_h2) {
+        _init_h2_filter_ctx(msg->data, msg->data_end, &ikey, ctx, done_idx, &pres);
+    }
+    else {
+        _init_h1_filter_ctx(msg->data, msg->data_end, &ikey, ctx, done_idx, &pres);
+    }
 
-    // u32 msg_len = ctx->content_length+ctx->done_idx+2;
-    // bpf_log("Apply verdict to %dB/%dB (%d + %d)", msg_len, msg->size, ctx->content_length, ctx->done_idx+2);
-    // bpf_msg_apply_bytes(msg, msg_len);
+    res = _match(msg, ctx, &ikey, is_downstream, false);
 
-    // if (is_downstream) {
-    //     bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
-    // }
-    // else {
-    //     bpf_stats_add(downstream_cx_tx_bytes_total, msg_len);
-    // }
+    u32 msg_len = ctx->content_length+ctx->done_idx;
+    bpf_log("Apply verdict to %dB/%dB (%d + %d)", msg_len, msg->size, ctx->content_length, ctx->done_idx);
+    bpf_msg_apply_bytes(msg, msg_len);
 
-    // if (res == PR_DROP) {
-    //     bpf_log("WARN: Drop msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-    //     return SK_DROP;
-    // }
-    // if (res == PR_UTRN) {
-    //     bpf_err("ERROR: Invalid UTRN");
-    //     return SK_DROP;
-    // }
+    if (is_downstream) {
+        bpf_stats_add(downstream_cx_rx_bytes_total, msg_len);
+    }
+    else {
+        bpf_stats_add(downstream_cx_tx_bytes_total, msg_len);
+    }
 
-    // struct sock_key ekey = { 0 };
-    // res = _fib_query(&ctx->dest, !is_downstream, true, &ekey);
+    if (res == PR_DROP) {
+        bpf_log("WARN: Drop msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        return SK_DROP;
+    }
+    if (res == PR_UTRN) {
+        bpf_err("ERROR: Invalid UTRN");
+        return SK_DROP;
+    }
 
-    // if (is_downstream) {
-    //     post_forward_ds_conn(&ikey, &ekey, true);
-    // }
-    // else {
-    //     post_forward_us_conn(&ikey, &ekey, true);
-    // }
+    struct sock_key ekey = { 0 };
+    res = _fib_query(&ctx->dest, !is_downstream, true, &ekey);
 
-    // bpf_profile_end(sk_msg);
+    if (is_downstream) {
+        post_forward_ds_conn(&ikey, &ekey, true);
+    }
+    else {
+        post_forward_us_conn(&ikey, &ekey, true);
+    }
 
-    // if (res == PR_DROP) {
-    //     bpf_err("No FIB entry found for %pI4:%u. Dropping.", &ctx->dest.ip4, ctx->dest.port);
-    //     return SK_DROP;
-    // }
-    // else if (res == PR_PASS) {
-    //     if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-    //         bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-    //         res = PR_UTRN;
-    //     }
-    //     else {
-    //         bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-    //         return SK_PASS;
-    //     }
-    // }
-    // if (res == PR_UTRN) {
-    //     if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
-    //         bpf_err("ERROR: Failed to add uturn token to wait list");
-    //     }
-    //     else {
-    //         bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-    //     }
-    // }
+    bpf_profile_end(sk_msg);
+
+    if (res == PR_DROP) {
+        bpf_err("No FIB entry found for %pI4:%u. Dropping.", &ctx->dest.ip4, ctx->dest.port);
+        return SK_DROP;
+    }
+    else if (res == PR_PASS) {
+        if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+            bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            res = PR_UTRN;
+        }
+        else {
+            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            return SK_PASS;
+        }
+    }
+    if (res == PR_UTRN) {
+        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add uturn token to wait list");
+        }
+        else {
+            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        }
+    }
 
     return SK_PASS;
 }
