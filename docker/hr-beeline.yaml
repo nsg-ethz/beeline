@@ -21,6 +21,7 @@ services:
             - "8400:8400"
             - "8500:8500"
             - "8600:53/udp"
+        command: ["agent", "-dev", "-log-level=info", "-client=0.0.0.0"]
         restart: always
         deploy:
             replicas: 1

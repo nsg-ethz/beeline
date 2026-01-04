@@ -10,7 +10,7 @@ use common::{
     net::{get_gw_ip, TryIntoRawOctets},
     Compiler,
 };
-use http::{Request, Response, StatusCode};
+use http::{Request, Response, StatusCode, Uri};
 use http2::{client, server};
 use ktls::{CorkStream, KtlsCipherSuite, KtlsCipherType, KtlsVersion};
 use libbpf_rs::{
@@ -195,7 +195,6 @@ pub struct Proxy<'obj> {
     skel: ProxySkel<'obj>,
     #[allow(dead_code)]
     sockops: Link,
-
     upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
 }
 
@@ -541,18 +540,18 @@ impl<'obj> Proxy<'obj> {
     {
         let utrn_wait_list = self.get_utrn_wait_list()?;
         let sock_map_wait_list = self.get_sock_map_wait_list()?;
+        let h2_conns = self.get_h2_conns()?;
         let fib_downstream = self.get_downstream_fib()?;
 
         let upstream_pool = self.upstream_pool.clone();
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
         tokio::spawn(async move {
-            let mut upstreams = Vec::new();
-            let mut http2 = server::handshake(downstream).await.unwrap();
+            let mut downstream_conn = server::handshake(downstream).await.unwrap();
 
-            while let Some(request) = http2.accept().await {
+            while let Some(request) = downstream_conn.accept().await {
                 let (mut request, mut respond) = request.unwrap();
-                println!("Received request: {:?}", request);
+                trace!("Received request: {:?}", request);
 
                 let mut send_error = || {
                     warn!("Sending 500 to {:?}", ds_remote_addr);
@@ -624,6 +623,13 @@ impl<'obj> Proxy<'obj> {
                 update_map(&sock_map_wait_list, &us_sock_key, &(!tls as u32))
                     .expect("Failed to insert into sock_map_wait_list");
 
+                // flag conn as h2
+                let ds_sock_key = sock_key::try_from((&ds_local_addr, &ds_remote_addr)).unwrap();
+                update_map(&h2_conns, &us_sock_key, &ds_sock_key)
+                    .expect("Failed to mark connection as h2");
+                update_map(&h2_conns, &ds_sock_key, &us_sock_key)
+                    .expect("Failed to mark connection as h2");
+
                 debug!("Bound socket to {}", us_local_addr);
 
                 let upstream = match socket.connect(us_remote_addr).await {
@@ -647,28 +653,36 @@ impl<'obj> Proxy<'obj> {
                 update_map(&fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
                     .expect("Failed to insert into FIB");
 
-                let (http2, connection) = client::handshake(upstream).await.unwrap();
-                // tokio::spawn(async move {
-                //     connection.await.unwrap();
-                // });
+                let (client, upstream_conn) = client::handshake(upstream).await.unwrap();
+                tokio::spawn(async move {
+                    if let Err(e) = upstream_conn.await {
+                        error!("Error driving HTTP/2 connection: {}", e);
+                    }
+                });
 
-                // connection.await.unwrap();
-                let mut http2 = http2.ready().await.unwrap();
+                let mut client = client.ready().await.unwrap();
 
-                let forward = Request::builder()
-                    .method(request.method())
-                    .uri(request.uri())
-                    .body(())
-                    .unwrap();
-                let (_, mut stream) = http2.send_request(forward, true).unwrap();
+                let (parts, mut body) = request.into_parts();
+                let forward = Request::from_parts(parts, ());
 
-                while let Some(Ok(chunk)) = request.body_mut().data().await {
-                    stream.send_data(chunk, false).unwrap();
+                let (response, mut stream) =
+                    client.send_request(forward, body.is_end_stream()).unwrap();
+
+                while let Some(Ok(chunk)) = body.data().await {
+                    trace!(
+                        "Sending data frame (len: {}, end of stream: {})",
+                        chunk.len(),
+                        body.is_end_stream()
+                    );
+                    if let Err(e) = stream.send_data(chunk, body.is_end_stream()) {
+                        error!("Failed to send data to upstream: {}", e);
+                    }
                 }
 
-                // upstream connections are automatically reused by the eBPF program
-                // adding them to this shared vector allows us to keep them alive
-                upstreams.push(connection);
+                trace!("Sent!");
+
+                // we have to wait for the response otherwise the stream gets reset
+                let _ = response.await.unwrap();
             }
 
             // let mut upstream_pool = upstream_pool.lock().unwrap();
@@ -870,6 +884,11 @@ impl<'obj> Proxy<'obj> {
 
     fn get_sock_map_wait_list(&self) -> Result<MapHandle> {
         let id = self.skel.maps.sock_map_wait_list.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_h2_conns(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.h2_conns.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 }

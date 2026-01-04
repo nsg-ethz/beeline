@@ -2,6 +2,7 @@ use crate::{
     config::beeline::{Config, Filter as CFilter, JwtFilter, LoadBalancer, MutateFilter, Policy},
     net::TryIntoRawOctets,
 };
+use httlib_huffman as huffman;
 use std::{
     fs::{self, File},
     io::Write,
@@ -106,7 +107,7 @@ impl Compiler {
                 &Variable::Buffer(name, ty, size) => {
                     if ty == "char" {
                         format!(
-                            "struct hdr_match {name}_range;\nchar {name}[{size}];",
+                            "struct hdr_match {name}_range;\nu8 {name}[{size}];",
                             name = sanitize_var_name(name),
                             size = size.unwrap()
                         )
@@ -451,10 +452,17 @@ impl Compiler {
                     if path == "*" {
                         "true".to_string()
                     } else {
-                        format!(
-                            "bpf_strncmp(ctx->path, {}, \"{} \") == 0",
-                            path.len() + 1,
-                            path
+                        let mut path_encoded = Vec::new();
+                        huffman::encode(path.as_bytes(), &mut path_encoded).unwrap();
+                        let len_encoded = path_encoded.len();
+                        let path_encoded = path_encoded.iter().map(|&b| format!("{}", b)).collect::<Vec<String>>().join(", ");
+                        let path_encoded = format!("(u8[{}]){{{}}}", len_encoded, path_encoded);
+
+                        format!("(bpf_strncmp(ctx->path, {len}, \"{path} \") == 0) || (__builtin_memcmp(ctx->path, {path_encoded}, {len_encoded}) == 0)",
+                            len=path.len() + 1,
+                            path=path,
+                            len_encoded=len_encoded,
+                            path_encoded=path_encoded
                         )
                     }
                 } else {

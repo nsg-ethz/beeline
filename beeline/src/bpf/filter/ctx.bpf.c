@@ -10,10 +10,10 @@ struct filter_ctx {
 // ---
 
 bpf_profile_def(ctx);
-static __always_inline void _init_h1_filter_ctx(const char *data, const char *data_end, const struct sock_key *skey, struct filter_ctx *ctx, u16 done_idx, const struct parse_res *pres) {
+static __always_inline void _init_h1_filter_ctx(const u8 *data, const u8 *data_end, const struct sock_key *skey, struct filter_ctx *ctx, u16 done_idx, const struct parse_res *pres) {
     bpf_profile_start(ctx);
 
-    char buf[64]; // a number cannot be larger than 64 bytes
+    u8 buf[64]; // a number cannot be larger than 64 bytes
     unsigned long tmp = 0;
     struct hdr_match m = {0};
 
@@ -25,10 +25,10 @@ static __always_inline void _init_h1_filter_ctx(const char *data, const char *da
     bpf_profile_end(ctx);
 }
 
-static __always_inline void _init_h2_filter_ctx(const char *data, const char *data_end, const struct sock_key *skey, struct filter_ctx *ctx, u16 done_idx, const struct parse_res *pres) {
+static __always_inline void _init_h2_filter_ctx(const u8 *data, const u8 *data_end, const struct sock_key *skey, struct filter_ctx *ctx, u16 done_idx, const struct parse_res *pres) {
     bpf_profile_start(ctx);
 
-    char buf[64]; // a number cannot be larger than 64 bytes
+    u8 buf[64]; // a number cannot be larger than 64 bytes
     unsigned long tmp = 0;
     struct hdr_match m = {0};
     u8 *ptr = NULL;

@@ -25,6 +25,24 @@ static_resources:
                                         - "*"
                                     routes:
                                         - match:
+                                              prefix: "/geo.Geo/"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
+                                          route:
+                                              cluster: geo
+                                        - match:
+                                              prefix: "/rate.Rate/"
+                                          request_headers_to_add:
+                                              - header:
+                                                    key: "X-Processed-By"
+                                                    value: "beeline"
+                                                append: false
+                                          route:
+                                              cluster: rate
+                                        - match:
                                               prefix: "/search.Search/"
                                           request_headers_to_add:
                                               - header:

@@ -14,6 +14,7 @@ anyhow = "1.0.93"
 clap = { version = "4.5.17", features = ["derive"] }
 hmac = "0.12.1"
 httparse = "1.9.5"
+httlib-huffman = "0.3.4"
 jwt = "0.16.0"
 rand = "0.8.5"
 serde = "1.0.215"

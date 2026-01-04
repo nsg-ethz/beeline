@@ -164,13 +164,6 @@ struct {
     __type(value, struct filter_ctx);
 } ctx_percpu SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, MAX_CONNS/2);
-    __type(key, struct sock_key);
-    __type(value, int);
-} upgraded_conns SEC(".maps");
-
 enum pr_action {
     PR_DROP=0,
     PR_PASS,
@@ -208,6 +201,13 @@ struct {
     __type(value, struct sock_key);
 } fib_downstream SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_CONNS/2);
+    __type(key, struct sock_key);
+    __type(value, struct sock_key);
+} h2_conns SEC(".maps");
+
 const u32 percpu_key = 0;
 
 const u16 a_done = 1 << 14;
@@ -229,7 +229,7 @@ struct trans {
 };
 
 // these restrictions are needed to make the verifier happy
-#define MAX_BYTES 0xFFFE
+#define MAX_BYTES 0x7FFF
 #define MAX_MATCHES 16
 #define MAX_MATCH_MASK 15
 #define MAX_STATES 512
@@ -282,6 +282,10 @@ static __always_inline struct sock_key _new_sock_key_from_skb(const struct __sk_
             .port = skb->local_port
         }
     };
+}
+
+static __always_inline bool sock_key_is_null(const struct sock_key *skey) {
+    return skey->local.ip4 == 0 && skey->local.port == 0 && skey->remote.ip4 == 0 && skey->remote.port == 0;
 }
 
 static __always_inline struct cctx_val *_cctx_val_lookup(void) {
@@ -506,8 +510,7 @@ static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key
     if (dkey == NULL || ukey == NULL) return PR_DROP;
     if (ukey->local.ip4 == 0 && ukey->remote.ip4 == 0) return PR_PASS;
 
-    // at this point we have to ask the plugin how it wants to route
-    // this request back to the client
+    // make sure we can route the response back to the client
     if (_fib_insert(&ukey->remote, true, sk_msg, dkey) < 0) {
         bpf_err("ERROR: Failed to set downstream route");
     }
@@ -727,21 +730,22 @@ static __always_inline void _parse_h2_hpack(u8 c, enum h2_parse_state *ps, u32 *
     }
 }
 
-__noinline __weak s8 _parse_h2_table_entry(const struct sk_msg_md *msg, u16 *s __arg_nonnull, u32 idx, u16 dt_size, struct parse_res *pres __arg_nonnull) {
-    struct header_field *hf = NULL;
+static __always_inline int _get_h2_table_entry(const struct sk_msg_md *msg, u32 idx, u16 dt_size, struct header_field **hf) {
     if (idx > STATIC_TABLE_SIZE) {
         idx = STATIC_TABLE_SIZE + dt_size - (idx - STATIC_TABLE_SIZE);
 
         struct dynamic_table_key key = _new_table_key(msg, idx);
-        hf = bpf_map_lookup_elem(&dynamic_table, &key);
+        bpf_log("lookup dt: %d", idx);
+        *hf = bpf_map_lookup_elem(&dynamic_table, &key);
     }
     else {
-        hf = bpf_map_lookup_elem(&static_table, &idx);
+        *hf = bpf_map_lookup_elem(&static_table, &idx);
     }
 
-    if (!hf) return -1;
-    bpf_log("start parsing table entry: %s/%s", hf->key, hf->val);
+    return (hf == NULL) ? -1 : idx;
+}
 
+__noinline __weak s8 _parse_h2_table_entry(const struct header_field *hf __arg_nonnull, u16 *s __arg_nonnull) {
     u8 j = 0;
     u16 a = 0;
     bpf_for(j, 0, 32) {
@@ -752,20 +756,7 @@ __noinline __weak s8 _parse_h2_table_entry(const struct sk_msg_md *msg, u16 *s _
 
         if ((a & a_start_capture) != 0) {
             u8 cid = a & a_id_mask & MAX_MATCH_MASK;
-
-            if (hf->val[0] != 0) {
-                bpf_log("capture: %d {%d}", cid, idx);
-                pres->ms[cid] = (struct hdr_match) {
-                    .idx = idx,
-                    .len = 31,
-                    .in_msg = false,
-                };
-                a = 0;
-                return -1;
-            }
-            else {
-                return cid;
-            }
+            return cid;
         }
     }
 
@@ -797,15 +788,13 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
     const u8 *data_end = msg->data_end;
     u32 len = (u32)(data_end - data) & MAX_BYTES;
 
+    bpf_log("parse h2 from %d len %d", start, len);
+
     if (len-start == 0) {
         return 0;
     }
 
-    if (data + 9 > data_end) return -1;
-
-    // u32 len = data[0] << 16 | data[1] << 8 | data[2];
-    u8 type = data[3];
-    u8 flags = data[4];
+    if (data + 9 > data_end) return 0;
     u32 stream_id = data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
 
     struct dynamic_table_info *dt_info = bpf_map_lookup_elem(&dynamic_table_info, &skey);
@@ -817,7 +806,7 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
         bpf_map_update_elem(&dynamic_table_info, &skey, &new_info, BPF_ANY);
 
         dt_info = bpf_map_lookup_elem(&dynamic_table_info, &skey);
-        if (!dt_info) return -1;
+        if (!dt_info) return 0;
     }
 
     u32 n = 0, m = 0;
@@ -842,7 +831,26 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
             bpf_log("%d: parsed idx: %d, dt_size: %d", i, k, dt_info->size);
 
             *s = s_any;
-            cid = _parse_h2_table_entry(msg, s, k, dt_info->size, pres);
+            struct header_field *hf;
+            int idx = _get_h2_table_entry(msg, k, dt_info->size, &hf);
+            if (hf == NULL) {
+                continue;
+            }
+
+            cid = _parse_h2_table_entry(hf, s);
+            if (cid >= 0) {
+                // check if we are replacing the exisiting entry, or taking
+                // the one in the table
+                if (n == 7) {
+                    bpf_log("capture: %d {%d, %d}", cid, i, idx);
+
+                    pres->ms[cid & MAX_MATCH_MASK] = (struct hdr_match) {
+                        .idx = idx,
+                        .len = 31,
+                        .in_msg = false,
+                    };
+                }
+            }
             key.idx = k;
             key.in_msg = false;
         }
@@ -880,26 +888,29 @@ static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res
     u8 *data = (u8 *)(long)msg->data;
     u8 *data_end = (u8 *)(long)msg->data_end;
 
-    if (data + 9 > data_end) return -1;
+    if (data + 9 > data_end) return 0;
 
     u32 len = data[0] << 16 | data[1] << 8 | data[2];
     *type = data[3];
+    u8 flags = data[4];
+    bool padded = flags & 0x08;
+    u8 hdr_len = (padded) ? 10 : 9;
 
-    bpf_log("Parsing HTTP/2 message with length %d, type %d", len, *type);
+    bpf_log("Parsing HTTP/2 message with length %d, type %d, flags %d", len, *type, flags);
 
     if (*type != 0x01) {
-        return len + 9;
+        return len + hdr_len;
     }
 
     u16 s = s_any;
-    int res = _parse_h2_msg_from(msg, 9, &s, pres);
+    int res = _parse_h2_msg_from(msg, hdr_len, &s, pres);
 
-    if (res < 0 && msg->size > -res) {
+    if (len + hdr_len > res) {
         if (bpf_msg_pull_data(msg, 0, msg->size, 0) < 0) {
             return res;
         }
 
-        res = _parse_h2_msg_from(msg, -res, &s, pres);
+        res = _parse_h2_msg_from(msg, res, &s, pres);
     }
 
     return res;
@@ -1216,9 +1227,9 @@ int accelerate_network(struct sk_msg_md *msg) {
     if (bpf_msg_redirect_hash(msg, &net_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
         bpf_err("ERROR: Failed to accelerate msg from [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
     }
-    else {
-        bpf_log("Transport acceleration for [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-    }
+    // else {
+    //     bpf_log("Transport acceleration for [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+    // }
 
     return SK_PASS;
 }
@@ -1236,17 +1247,36 @@ int process_msg(struct sk_msg_md *msg) {
     enum pr_action res = PR_PASS;
     struct parse_res pres = { 0 };
 
-    bool is_h2 = (bpf_map_lookup_elem(&upgraded_conns, &ikey) != NULL);
+    struct sock_key *h2_dest = bpf_map_lookup_elem(&h2_conns, &ikey);
+    bool is_h2 = (h2_dest != NULL);
     int done_idx = -1;
 
     if (is_h2) {
         u8 type = 0;
         done_idx = _parse_h2_msg(msg, &pres, &type);
 
-        // check if it's a data or header frame
-        // if it isn't, the userspace will forward
-        // the relevant frames to the next service
-        if (type > 1) {
+        // data frames are forwarded to the previous destination
+        if (type == 0) {
+            bpf_msg_apply_bytes(msg, done_idx);
+
+            if (sock_key_is_null(h2_dest)) {
+                bpf_log("No existing H2 destination found. Forwarding to control plane");
+            }
+            else {
+                if (bpf_msg_redirect_hash(msg, &msg_sock_map, h2_dest, BPF_F_INGRESS) == SK_DROP) {
+                    bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->local.ip4, h2_dest->local.port, &h2_dest->remote.ip4, h2_dest->remote.port);
+                }
+                else {
+                    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->local.ip4, h2_dest->local.port, &h2_dest->remote.ip4, h2_dest->remote.port);
+                }
+            }
+
+            return SK_PASS;
+        }
+        // all other frames apart from headers are forwarded
+        // to the control plane
+        else if (type > 1) {
+            bpf_log("Frame type %d: Letting it pass", type);
             bpf_msg_apply_bytes(msg, done_idx);
             return SK_PASS;
         }
@@ -1254,8 +1284,8 @@ int process_msg(struct sk_msg_md *msg) {
     else {
         done_idx = _parse_h1_msg(msg, &pres);
         if (pres.ms[0].len > 0) {
-            int flag = 1;
-            bpf_map_update_elem(&upgraded_conns, &ikey, &flag, BPF_ANY);
+            struct sock_key h2_dest = {0};
+            bpf_map_update_elem(&h2_conns, &ikey, &h2_dest, BPF_ANY);
             bpf_log("Upgraded [%pI4:%u->%pI4:%u] to HTTP/2", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
 
             bpf_msg_apply_bytes(msg, 24);
@@ -1320,6 +1350,13 @@ int process_msg(struct sk_msg_md *msg) {
     }
     else {
         post_forward_us_conn(&ikey, &ekey, true);
+    }
+
+    // if it's an h2 connection, we have to store the latest
+    // frame destination. this allows us to route future
+    // DATA frames to the correct socket
+    if (is_h2) {
+        *h2_dest = ekey;
     }
 
     bpf_profile_end(sk_msg);
