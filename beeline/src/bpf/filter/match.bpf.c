@@ -1,6 +1,7 @@
 // ---
 
-static __always_inline enum pr_action _match(struct sk_msg_md *msg, struct filter_ctx *ctx, const struct sock_key *ikey, bool is_downstream) {
+#include <bpf/bpf_helpers.h>
+static __always_inline enum pr_action _match(void *msg __arg_ctx, struct filter_ctx *ctx, const struct sock_key *ikey, bool is_downstream, bool is_skb) {
     if (is_downstream) {
         bpf_stats_add(downstream_rq_total, 1);
 

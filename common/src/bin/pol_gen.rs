@@ -6,7 +6,7 @@ use common::config::{
 };
 use std::{collections::HashMap, fs::File, path::Path, str::FromStr};
 
-const KEYS: &str = "abcdefghijklmnopqrstuvwxyz";
+const KEYS: &str = "abcdefghijklmopqrstuvwxyz";
 
 #[derive(Debug, Clone, Copy)]
 enum Target {
