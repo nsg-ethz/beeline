@@ -413,6 +413,8 @@ services:
         entrypoint: "echo -a 0.0.0.0:8080"
         hostname: sidecar
         cgroup_parent: beeline.slice
+        ports:
+            - 9991:9991
         networks:
             default:
                 ipv4_address: 172.18.0.40

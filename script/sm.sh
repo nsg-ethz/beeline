@@ -158,6 +158,7 @@ case ${ACTION} in
         fi
 
         # restart services to reset statistics
+        cd ${ROOT}
         stop_services
         launch_proxy
 
