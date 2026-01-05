@@ -36,6 +36,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
     signal::unix::{signal, SignalKind},
+    task::JoinHandle,
 };
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, trace, warn, Level};
@@ -196,6 +197,7 @@ pub struct Proxy<'obj> {
     #[allow(dead_code)]
     sockops: Link,
     upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
+    h2_upstream_pool: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
 
 unsafe impl<'obj> Send for Proxy<'obj> {}
@@ -286,6 +288,7 @@ impl<'obj> Proxy<'obj> {
             skel,
             sockops,
             upstream_pool: Arc::new(Mutex::new(Vec::new())),
+            h2_upstream_pool: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -538,155 +541,170 @@ impl<'obj> Proxy<'obj> {
     where
         S: AsyncReadExt + AsyncWriteExt + std::marker::Unpin + std::marker::Send + 'static,
     {
-        let utrn_wait_list = self.get_utrn_wait_list()?;
-        let sock_map_wait_list = self.get_sock_map_wait_list()?;
-        let h2_conns = self.get_h2_conns()?;
-        let fib_downstream = self.get_downstream_fib()?;
-
-        let upstream_pool = self.upstream_pool.clone();
+        let utrn_wait_list_id = self.skel.maps.utrn_wait_list.info()?.info.id;
+        let sock_map_wait_list_id = self.skel.maps.sock_map_wait_list.info()?.info.id;
+        let h2_conns_id = self.skel.maps.h2_conns.info()?.info.id;
+        let fib_downstream_id = self.skel.maps.fib_downstream.info()?.info.id;
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
         tokio::spawn(async move {
             let mut downstream_conn = server::handshake(downstream).await.unwrap();
 
-            while let Some(request) = downstream_conn.accept().await {
-                let (mut request, mut respond) = request.unwrap();
-                trace!("Received request: {:?}", request);
+            while let Some(Ok((request, mut respond))) = downstream_conn.accept().await {
+                tokio::spawn(async move {
+                    trace!("Received request: {:?} from {:?}", request, ds_remote_addr);
 
-                let mut send_error = || {
-                    warn!("Sending 500 to {:?}", ds_remote_addr);
-                    let response = Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(())
-                        .unwrap();
+                    let mut send_error = || {
+                        warn!("Sending 500 to {:?}", ds_remote_addr);
+                        let response = Response::builder()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(())
+                            .unwrap();
 
-                    respond.send_response(response, true).unwrap();
-                };
-
-                // check if there is a forwarding token in the waiting list
-                let us_remote_addr: Option<addr_key> = utrn_wait_list
-                    .lookup_and_delete_as(&ds_remote_addr_key)
-                    .expect("Failed to lookup utrn_wait_list");
-
-                let (ds_remote_addr_key, us_remote_addr) = if us_remote_addr.is_none() {
-                    let gw_ip = match ds_local_addr.ip() {
-                        IpAddr::V4(ip) => get_gw_ip(ip),
-                        _ => panic!("Unexpected IP version"),
+                        respond.send_response(response, true).unwrap();
                     };
-                    let ds_gw_addr =
-                        SocketAddr::V4(SocketAddrV4::new(gw_ip, ds_remote_addr.port()));
-                    let ds_remote_addr_key =
-                        sock_key::try_from((&ds_gw_addr, &ds_local_addr)).unwrap();
 
+                    let Ok(utrn_wait_list) = MapHandle::from_map_id(utrn_wait_list_id) else {
+                        send_error();
+                        return;
+                    };
+                    let Ok(sock_map_wait_list) = MapHandle::from_map_id(sock_map_wait_list_id)
+                    else {
+                        send_error();
+                        return;
+                    };
+                    let Ok(h2_conns) = MapHandle::from_map_id(h2_conns_id) else {
+                        send_error();
+                        return;
+                    };
+                    let Ok(fib_downstream) = MapHandle::from_map_id(fib_downstream_id) else {
+                        send_error();
+                        return;
+                    };
+
+                    // check if there is a forwarding token in the waiting list
                     let us_remote_addr: Option<addr_key> = utrn_wait_list
                         .lookup_and_delete_as(&ds_remote_addr_key)
                         .expect("Failed to lookup utrn_wait_list");
 
-                    (ds_remote_addr_key, us_remote_addr)
-                } else {
-                    (ds_remote_addr_key, us_remote_addr)
-                };
+                    let (ds_remote_addr_key, us_remote_addr) = if us_remote_addr.is_none() {
+                        let gw_ip = match ds_local_addr.ip() {
+                            IpAddr::V4(ip) => get_gw_ip(ip),
+                            _ => panic!("Unexpected IP version"),
+                        };
+                        let ds_gw_addr =
+                            SocketAddr::V4(SocketAddrV4::new(gw_ip, ds_remote_addr.port()));
+                        let ds_remote_addr_key =
+                            sock_key::try_from((&ds_gw_addr, &ds_local_addr)).unwrap();
 
-                let Some(us_remote_addr) = us_remote_addr else {
-                    warn!(
-                        "No address found in wait list for downstream connection: {:?}",
-                        &ds_remote_addr,
-                    );
-                    send_error();
-                    continue;
-                };
+                        let us_remote_addr: Option<addr_key> = utrn_wait_list
+                            .lookup_and_delete_as(&ds_remote_addr_key)
+                            .expect("Failed to lookup utrn_wait_list");
 
-                let us_remote_addr: SocketAddr = us_remote_addr.into();
-                debug!("Opening upstream connection to {}", us_remote_addr);
+                        (ds_remote_addr_key, us_remote_addr)
+                    } else {
+                        (ds_remote_addr_key, us_remote_addr)
+                    };
 
-                let socket = TcpSocket::new_v4().unwrap();
-                socket.set_reuseaddr(true).unwrap();
-                let gw_ip = match us_remote_addr.ip() {
-                    IpAddr::V4(ip) => get_gw_ip(ip),
-                    _ => panic!("Unexpected IP version"),
-                };
-                let us_local_addr = SocketAddr::V4(SocketAddrV4::new(gw_ip, 0));
-                let us_local_addr = match socket.bind(us_local_addr) {
-                    Ok(_) => socket.local_addr().unwrap(),
-                    Err(e) => {
-                        warn!("Failed to bind socket: {}", e);
-                        send_error();
-                        continue;
-                    }
-                };
-
-                let us_sock_key = if tls {
-                    sock_key::try_from((&us_local_addr, &us_remote_addr)).unwrap()
-                } else {
-                    sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap()
-                };
-                update_map(&sock_map_wait_list, &us_sock_key, &(!tls as u32))
-                    .expect("Failed to insert into sock_map_wait_list");
-
-                // flag conn as h2
-                let ds_sock_key = sock_key::try_from((&ds_local_addr, &ds_remote_addr)).unwrap();
-                update_map(&h2_conns, &us_sock_key, &ds_sock_key)
-                    .expect("Failed to mark connection as h2");
-                update_map(&h2_conns, &ds_sock_key, &us_sock_key)
-                    .expect("Failed to mark connection as h2");
-
-                debug!("Bound socket to {}", us_local_addr);
-
-                let upstream = match socket.connect(us_remote_addr).await {
-                    Ok(upstream) => upstream,
-                    Err(err) => {
+                    let Some(us_remote_addr) = us_remote_addr else {
                         warn!(
-                            "Failed to connect from {} to {}: {}",
-                            us_local_addr, us_remote_addr, err
+                            "No address found in wait list for downstream connection: {:?}",
+                            &ds_remote_addr,
                         );
                         send_error();
-                        continue;
-                    }
-                };
+                        return;
+                    };
 
-                let us_local_addr_key = addr_key::try_from(&us_local_addr).unwrap();
-                debug!(
-                    "Opened upstream connection: [{} -> {}]",
-                    us_local_addr, us_remote_addr
-                );
+                    let us_remote_addr: SocketAddr = us_remote_addr.into();
+                    debug!("Opening upstream connection to {}", us_remote_addr);
 
-                update_map(&fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
-                    .expect("Failed to insert into FIB");
+                    let socket = TcpSocket::new_v4().unwrap();
+                    socket.set_reuseaddr(true).unwrap();
+                    let gw_ip = match us_remote_addr.ip() {
+                        IpAddr::V4(ip) => get_gw_ip(ip),
+                        _ => panic!("Unexpected IP version"),
+                    };
+                    let us_local_addr = SocketAddr::V4(SocketAddrV4::new(gw_ip, 0));
+                    let us_local_addr = match socket.bind(us_local_addr) {
+                        Ok(_) => socket.local_addr().unwrap(),
+                        Err(e) => {
+                            warn!("Failed to bind socket: {}", e);
+                            send_error();
+                            return;
+                        }
+                    };
 
-                let (client, upstream_conn) = client::handshake(upstream).await.unwrap();
-                tokio::spawn(async move {
-                    if let Err(e) = upstream_conn.await {
-                        error!("Error driving HTTP/2 connection: {}", e);
-                    }
-                });
+                    let us_sock_key = if tls {
+                        sock_key::try_from((&us_local_addr, &us_remote_addr)).unwrap()
+                    } else {
+                        sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap()
+                    };
+                    update_map(&sock_map_wait_list, &us_sock_key, &(!tls as u32))
+                        .expect("Failed to insert into sock_map_wait_list");
 
-                let mut client = client.ready().await.unwrap();
+                    // flag conn as h2
+                    let ds_sock_key =
+                        sock_key::try_from((&ds_local_addr, &ds_remote_addr)).unwrap();
+                    update_map(&h2_conns, &us_sock_key, &ds_sock_key)
+                        .expect("Failed to mark connection as h2");
+                    update_map(&h2_conns, &ds_sock_key, &us_sock_key)
+                        .expect("Failed to mark connection as h2");
 
-                let (parts, mut body) = request.into_parts();
-                let forward = Request::from_parts(parts, ());
+                    debug!("Bound socket to {}", us_local_addr);
 
-                let (response, mut stream) =
-                    client.send_request(forward, body.is_end_stream()).unwrap();
+                    let upstream = match socket.connect(us_remote_addr).await {
+                        Ok(upstream) => upstream,
+                        Err(err) => {
+                            warn!(
+                                "Failed to connect from {} to {}: {}",
+                                us_local_addr, us_remote_addr, err
+                            );
+                            send_error();
+                            return;
+                        }
+                    };
 
-                while let Some(Ok(chunk)) = body.data().await {
-                    trace!(
-                        "Sending data frame (len: {}, end of stream: {})",
-                        chunk.len(),
-                        body.is_end_stream()
+                    let us_local_addr_key = addr_key::try_from(&us_local_addr).unwrap();
+                    debug!(
+                        "Opened upstream connection: [{} -> {}]",
+                        us_local_addr, us_remote_addr
                     );
-                    if let Err(e) = stream.send_data(chunk, body.is_end_stream()) {
-                        error!("Failed to send data to upstream: {}", e);
+
+                    update_map(&fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
+                        .expect("Failed to insert into FIB");
+
+                    let (client, upstream_conn) = client::handshake(upstream).await.unwrap();
+                    tokio::spawn(async move {
+                        if let Err(e) = upstream_conn.await {
+                            error!("Error driving HTTP/2 connection: {}", e);
+                        }
+                    });
+
+                    let mut client = client.ready().await.unwrap();
+
+                    let (parts, mut body) = request.into_parts();
+                    let forward = Request::from_parts(parts, ());
+
+                    let (response, mut stream) =
+                        client.send_request(forward, body.is_end_stream()).unwrap();
+
+                    while let Some(Ok(chunk)) = body.data().await {
+                        trace!(
+                            "Sending data frame (len: {}, end of stream: {})",
+                            chunk.len(),
+                            body.is_end_stream()
+                        );
+                        if let Err(e) = stream.send_data(chunk, body.is_end_stream()) {
+                            error!("Failed to send data to upstream: {}", e);
+                        }
                     }
-                }
 
-                trace!("Sent!");
+                    trace!("Sent!");
 
-                // we have to wait for the response otherwise the stream gets reset
-                let _ = response.await.unwrap();
+                    // we have to wait for the response otherwise the stream gets reset
+                    let _ = response.await;
+                });
             }
-
-            // let mut upstream_pool = upstream_pool.lock().unwrap();
-            // upstream_pool.extend(upstreams.into_iter());
         });
 
         // tokio::spawn(async move {

@@ -615,7 +615,7 @@ static __always_inline struct dynamic_table_key _new_table_key(const struct sk_m
     };
 }
 
-static __always_inline const u8* _extract_match(const char *data, const char *data_end, const struct sock_key *skey, const struct hdr_match *m, bool is_key) {
+static __always_inline const u8* _extract_match(const u8 *data, const u8 *data_end, const struct sock_key *skey, const struct hdr_match *m, bool is_key) {
     if (m->in_msg) {
         if (data + m->idx + m->len > data_end) return NULL;
         return data + m->idx;
@@ -674,7 +674,7 @@ __noinline __weak int _next_h2_hpack(u8 c, enum h2_parse_state *ps __arg_nonnull
         *k = 0;
         *n = 0;
     }
-    else if (*ps == H2_IDX && (*n == 6 || *n == 4) && (*k == 64 || *k == 0)) {
+    else if (*ps == H2_IDX && ((*n == 6 && *k == 64) || (*n == 4 && *k == 0))) {
         *ps = H2_KEY_LEN;
         *j = 0;
         *k = 0;
@@ -782,19 +782,20 @@ __noinline __weak int _add_h2_table_entry(const struct sk_msg_md *msg, u32 idx, 
     return 1;
 }
 
-static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start, u16* s, struct parse_res *pres) {
+static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start, u16 end, u16* s, struct parse_res *pres) {
     const struct sock_key skey = _new_sock_key_from_msg(msg);
     const u8 *data = msg->data;
     const u8 *data_end = msg->data_end;
     u32 len = (u32)(data_end - data) & MAX_BYTES;
+    if (end < len) len = end & MAX_BYTES;
 
     bpf_log("parse h2 from %d len %d", start, len);
 
     if (len-start == 0) {
-        return 0;
+        return -1;
     }
 
-    if (data + 9 > data_end) return 0;
+    if (data + 9 > data_end) return -1;
     u32 stream_id = data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
 
     struct dynamic_table_info *dt_info = bpf_map_lookup_elem(&dynamic_table_info, &skey);
@@ -806,7 +807,7 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
         bpf_map_update_elem(&dynamic_table_info, &skey, &new_info, BPF_ANY);
 
         dt_info = bpf_map_lookup_elem(&dynamic_table_info, &skey);
-        if (!dt_info) return 0;
+        if (!dt_info) return -1;
     }
 
     u32 n = 0, m = 0;
@@ -828,8 +829,6 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
         if (j != 0) continue;
 
         if (ps == H2_IDX) {
-            bpf_log("%d: parsed idx: %d, dt_size: %d", i, k, dt_info->size);
-
             *s = s_any;
             struct header_field *hf;
             int idx = _get_h2_table_entry(msg, k, dt_info->size, &hf);
@@ -880,8 +879,8 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
     return i;
 }
 
-static __always_inline int _parse_h2_msg_from(const struct sk_msg_md *msg, u16 start, u16* s, struct parse_res *pres) {
-    return _parse_h2_from(msg, start, s, pres);
+static __always_inline int _parse_h2_msg_from(const struct sk_msg_md *msg, u16 start, u16 end, u16* s, struct parse_res *pres) {
+    return _parse_h2_from(msg, start, end, s, pres);
 }
 
 static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res *pres, u8 *type) {
@@ -903,15 +902,17 @@ static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res
     }
 
     u16 s = s_any;
-    int res = _parse_h2_msg_from(msg, hdr_len, &s, pres);
+    int res = _parse_h2_msg_from(msg, hdr_len, len+hdr_len, &s, pres);
 
-    if (len + hdr_len > res) {
+    if (len + hdr_len > res || res < 0) {
         if (bpf_msg_pull_data(msg, 0, msg->size, 0) < 0) {
-            return res;
+            return -1;
         }
 
-        res = _parse_h2_msg_from(msg, res, &s, pres);
+        res = _parse_h2_msg_from(msg, res, len+hdr_len, &s, pres);
     }
+
+    if (len + hdr_len > res) return -1;
 
     return res;
 }
@@ -1064,7 +1065,7 @@ int parse_skb(struct __sk_buff *skb) {
         bpf_err("ERROR: Failed to init filter context");
         return SK_DROP;
     }
-    _init_h1_filter_ctx((char*)(long)skb->data, (char*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
+    _init_h1_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
 
     res = _match(skb, ctx, &ikey, is_downstream, true);
 
@@ -1120,7 +1121,7 @@ int process_skb(struct __sk_buff *skb) {
             bpf_err("ERROR: Failed to init filter context");
             return SK_DROP;
         }
-        _init_h1_filter_ctx((char*)(long)skb->data, (char*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
+        _init_h1_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
 
         res = _match(skb, ctx, &ikey, is_downstream, true);
 

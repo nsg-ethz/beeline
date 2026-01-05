@@ -113,9 +113,9 @@ func (s *Server) initRateClient(name string) error {
 }
 
 func (s *Server) getGprcConn(name string) (*grpc.ClientConn, error) {
-	if s.Proxy != "" {
-		return dialer.Dial(s.Proxy, dialer.WithTracer(s.Tracer))
-	}
+	// if s.Proxy != "" {
+	// 	return dialer.Dial(s.Proxy, dialer.WithTracer(s.Tracer))
+	// }
 
 	if s.KnativeDns != "" {
 		return dialer.Dial(

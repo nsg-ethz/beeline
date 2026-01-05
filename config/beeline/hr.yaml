@@ -30,13 +30,6 @@ hosts:
           - 172.18.0.13:9999
 routes:
     - match:
-          path: "/search.Search/Nearby"
-      # filters:
-      #     - type: mutate
-      #       add:
-      #           x-processed-by: beeline
-      dest: search
-    - match:
           path: "/recommendation.Recommendation/GetRecommendations"
       # filters:
       #     - type: mutate
@@ -44,16 +37,16 @@ routes:
       #           x-processed-by: beeline
       dest: recommendation
     - match:
-          path: "/geo.Geo/Nearby"
+          path: "/profile.Profile/GetProfiles"
       # filters:
       #     - type: mutate
       #       add:
       #           x-processed-by: beeline
-      dest: geo
+      dest: profile
     - match:
-          path: "/rate.Rate/GetRates"
+          path: "/user.User/CheckUser"
       # filters:
       #     - type: mutate
       #       add:
       #           x-processed-by: beeline
-      dest: rate
+      dest: user
