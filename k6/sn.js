@@ -1,4 +1,3 @@
-import { dest } from "./common.js";
 import { check } from "k6";
 import http from "k6/http";
 import {
@@ -22,7 +21,10 @@ export const options = {
         },
     },
     discardResponseBodies: true,
+    insecureSkipTLSVerify: true,
 };
+
+const dest = __ENV.URL || "https://moonshine:9991";
 
 function randomIntBetweenWithout(min, max, without) {
     while (true) {
