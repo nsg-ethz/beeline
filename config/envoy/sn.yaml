@@ -34,9 +34,9 @@ static_resources:
                         common_tls_context:
                             tls_certificates:
                                 - certificate_chain:
-                                      filename: ../res/pem/cert.pem
+                                      filename: res/pem/cert.pem
                                   private_key:
-                                      filename: ../res/pem/key.pem
+                                      filename: res/pem/key.pem
         - name: listener_1
           address:
               socket_address:

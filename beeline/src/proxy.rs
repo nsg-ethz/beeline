@@ -538,7 +538,16 @@ impl<'obj> Proxy<'obj> {
 
                 let mut headers = [httparse::EMPTY_HEADER; 64];
                 let mut req = httparse::Request::new(&mut headers);
-                let hdr_len = req.parse(&buf).expect("Failed to parse HTTP request");
+
+                let Ok(hdr_len) = req.parse(&buf) else {
+                    warn!(
+                        "Failed to parse HTTP request: {}",
+                        String::from_utf8_lossy(&buf).escape_debug()
+                    );
+                    buf.clear();
+                    send_error(&mut downstream).await;
+                    continue;
+                };
 
                 let con_len = req
                     .headers
