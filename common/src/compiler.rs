@@ -415,6 +415,7 @@ impl Compiler {
                     "{}if ({} && {}) {{
                     if (route_ds_{}(msg, ctx, ikey, is_skb) != PR_PASS) {{
                             bpf_err(\"ERROR: route_{} failed.\");
+                            return PR_DROP;
                         }}
                     }}",
                     else_if, path_condition, header_condition, idx, idx
