@@ -42,7 +42,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
 
     case ${BENCH} in
         sm)
-            ssh -t ${DEST_HOST} "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
+            ssh -t ${DEST_HOST} "source ~/.profile && ${ENV} ${ROOT}/sm.sh up -c ${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             echo -e "${COLOR_YELLOW}Starting epoch ${i}, summary: ${SUMMARY}${COLOR_OFF}"
 
             if [ "${WRITE_REPORT}" = true ]; then
@@ -51,7 +51,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
                 k6 run ${SCRIPT} --summary-export ${SUMMARY}
             fi
 
-            ssh -t ${DEST_HOST} "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${ROOT}/../${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
+            ssh -t ${DEST_HOST} "source ~/.profile && ${ENV} ${ROOT}/sm.sh down -c ${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}"
             ;;
 
         mb)
