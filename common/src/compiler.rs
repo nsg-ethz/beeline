@@ -83,6 +83,39 @@ fn sanitize_var_name(var: &str) -> String {
     var.replace("-", "_").to_lowercase()
 }
 
+fn c_array(data: &[u8]) -> (String, usize) {
+    let len = data.len();
+    let data = data
+        .iter()
+        .map(|&b| format!("{}", b))
+        .collect::<Vec<String>>()
+        .join(", ");
+    (format!("(u8[{}]){{{}}}", len, data), len)
+}
+
+fn h2_hdr(key: &str, val: &str) -> (String, usize) {
+    let mut key_encoded = Vec::new();
+    huffman::encode(key.as_bytes(), &mut key_encoded).unwrap();
+    let mut key_len = key_encoded.len() as u8;
+    assert!(key_len < 128);
+    key_len |= 0b1000_0000;
+
+    let mut val_encoded = Vec::new();
+    huffman::encode(val.as_bytes(), &mut val_encoded).unwrap();
+    let mut val_len = val_encoded.len() as u8;
+    assert!(val_len < 128);
+    val_len |= 0b1000_0000;
+
+    let mut hdr = Vec::new();
+    hdr.push(64 as u8);
+    hdr.push(key_len);
+    hdr.extend(key_encoded.iter());
+    hdr.push(val_len);
+    hdr.extend(val_encoded.iter());
+
+    c_array(&hdr)
+}
+
 impl Compiler {
     pub fn new(config: Config) -> Self {
         Compiler { config }
@@ -340,7 +373,7 @@ impl Compiler {
                             remove_range.in_msg = true;
                             remove_range.idx = ctx->jwt_claims_range.idx-7-{key_len};
                             remove_range.len = ctx->jwt_claims_range.len+ctx->jwt_sig_range.len+8+{key_len_crlf};
-                            if (_mutate(msg, remove_range, NULL, 0) < 0) {{
+                            if (_mutate(msg, remove_range, NULL, 0, is_h2) < 0) {{
                                 bpf_err(\"ERROR: Failed to remove {key}\");
                                 return PR_DROP;
                             }}
@@ -362,7 +395,7 @@ impl Compiler {
                         remove_range.in_msg = true;
                         remove_range.idx = ctx->{key}_range.idx-{key_len};
                         remove_range.len = ctx->{key}_range.len+{key_len_crlf};
-                        if (_mutate(msg, remove_range, NULL, 0) < 0) {{
+                        if (_mutate(msg, remove_range, NULL, 0, is_h2) < 0) {{
                             bpf_err(\"ERROR: Failed to remove {key}\");
                             return PR_DROP;
                         }}
@@ -382,16 +415,26 @@ impl Compiler {
 
         if let Some(add) = mutate.add {
             for (key, val) in add.iter() {
-                let new_hdr = format!("{}: {}\\r\\n", key, val);
-                let hdr_len = new_hdr.len() - 2;
+                let new_hdr_h1 = format!("{}: {}\\r\\n", key, val);
+                let hdr_len_h1 = new_hdr_h1.len() - 2;
+                let (new_hdr_h2, hdr_len_h2) = h2_hdr(key, val);
                 let add = format!(
-                    "new_hdr = \"{}\";
-                        if (_mutate(msg, append_range, new_hdr, {}, is_skb) < 0) {{
+                    "if (is_h2) {{
+                        new_hdr = {new_hdr_h2};
+                        if (_mutate(msg, append_range, new_hdr, {hdr_len_h2}, is_skb, is_h2) < 0) {{
                             bpf_err(\"ERROR: Failed to add %s\", new_hdr);
                             return PR_DROP;
                         }}
-                        ctx->done_idx += {};",
-                    new_hdr, hdr_len, hdr_len
+                        ctx->done_idx += {hdr_len_h2};
+                    }}
+                    else {{
+                        new_hdr = (u8*)\"{new_hdr_h1}\";
+                        if (_mutate(msg, append_range, new_hdr, {hdr_len_h1}, is_skb, is_h2) < 0) {{
+                            bpf_err(\"ERROR: Failed to add %s\", new_hdr);
+                            return PR_DROP;
+                        }}
+                        ctx->done_idx += {hdr_len_h1};
+                    }}"
                 );
                 mutation.push_str(&add);
             }
@@ -402,7 +445,7 @@ impl Compiler {
         filter.replace_code("mutation", mutation);
 
         let call = format!(
-            "if (_mutate_{}(msg, ctx, is_skb) != PR_PASS) return PR_DROP;",
+            "if (_mutate_{}(msg, ctx, is_skb, is_h2) != PR_PASS) return PR_DROP;",
             idx
         );
 
@@ -454,9 +497,7 @@ impl Compiler {
                     } else {
                         let mut path_encoded = Vec::new();
                         huffman::encode(path.as_bytes(), &mut path_encoded).unwrap();
-                        let len_encoded = path_encoded.len();
-                        let path_encoded = path_encoded.iter().map(|&b| format!("{}", b)).collect::<Vec<String>>().join(", ");
-                        let path_encoded = format!("(u8[{}]){{{}}}", len_encoded, path_encoded);
+                        let (path_encoded, len_encoded) = c_array(&path_encoded);
 
                         format!("(bpf_strncmp(ctx->path, {len}, \"{path} \") == 0) || (__builtin_memcmp(ctx->path, {path_encoded}, {len_encoded}) == 0)",
                             len=path.len() + 1,
@@ -484,7 +525,7 @@ impl Compiler {
                 let else_if = if idx > 0 { "else " } else { "" };
                 let cond = format!(
                     "{}if ({} && {}) {{
-                    if (route_ds_{}(msg, ctx, ikey, is_skb) != PR_PASS) {{
+                    if (route_ds_{}(msg, ctx, ikey, is_skb, is_h2) != PR_PASS) {{
                             bpf_err(\"ERROR: route_{} failed.\");
                         }}
                     }}",

@@ -1,6 +1,6 @@
 // ---
 
-enum pr_action _mutate_{idx}(void *msg __arg_ctx, struct filter_ctx *ctx, bool is_skb) {
+enum pr_action _mutate_{idx}(void *msg __arg_ctx, struct filter_ctx *ctx, bool is_skb, bool is_h2) {
     if (!ctx) return PR_DROP;
 
     struct hdr_match append_range = {
@@ -9,7 +9,8 @@ enum pr_action _mutate_{idx}(void *msg __arg_ctx, struct filter_ctx *ctx, bool i
         .len = 0
     };
     struct hdr_match remove_range = { 0 };
-    char *new_hdr;
+    u8 *new_hdr;
+    u32 hdr_len = 0;
 
     {mutation}
 

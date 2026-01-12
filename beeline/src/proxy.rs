@@ -933,10 +933,6 @@ impl<'obj> Proxy<'obj> {
 
                     // we have to wait for the response otherwise the stream gets reset
                     let _ = response.await;
-                    trace!(
-                        "Upstream response received {}. Not sure what's happening now...",
-                        us_local_addr
-                    );
                 });
             }
         });

@@ -44,22 +44,22 @@ hosts:
 routes:
     - match:
           path: "/recommendation.Recommendation/GetRecommendations"
-      # filters:
-      #     - type: mutate
-      #       add:
-      #           x-processed-by: beeline
+      filters:
+          - type: mutate
+            add:
+                x-processed-by: beeline
       dest: recommendation
     - match:
           path: "/profile.Profile/GetProfiles"
-      # filters:
-      #     - type: mutate
-      #       add:
-      #           x-processed-by: beeline
+      filters:
+          - type: mutate
+            add:
+                x-processed-by: beeline
       dest: profile
     - match:
           path: "/user.User/CheckUser"
-      # filters:
-      #     - type: mutate
-      #       add:
-      #           x-processed-by: beeline
+      filters:
+          - type: mutate
+            add:
+                x-processed-by: beeline
       dest: user

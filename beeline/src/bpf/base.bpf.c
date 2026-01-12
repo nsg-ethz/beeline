@@ -375,26 +375,20 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
     return PR_PASS;
 }
 
-static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m, char *str, u16 str_len) {
+static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m, u8 *str, u16 str_len, bool is_h2) {
     bpf_profile_start(mutate);
 
     u16 len = m.len;
     u16 idx = m.idx;
-
-    if (len > 0xFFFF) return -1;
-    len &= 0xFFFF;
-
-    if (idx > 0xFFFF) return -1;
-    idx &= 0xFFFF;
-
     s16 delta = str_len - len;
 
     bpf_log("Increasing msg size by %d (%d-%d) at %d", delta, str_len, len, idx);
 
     // we first have to linearize the data
     // TODO: figure out if we have to pull the data for every single modification
-    s16 end = idx + str_len;
+    u32 end = idx + str_len;
     if (end > msg->size) end = msg->size;
+    end &= MAX_BYTES;
 
     bpf_profile_start(mutate_prelinearize);
     if (bpf_msg_pull_data(msg, 0, end, 0) < 0) return -1;
@@ -414,6 +408,18 @@ static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m
 
     bpf_log("Rewriting payload (%dB) in range [%d, %d]", msg->size, idx, len);
 
+    u8 *data = (u8 *)(long)msg->data;
+    u8 *data_end = (u8 *)(long)msg->data_end;
+
+    if (is_h2) {
+        if (data + 4 > data_end) return -1;
+        u32 len = data[0] << 16 | data[1] << 8 | data[2];
+        len += delta;
+        data[0] = len >> 16;
+        data[1] = len >> 8;
+        data[2] = len;
+    }
+
     // at this point we have to pull the data again to get valid data pointers
     bpf_profile_start(mutate_postlinearize);
     if (bpf_msg_pull_data(msg, idx, idx+str_len, 0) < 0) return -1;
@@ -421,8 +427,8 @@ static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m
 
     bpf_profile_start(mutate_copy);
 
-    char *data = (char *)(long)msg->data;
-    char *data_end = (char *)(long)msg->data_end;
+    data = (u8 *)(long)msg->data;
+    data_end = (u8 *)(long)msg->data_end;
 
     if (data + str_len > data_end) return -1;
     __builtin_memcpy(data, str, str_len);
@@ -438,12 +444,12 @@ bpf_profile_def(mutate_prelinearize);
 bpf_profile_def(mutate_postlinearize);
 bpf_profile_def(mutate_alloc);
 bpf_profile_def(mutate_copy);
-static __always_inline int _mutate(void *msg __arg_ctx, struct hdr_match m, char *str, u16 str_len, bool is_skb) {
+static __always_inline int _mutate(void *msg __arg_ctx, struct hdr_match m, u8 *str, u16 str_len, bool is_skb, bool is_h2) {
     if (is_skb) {
         return -1;
     }
     else {
-        return _mutate_msg(msg, m, str, str_len);
+        return _mutate_msg(msg, m, str, str_len, is_h2);
     }
 }
 
@@ -880,9 +886,9 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
                     .in_msg = true,
                 };
 
-                if (add_to_dt) {
-                    _add_h2_table_entry(msg, STATIC_TABLE_SIZE + dt_info->size, &key, &val);
-                }
+                // if (add_to_dt) {
+                //     _add_h2_table_entry(msg, STATIC_TABLE_SIZE + dt_info->size, &key, &val);
+                // }
 
                 bpf_log("capture: %d {%d, %d} -> %s", cid, i, k);
                 pres->ms[cid & MAX_MATCH_MASK] = val;
@@ -1083,7 +1089,7 @@ int parse_skb(struct __sk_buff *skb) {
     }
     _init_h1_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
 
-    res = _match(skb, ctx, &ikey, is_downstream, true);
+    res = _match(skb, ctx, &ikey, is_downstream, true, false);
 
     u32 msg_len = (ctx->content_length > 0) ? ctx->content_length+ctx->done_idx : skb->len;
     bpf_log("Apply verdict to %dB (%d + %d)", msg_len, ctx->content_length, ctx->done_idx);
@@ -1139,7 +1145,7 @@ int process_skb(struct __sk_buff *skb) {
         }
         _init_h1_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
 
-        res = _match(skb, ctx, &ikey, is_downstream, true);
+        res = _match(skb, ctx, &ikey, is_downstream, true, false);
 
         u32 msg_len = ctx->content_length+ctx->done_idx;
         tls.trailer = skb->len - msg_len;
@@ -1272,8 +1278,8 @@ int process_msg(struct sk_msg_md *msg) {
         u8 type = 0;
         done_idx = _parse_h2_msg(msg, &pres, &type);
 
-        // data frames are forwarded to the previous destination
-        if (type == 0) {
+        // HEADER frames are parsed by beeline, all other frames are forwarded to the previous destination
+        if (type != 1) {
             bpf_msg_apply_bytes(msg, done_idx);
 
             if (sock_key_is_null(h2_dest)) {
@@ -1288,13 +1294,6 @@ int process_msg(struct sk_msg_md *msg) {
                 }
             }
 
-            return SK_PASS;
-        }
-        // all other frames apart from headers are forwarded
-        // to the control plane
-        else if (type > 1) {
-            bpf_log("Frame type %d: Letting it pass", type);
-            bpf_msg_apply_bytes(msg, done_idx);
             return SK_PASS;
         }
     }
@@ -1337,7 +1336,7 @@ int process_msg(struct sk_msg_md *msg) {
         _init_h1_filter_ctx(msg->data, msg->data_end, &ikey, ctx, done_idx, &pres);
     }
 
-    res = _match(msg, ctx, &ikey, is_downstream, false);
+    res = _match(msg, ctx, &ikey, is_downstream, false, is_h2);
 
     u32 msg_len = ctx->content_length+ctx->done_idx;
     bpf_log("Apply verdict to %dB/%dB (%d + %d)", msg_len, msg->size, ctx->content_length, ctx->done_idx);
