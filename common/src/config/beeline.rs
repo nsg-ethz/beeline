@@ -179,6 +179,8 @@ pub struct Host {
     #[serde(default)]
     pub load_balancer: Option<LoadBalancer>,
     pub instances: Vec<SocketAddr>,
+    #[serde(default)]
+    pub http2: bool,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
@@ -202,6 +204,7 @@ impl Config {
                     name: "proxy".to_string(),
                     load_balancer: None,
                     instances: vec![addr],
+                    http2: false,
                 });
             }
         }

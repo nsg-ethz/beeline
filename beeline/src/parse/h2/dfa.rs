@@ -5,16 +5,12 @@ use tracing::trace;
 
 pub struct DfaBuilder<'a> {
     dfa: &'a mut Dfa,
-    start: u16,
 
     /// The current state id
     sid: u16,
 
     /// the last input
     prev_trans: Option<(u16, u8)>,
-
-    /// The current capture id
-    cid: Option<u8>,
 }
 
 impl DfaBuilder<'_> {
@@ -59,19 +55,6 @@ impl DfaBuilder<'_> {
             *act = Action::CaptureFieldValue(cid);
         }
         self
-    }
-
-    fn get_sid(&self, input: &[u8]) -> Option<u16> {
-        let mut sid = self.start;
-        for c in input.iter() {
-            if let Some((to, _)) = self.dfa.transitions.get(&(sid, *c)) {
-                sid = *to;
-            } else {
-                return None;
-            }
-        }
-
-        Some(sid)
     }
 }
 
@@ -140,9 +123,7 @@ impl Dfa {
         trace!(target: "dfa", "start_pattern: {} --> ", from);
         DfaBuilder {
             dfa: self,
-            start: from,
             sid: from,
-            cid: None,
             prev_trans: None,
         }
     }

@@ -256,7 +256,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "as-bytes",
- "bytes",
  "clap",
  "common",
  "httlib-huffman",

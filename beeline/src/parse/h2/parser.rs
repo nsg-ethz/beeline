@@ -8,7 +8,6 @@ use httlib_huffman as huffman;
 use libbpf_rs::{MapCore, MapFlags, MapHandle};
 
 pub struct Parser {
-    s_init: u16,
     s_any: u16,
 
     dfa: Dfa,
@@ -23,7 +22,6 @@ impl Parser {
         let states = vec![s_init, s_any];
 
         Parser {
-            s_init,
             s_any,
             dfa: Dfa::new(states.into_iter()),
         }
