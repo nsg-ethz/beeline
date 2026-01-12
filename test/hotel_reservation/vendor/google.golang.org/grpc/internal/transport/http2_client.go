@@ -25,6 +25,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -513,19 +514,25 @@ func (t *http2Client) createHeaderFields(ctx context.Context, callHdr *CallHdr) 
 	if err != nil {
 		return nil, err
 	}
+
+	compress_headers := true
+	if val, ok := os.LookupEnv("COMPRESS_HEADERS"); ok {
+		compress_headers = (val == "true" || val == "1")
+	}
+
 	// TODO(mmukhi): Benchmark if the performance gets better if count the metadata and other header fields
 	// first and create a slice of that exact size.
 	// Make the slice of certain predictable size to reduce allocations made by append.
 	hfLen := 7 // :method, :scheme, :path, :authority, content-type, user-agent, te
 	hfLen += len(authData) + len(callAuthData)
 	headerFields := make([]hpack.HeaderField, 0, hfLen)
-	headerFields = append(headerFields, hpack.HeaderField{Name: ":method", Value: "POST", Sensitive: true})
-	headerFields = append(headerFields, hpack.HeaderField{Name: ":scheme", Value: t.scheme, Sensitive: true})
-	headerFields = append(headerFields, hpack.HeaderField{Name: ":path", Value: callHdr.Method, Sensitive: true})
-	headerFields = append(headerFields, hpack.HeaderField{Name: ":authority", Value: callHdr.Host, Sensitive: true})
-	headerFields = append(headerFields, hpack.HeaderField{Name: "content-type", Value: grpcutil.ContentType(callHdr.ContentSubtype), Sensitive: true})
-	headerFields = append(headerFields, hpack.HeaderField{Name: "user-agent", Value: t.userAgent, Sensitive: true})
-	headerFields = append(headerFields, hpack.HeaderField{Name: "te", Value: "trailers", Sensitive: true})
+	headerFields = append(headerFields, hpack.HeaderField{Name: ":method", Value: "POST", Sensitive: !compress_headers})
+	headerFields = append(headerFields, hpack.HeaderField{Name: ":scheme", Value: t.scheme, Sensitive: !compress_headers})
+	headerFields = append(headerFields, hpack.HeaderField{Name: ":path", Value: callHdr.Method, Sensitive: !compress_headers})
+	headerFields = append(headerFields, hpack.HeaderField{Name: ":authority", Value: callHdr.Host, Sensitive: !compress_headers})
+	headerFields = append(headerFields, hpack.HeaderField{Name: "content-type", Value: grpcutil.ContentType(callHdr.ContentSubtype), Sensitive: !compress_headers})
+	headerFields = append(headerFields, hpack.HeaderField{Name: "user-agent", Value: t.userAgent, Sensitive: !compress_headers})
+	headerFields = append(headerFields, hpack.HeaderField{Name: "te", Value: "trailers", Sensitive: !compress_headers})
 	if callHdr.PreviousAttempts > 0 {
 		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-previous-rpc-attempts", Value: strconv.Itoa(callHdr.PreviousAttempts)})
 	}

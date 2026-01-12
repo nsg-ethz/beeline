@@ -44,6 +44,7 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -74,6 +75,7 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
@@ -105,6 +107,7 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
@@ -134,6 +137,7 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
@@ -164,6 +168,7 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
@@ -190,6 +195,7 @@ services:
             - JAEGER_SAMPLE_RATIO
             - MEMC_TIMEOUT
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         hostname: review
         extra_hosts:
             - "beeline:host-gateway"
@@ -219,6 +225,7 @@ services:
             - JAEGER_SAMPLE_RATIO
             - MEMC_TIMEOUT
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         hostname: attractions
         extra_hosts:
             - "beeline:host-gateway"
@@ -252,8 +259,7 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
-            - GRPC_GO_LOG_VERBOSITY_LEVEL=99
-            - GRPC_GO_LOG_SEVERITY_LEVEL=info
+            - COMPRESS_HEADERS=false
         cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
@@ -284,6 +290,7 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
@@ -314,6 +321,7 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+            - COMPRESS_HEADERS=false
         cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
