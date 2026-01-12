@@ -82,9 +82,6 @@ pub(crate) struct Dfa {
     /// The next free capture id
     cid: u8,
 
-    /// The next free range id
-    rid: u8,
-
     states: HashSet<u16>,
     transitions: HashMap<(u16, u8), (u16, Action)>,
 }
@@ -94,7 +91,6 @@ impl Dfa {
         Dfa {
             sid: 0,
             cid: 0,
-            rid: 0,
             states: reserved_states.collect(),
             transitions: HashMap::new(),
         }
@@ -113,12 +109,6 @@ impl Dfa {
         let cid = self.cid;
         self.cid += 1;
         cid
-    }
-
-    fn insert_new_range(&mut self) -> u8 {
-        let rid = self.rid;
-        self.rid += 1;
-        rid
     }
 
     pub fn insert_transition(

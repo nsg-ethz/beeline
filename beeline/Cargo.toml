@@ -34,6 +34,7 @@ rustls = { version = "0.23.35", features = ["ring"] }
 tokio-rustls = { version = "0.26.4", features = ["ring"] }
 http2 = { version = "0.5.10" }
 http = "1.4.0"
+bytes = "1.11.0"
 
 [build-dependencies]
 common = { path = "../common" }

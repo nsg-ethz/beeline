@@ -615,7 +615,14 @@ static __always_inline struct dynamic_table_key _new_table_key(const struct sk_m
     };
 }
 
+static __always_inline u32 _get_h2_dt_idx(u32 idx, u32 dt_size) {
+    u32 end_idx = STATIC_TABLE_SIZE + dt_size - 1;
+    return (end_idx - idx) + STATIC_TABLE_SIZE + 1;
+}
+
 static __always_inline const u8* _extract_match(const u8 *data, const u8 *data_end, const struct sock_key *skey, const struct hdr_match *m, bool is_key) {
+    bpf_log("extracting match { %d %d %d }", m->in_msg, m->idx, m->len);
+
     if (m->in_msg) {
         if (data + m->idx + m->len > data_end) return NULL;
         return data + m->idx;
@@ -628,9 +635,6 @@ static __always_inline const u8* _extract_match(const u8 *data, const u8 *data_e
             .idx = m->idx
         };
 
-        // struct dynamic_table_info *dt_info = bpf_map_lookup_elem(&dynamic_table_info, &key.conn);
-        // if (dt_info == NULL) return NULL;
-        // key.idx = dt_info->size - m->idx;
         hf = bpf_map_lookup_elem(&dynamic_table, &key);
     }
     else {
@@ -680,7 +684,7 @@ __noinline __weak int _next_h2_hpack(u8 c, enum h2_parse_state *ps __arg_nonnull
         *k = 0;
         *n = 7;
     }
-    else if (*ps == H2_IDX && (*n == 6 || *n == 4)) {
+    else if ((*ps == H2_IDX && (*n == 6 || *n == 4)) || *ps == H2_KEY) {
         *ps = H2_VAL_LEN;
         *j = 0;
         *k = 0;
@@ -721,7 +725,6 @@ static __always_inline void _parse_h2_hpack(u8 c, enum h2_parse_state *ps, u32 *
 
     _next_h2_hpack(c, ps, n, k, j);
     *m = 0;
-    // bpf_log("next: c=%d, ps=%d, n=%d, m=%d, k=%d, j=%d", c, *ps, *n, *m, *k, *j);
 
     if (!H2_IS_STR(*ps)) {
         u8 mask = (1 << *n) - 1;
@@ -731,8 +734,13 @@ static __always_inline void _parse_h2_hpack(u8 c, enum h2_parse_state *ps, u32 *
 }
 
 static __always_inline int _get_h2_table_entry(const struct sk_msg_md *msg, u32 idx, u16 dt_size, struct header_field **hf) {
+    if (idx == 0) {
+        *hf = NULL;
+        return -1;
+    }
+
     if (idx > STATIC_TABLE_SIZE) {
-        idx = STATIC_TABLE_SIZE + dt_size - (idx - STATIC_TABLE_SIZE);
+        idx = _get_h2_dt_idx(idx, dt_size);
 
         struct dynamic_table_key key = _new_table_key(msg, idx);
         bpf_log("lookup dt: %d", idx);
@@ -771,15 +779,15 @@ __noinline __weak int _add_h2_table_entry(const struct sk_msg_md *msg, u32 idx, 
 
     struct header_field dt_val = { 0 };
     u16 key_len = (key->in_msg) ? key->len & 0x1F : 0x1F;
-    bpf_probe_read_kernel(dt_val.key, key_len, key_ptr);
-    bpf_probe_read_kernel(dt_val.val, val->len & 0x1F, val_ptr);
+    int res = bpf_probe_read_kernel(dt_val.key, key_len, key_ptr);
+    res += bpf_probe_read_kernel(dt_val.val, val->len & 0x1F, val_ptr);
 
-    bpf_map_update_elem(&dynamic_table, &dt_key, &dt_val, BPF_ANY);
-    bpf_log("add to dynamic table: %d", idx);
+    res += bpf_map_update_elem(&dynamic_table, &dt_key, &dt_val, BPF_ANY);
+    bpf_log("add to dynamic table: %d -> %d", idx, res);
     bpf_log("key { %d %d %d}", key->idx, key->len, key->in_msg);
     bpf_log("val { %d %d %d}", val->idx, val->len, val->in_msg);
 
-    return 1;
+    return res;
 }
 
 static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start, u16 end, u16* s, struct parse_res *pres) {
@@ -814,6 +822,7 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
     u32 i = 0, k = 0;
     u8 j = 0;
     s8 cid = -1;
+    u8 add_to_dt = 0;
     enum h2_parse_state ps = H2_IDX;
     struct hdr_match key = {
         .idx = 0,
@@ -829,10 +838,14 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
         if (j != 0) continue;
 
         if (ps == H2_IDX) {
+            bpf_log("%d: parsed idx: %d, dt_size: %d", i, k, dt_info->size);
+
+            add_to_dt = (u8)(n == 6);
             *s = s_any;
             struct header_field *hf;
             int idx = _get_h2_table_entry(msg, k, dt_info->size, &hf);
             if (hf == NULL) {
+                cid = -1;
                 continue;
             }
 
@@ -841,7 +854,7 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
                 // check if we are replacing the exisiting entry, or taking
                 // the one in the table
                 if (n == 7) {
-                    bpf_log("capture: %d {%d, %d}", cid, i, idx);
+                    bpf_log("capture: %d {%d, %d}", cid, i, k);
 
                     pres->ms[cid & MAX_MATCH_MASK] = (struct hdr_match) {
                         .idx = idx,
@@ -858,6 +871,8 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
             key.in_msg = true;
         }
         else if (ps == H2_VAL_LEN) {
+            dt_info->size += add_to_dt;
+
             if (cid >= 0) {
                 struct hdr_match val = (struct hdr_match) {
                     .idx = i + 1,
@@ -865,14 +880,14 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
                     .in_msg = true,
                 };
 
-                _add_h2_table_entry(msg, dt_info->size + STATIC_TABLE_SIZE, &key, &val);
+                if (add_to_dt) {
+                    _add_h2_table_entry(msg, STATIC_TABLE_SIZE + dt_info->size, &key, &val);
+                }
 
-                bpf_log("capture: %d {%d, %d}", cid, i, k);
+                bpf_log("capture: %d {%d, %d} -> %s", cid, i, k);
                 pres->ms[cid & MAX_MATCH_MASK] = val;
                 cid = -1;
             }
-
-            dt_info->size +=1;
         }
     }
 
@@ -894,8 +909,9 @@ static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res
     u8 flags = data[4];
     bool padded = flags & 0x08;
     u8 hdr_len = (padded) ? 10 : 9;
+    u32 stream_id = data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
 
-    bpf_log("Parsing HTTP/2 message with length %d, type %d, flags %d", len, *type, flags);
+    bpf_log("Parsing HTTP/2 message for stream %d with length %d, type %d, flags %d", stream_id, len, *type, flags);
 
     if (*type != 0x01) {
         return len + hdr_len;
@@ -1418,8 +1434,10 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 
         void *map = NULL;
         int* use_skmsg = bpf_map_lookup_elem(&sock_map_wait_list, &skey);
+        bool add_upstream = false;
         if (use_skmsg != NULL) {
-            map = (*use_skmsg == 1) ? (void*)&msg_sock_map : (void*)&skb_sock_map;
+            map = (*use_skmsg >= 1) ? (void*)&msg_sock_map : (void*)&skb_sock_map;
+            add_upstream = (*use_skmsg == 3);
             bpf_map_delete_elem(&sock_map_wait_list, &skey);
         }
         else if (is_proxy) {
@@ -1448,6 +1466,10 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
                     bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                     return SK_PASS;
                 }
+            }
+
+            if (add_upstream) {
+                int res = _fib_insert(&skey.local, false, true, &skey);
             }
         }
     }

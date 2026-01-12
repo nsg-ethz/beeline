@@ -6,7 +6,6 @@ use anyhow::Result;
 use as_bytes::AsBytes;
 use httlib_huffman as huffman;
 use libbpf_rs::{MapCore, MapFlags, MapHandle};
-use tracing::{debug, warn};
 
 pub struct Parser {
     s_init: u16,
@@ -122,4 +121,3 @@ pub fn populate_static_table(static_table: &MapHandle) -> Result<()> {
 
     Ok(())
 }
-

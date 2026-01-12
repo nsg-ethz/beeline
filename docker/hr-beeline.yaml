@@ -252,6 +252,8 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
+            - GRPC_GO_LOG_VERBOSITY_LEVEL=99
+            - GRPC_GO_LOG_SEVERITY_LEVEL=info
         cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation

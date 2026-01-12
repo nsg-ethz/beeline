@@ -3,15 +3,19 @@ use crate::{
     parse::h1::{Action as H1Action, Parser as H1Parser},
     parse::h2::{populate_static_table, Action as H2Action, Parser as H2Parser},
 };
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use as_bytes::AsBytes;
+use bytes::Bytes;
 use common::{
     config::beeline::Config,
     net::{get_gw_ip, TryIntoRawOctets},
     Compiler,
 };
-use http::{Request, Response, StatusCode, Uri};
-use http2::{client, server};
+use http::{Request, Response, StatusCode};
+use http2::{
+    client::{self, SendRequest},
+    server,
+};
 use ktls::{CorkStream, KtlsCipherSuite, KtlsCipherType, KtlsVersion};
 use libbpf_rs::{
     set_print,
@@ -197,7 +201,7 @@ pub struct Proxy<'obj> {
     #[allow(dead_code)]
     sockops: Link,
     upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
-    h2_upstream_pool: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    h2_upstream_pool: Arc<Mutex<Vec<SendRequest<Bytes>>>>,
 }
 
 unsafe impl<'obj> Send for Proxy<'obj> {}
@@ -550,7 +554,15 @@ impl<'obj> Proxy<'obj> {
         tokio::spawn(async move {
             let mut downstream_conn = server::handshake(downstream).await.unwrap();
 
-            while let Some(Ok((request, mut respond))) = downstream_conn.accept().await {
+            while let Some(reqres) = downstream_conn.accept().await {
+                let (request, mut respond) = match reqres {
+                    Ok((request, respond)) => (request, respond),
+                    Err(err) => {
+                        warn!("Error accepting request: {:?}", err);
+                        break;
+                    }
+                };
+
                 tokio::spawn(async move {
                     trace!("Received request: {:?} from {:?}", request, ds_remote_addr);
 
@@ -678,23 +690,28 @@ impl<'obj> Proxy<'obj> {
                         if let Err(e) = upstream_conn.await {
                             error!("Error driving HTTP/2 connection: {}", e);
                         }
+                        trace!("Upstream connection closed {}", us_local_addr);
                     });
 
                     let mut client = client.ready().await.unwrap();
 
                     let (parts, mut body) = request.into_parts();
+                    let mut headers = parts.headers.clone();
+                    for val in headers.values_mut() {
+                        val.set_sensitive(true);
+                    }
+
                     let forward = Request::from_parts(parts, ());
 
-                    let (response, mut stream) =
-                        client.send_request(forward, body.is_end_stream()).unwrap();
+                    let (response, mut stream) = client.send_request(forward, false).unwrap();
 
                     while let Some(Ok(chunk)) = body.data().await {
                         trace!(
                             "Sending data frame (len: {}, end of stream: {})",
                             chunk.len(),
-                            body.is_end_stream()
+                            false
                         );
-                        if let Err(e) = stream.send_data(chunk, body.is_end_stream()) {
+                        if let Err(e) = stream.send_data(chunk, false) {
                             error!("Failed to send data to upstream: {}", e);
                         }
                     }
@@ -703,6 +720,10 @@ impl<'obj> Proxy<'obj> {
 
                     // we have to wait for the response otherwise the stream gets reset
                     let _ = response.await;
+                    trace!(
+                        "Upstream response received {}. Not sure what's happening now...",
+                        us_local_addr
+                    );
                 });
             }
         });
