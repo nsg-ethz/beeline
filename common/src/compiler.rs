@@ -97,13 +97,13 @@ fn h2_hdr(key: &str, val: &str) -> (String, usize) {
     let mut key_encoded = Vec::new();
     huffman::encode(key.as_bytes(), &mut key_encoded).unwrap();
     let mut key_len = key_encoded.len() as u8;
-    assert!(key_len < 128);
+    assert!(key_len < 127);
     key_len |= 0b1000_0000;
 
     let mut val_encoded = Vec::new();
     huffman::encode(val.as_bytes(), &mut val_encoded).unwrap();
     let mut val_len = val_encoded.len() as u8;
-    assert!(val_len < 128);
+    assert!(val_len < 127);
     val_len |= 0b1000_0000;
 
     let mut hdr = Vec::new();

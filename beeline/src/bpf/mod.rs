@@ -48,6 +48,15 @@ impl TryFrom<&SocketAddr> for addr_key {
     }
 }
 
+impl sock_key {
+    pub fn invert(&self) -> sock_key {
+        sock_key {
+            local: self.remote,
+            remote: self.local,
+        }
+    }
+}
+
 impl TryFrom<(&SocketAddr, &SocketAddr)> for sock_key {
     type Error = anyhow::Error;
 

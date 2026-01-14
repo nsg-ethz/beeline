@@ -32,7 +32,7 @@ ktls = "6.0.2"
 rcgen = "0.14.6"
 rustls = { version = "0.23.35", features = ["ring"] }
 tokio-rustls = { version = "0.26.4", features = ["ring"] }
-http2 = { version = "0.5.10" }
+http2 = { version = "0.5.10", features = ["tracing"] }
 http = "1.4.0"
 
 [build-dependencies]

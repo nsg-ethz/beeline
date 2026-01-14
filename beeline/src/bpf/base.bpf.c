@@ -96,6 +96,11 @@ struct sock_key {
     struct addr_key remote;
 };
 
+struct data_stream {
+    struct sock_key conn;
+    u32 stream_id;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, MAX_CONNS);
@@ -127,7 +132,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, MAX_CONNS/2);
-    __type(key, struct sock_key);
+    __type(key, struct data_stream);
     __type(value, struct addr_key);
 } utrn_wait_list SEC(".maps");
 
@@ -205,8 +210,15 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_CONNS/2);
     __type(key, struct sock_key);
-    __type(value, struct sock_key);
+    __type(value, u32);
 } h2_conns SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_CONNS/4);
+    __type(key, struct data_stream);
+    __type(value, struct data_stream);
+} h2_streams SEC(".maps");
 
 const u32 percpu_key = 0;
 
@@ -803,8 +815,6 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
     u32 len = (u32)(data_end - data) & MAX_BYTES;
     if (end < len) len = end & MAX_BYTES;
 
-    bpf_log("parse h2 from %d len %d", start, len);
-
     if (len-start == 0) {
         return -1;
     }
@@ -937,6 +947,38 @@ static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res
     if (len + hdr_len > res) return -1;
 
     return res;
+}
+
+static __always_inline int _get_h2_stream_id(struct sk_msg_md *msg) {
+    u8 *data = (u8 *)(long)msg->data;
+    u8 *data_end = (u8 *)(long)msg->data_end;
+
+    if (data + 9 > data_end) return -1;
+
+    return data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
+}
+
+static __always_inline int _set_h2_stream_id(struct sk_msg_md *msg, u32 new_stream_id) {
+    if (bpf_msg_pull_data(msg, 0, 9, 0) < 0) {
+        return -1;
+    }
+
+    int stream_id = _get_h2_stream_id(msg);
+    if (stream_id <= 0) return stream_id;
+
+    u8 *data = (u8 *)(long)msg->data;
+    u8 *data_end = (u8 *)(long)msg->data_end;
+
+    if (data + 9 > data_end) return -1;
+
+    bpf_log("Replace stream ID %u with %u", stream_id, new_stream_id);
+
+    data[5] = new_stream_id >> 24;
+    data[6] = new_stream_id >> 16;
+    data[7] = new_stream_id >> 8;
+    data[8] = new_stream_id;
+
+    return 0;
 }
 
 // ----------------------------------------------
@@ -1210,7 +1252,12 @@ int process_skb(struct __sk_buff *skb) {
     }
 
     if (res == PR_UTRN) {
-        if (bpf_map_update_elem(&utrn_wait_list, &ikey, dest, BPF_ANY) < 0) {
+        struct data_stream stream = {
+            .conn = ikey,
+            .stream_id = 0,
+        };
+
+        if (bpf_map_update_elem(&utrn_wait_list, &stream, dest, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }
         else {
@@ -1270,27 +1317,35 @@ int process_msg(struct sk_msg_md *msg) {
     enum pr_action res = PR_PASS;
     struct parse_res pres = { 0 };
 
-    struct sock_key *h2_dest = bpf_map_lookup_elem(&h2_conns, &ikey);
-    bool is_h2 = (h2_dest != NULL);
+    bool is_h2 = (bpf_map_lookup_elem(&h2_conns, &ikey) != NULL);
     int done_idx = -1;
 
     if (is_h2) {
         u8 type = 0;
         done_idx = _parse_h2_msg(msg, &pres, &type);
 
+        struct data_stream istream = {
+            .conn = ikey,
+            .stream_id = _get_h2_stream_id(msg),
+        };
+        struct data_stream *h2_dest = bpf_map_lookup_elem(&h2_streams, &istream);
+        if (h2_dest != NULL) {
+            _set_h2_stream_id(msg, h2_dest->stream_id);
+        }
+
         // HEADER frames are parsed by beeline, all other frames are forwarded to the previous destination
         if (type != 1) {
             bpf_msg_apply_bytes(msg, done_idx);
 
-            if (sock_key_is_null(h2_dest)) {
+            if (h2_dest == NULL) {
                 bpf_log("No existing H2 destination found. Forwarding to control plane");
             }
             else {
-                if (bpf_msg_redirect_hash(msg, &msg_sock_map, h2_dest, BPF_F_INGRESS) == SK_DROP) {
-                    bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->local.ip4, h2_dest->local.port, &h2_dest->remote.ip4, h2_dest->remote.port);
+                if (bpf_msg_redirect_hash(msg, &msg_sock_map, &h2_dest->conn, BPF_F_INGRESS) == SK_DROP) {
+                    bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
                 }
                 else {
-                    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->local.ip4, h2_dest->local.port, &h2_dest->remote.ip4, h2_dest->remote.port);
+                    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
                 }
             }
 
@@ -1300,8 +1355,8 @@ int process_msg(struct sk_msg_md *msg) {
     else {
         done_idx = _parse_h1_msg(msg, &pres);
         if (pres.ms[0].len > 0) {
-            struct sock_key h2_dest = {0};
-            bpf_map_update_elem(&h2_conns, &ikey, &h2_dest, BPF_ANY);
+            u32 stream_id = 1;
+            bpf_map_update_elem(&h2_conns, &ikey, &stream_id, BPF_ANY);
             bpf_log("Upgraded [%pI4:%u->%pI4:%u] to HTTP/2", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
 
             bpf_msg_apply_bytes(msg, 24);
@@ -1370,9 +1425,33 @@ int process_msg(struct sk_msg_md *msg) {
 
     // if it's an h2 connection, we have to store the latest
     // frame destination. this allows us to route future
-    // DATA frames to the correct socket
-    if (is_h2) {
-        *h2_dest = ekey;
+    // non-HEADER frames to the correct socket
+    if (is_h2 && !sock_key_is_null(&ekey) && is_downstream) {
+        struct data_stream istream = {
+            .conn = ikey,
+            .stream_id = _get_h2_stream_id(msg),
+        };
+
+        u32 *stream_id = bpf_map_lookup_elem(&h2_conns, &ekey);
+        if (stream_id != NULL) {
+            // increase the stream id for the next request
+            // client stream IDs are odd and increasing with every new stream
+            bpf_log("Increase stream_id for [%pI4:%u->%pI4:%u] to %u", &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port, *stream_id + 2);
+            *stream_id += 2;
+
+            struct data_stream estream = {
+                .conn = ekey,
+                .stream_id = *stream_id,
+            };
+
+            bpf_log("Assign stream [%pI4:%u->%pI4:%u](%d) to [%pI4:%u->%pI4:%u](%d)", &istream.conn.local.ip4, istream.conn.local.port, &istream.conn.remote.ip4, istream.conn.remote.port, istream.stream_id, &estream.conn.local.ip4, estream.conn.local.port, &estream.conn.remote.ip4, estream.conn.remote.port, estream.stream_id);
+            if (bpf_map_update_elem(&h2_streams, &istream, &estream, BPF_ANY) < 0) {
+                bpf_err("ERROR: Failed to update h2 stream mapping");
+            }
+            if (bpf_map_update_elem(&h2_streams, &estream, &istream, BPF_ANY) < 0) {
+                bpf_err("ERROR: Failed to update h2 stream mapping");
+            }
+        }
     }
 
     bpf_profile_end(sk_msg);
@@ -1392,7 +1471,12 @@ int process_msg(struct sk_msg_md *msg) {
         }
     }
     if (res == PR_UTRN) {
-        if (bpf_map_update_elem(&utrn_wait_list, &ikey, &ctx->dest, BPF_ANY) < 0) {
+        struct data_stream stream = {
+            .conn = ikey,
+            .stream_id = (is_h2) ? _get_h2_stream_id(msg) : 0,
+        };
+
+        if (bpf_map_update_elem(&utrn_wait_list, &stream, &ctx->dest, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }
         else {
@@ -1433,10 +1517,8 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 
         void *map = NULL;
         int* use_skmsg = bpf_map_lookup_elem(&sock_map_wait_list, &skey);
-        bool add_upstream = false;
         if (use_skmsg != NULL) {
             map = (*use_skmsg >= 1) ? (void*)&msg_sock_map : (void*)&skb_sock_map;
-            add_upstream = (*use_skmsg == 3);
             bpf_map_delete_elem(&sock_map_wait_list, &skey);
         }
         else if (is_proxy) {
@@ -1465,10 +1547,6 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
                     bpf_err("ERROR: Failed to add socket [%pI4:%u->%pI4:%u]", &skey.local.ip4, skey.local.port, &skey.remote.ip4, skey.remote.port);
                     return SK_PASS;
                 }
-            }
-
-            if (add_upstream) {
-                int res = _fib_insert(&skey.local, false, true, &skey);
             }
         }
     }

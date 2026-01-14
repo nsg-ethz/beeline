@@ -114,6 +114,13 @@ fn update_map<M: MapCore, K: AsBytes, V: AsBytes>(map: &M, key: &K, val: &V) -> 
     Ok(())
 }
 
+fn delete_map<M: MapCore, K: AsBytes>(map: &M, key: &K) -> Result<()> {
+    let key = unsafe { key.as_bytes() };
+
+    map.delete(&key)?;
+    Ok(())
+}
+
 fn init_dataplane(config: Config, rodata: &mut rodata) -> Result<()> {
     let compiler = Compiler::new(config.clone());
     let vars = compiler.get_ctx_vars();
@@ -639,8 +646,12 @@ impl<'obj> Proxy<'obj> {
                 }
 
                 // check if there is a forwarding token in the waiting list
+                let stream_key = data_stream {
+                    conn: ds_remote_addr_key,
+                    stream_id: 0,
+                };
                 let us_remote_addr: Option<addr_key> = utrn_wait_list
-                    .lookup_and_delete_as(&ds_remote_addr_key)
+                    .lookup_and_delete_as(&stream_key)
                     .expect("Failed to lookup utrn_wait_list");
 
                 let (ds_remote_addr_key, us_remote_addr) = if us_remote_addr.is_none() {
@@ -653,8 +664,12 @@ impl<'obj> Proxy<'obj> {
                     let ds_remote_addr_key =
                         sock_key::try_from((&ds_gw_addr, &ds_local_addr)).unwrap();
 
+                    let stream_key = data_stream {
+                        conn: ds_remote_addr_key,
+                        stream_id: 0,
+                    };
                     let us_remote_addr: Option<addr_key> = utrn_wait_list
-                        .lookup_and_delete_as(&ds_remote_addr_key)
+                        .lookup_and_delete_as(&stream_key)
                         .expect("Failed to lookup utrn_wait_list");
 
                     (ds_remote_addr_key, us_remote_addr)
@@ -761,6 +776,7 @@ impl<'obj> Proxy<'obj> {
         let utrn_wait_list_id = self.skel.maps.utrn_wait_list.info()?.info.id;
         let sock_map_wait_list_id = self.skel.maps.sock_map_wait_list.info()?.info.id;
         let h2_conns_id = self.skel.maps.h2_conns.info()?.info.id;
+        let h2_streams_id = self.skel.maps.h2_streams.info()?.info.id;
         let fib_downstream_id = self.skel.maps.fib_downstream.info()?.info.id;
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
@@ -802,14 +818,23 @@ impl<'obj> Proxy<'obj> {
                         send_error();
                         return;
                     };
+                    let Ok(h2_streams) = MapHandle::from_map_id(h2_streams_id) else {
+                        send_error();
+                        return;
+                    };
                     let Ok(fib_downstream) = MapHandle::from_map_id(fib_downstream_id) else {
                         send_error();
                         return;
                     };
 
                     // check if there is a forwarding token in the waiting list
+                    let stream_id = request.body().stream_id().as_u32();
+                    let stream_key = data_stream {
+                        conn: ds_remote_addr_key,
+                        stream_id,
+                    };
                     let us_remote_addr: Option<addr_key> = utrn_wait_list
-                        .lookup_and_delete_as(&ds_remote_addr_key)
+                        .lookup_and_delete_as(&stream_key)
                         .expect("Failed to lookup utrn_wait_list");
 
                     let (ds_remote_addr_key, us_remote_addr) = if us_remote_addr.is_none() {
@@ -822,8 +847,12 @@ impl<'obj> Proxy<'obj> {
                         let ds_remote_addr_key =
                             sock_key::try_from((&ds_gw_addr, &ds_local_addr)).unwrap();
 
+                        let stream_key = data_stream {
+                            conn: ds_remote_addr_key,
+                            stream_id,
+                        };
                         let us_remote_addr: Option<addr_key> = utrn_wait_list
-                            .lookup_and_delete_as(&ds_remote_addr_key)
+                            .lookup_and_delete_as(&stream_key)
                             .expect("Failed to lookup utrn_wait_list");
 
                         (ds_remote_addr_key, us_remote_addr)
@@ -859,21 +888,49 @@ impl<'obj> Proxy<'obj> {
                         }
                     };
 
-                    let us_sock_key = if tls {
-                        sock_key::try_from((&us_local_addr, &us_remote_addr)).unwrap()
-                    } else {
-                        sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap()
-                    };
+                    let mut us_sock_key =
+                        sock_key::try_from((&us_remote_addr, &us_local_addr)).unwrap();
+                    if tls {
+                        us_sock_key = us_sock_key.invert();
+                    }
                     update_map(&sock_map_wait_list, &us_sock_key, &(!tls as u32))
                         .expect("Failed to insert into sock_map_wait_list");
 
                     // flag conn as h2
                     let ds_sock_key =
-                        sock_key::try_from((&ds_local_addr, &ds_remote_addr)).unwrap();
-                    update_map(&h2_conns, &us_sock_key, &ds_sock_key)
+                        sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
+
+                    update_map(&h2_conns, &us_sock_key, &1u32)
                         .expect("Failed to mark connection as h2");
-                    update_map(&h2_conns, &ds_sock_key, &us_sock_key)
+                    update_map(&h2_conns, &ds_sock_key, &stream_id)
                         .expect("Failed to mark connection as h2");
+
+                    let ds_stream = data_stream {
+                        conn: ds_sock_key.clone(),
+                        stream_id,
+                    };
+                    let us_stream = data_stream {
+                        conn: us_sock_key.clone(),
+                        stream_id: 1,
+                    };
+                    update_map(&h2_streams, &ds_stream, &us_stream)
+                        .expect("Failed to assign h2 streams");
+                    update_map(&h2_streams, &us_stream, &ds_stream)
+                        .expect("Failed to assign h2 streams");
+
+                    // we also have to route control messages
+                    let ds_stream = data_stream {
+                        conn: ds_sock_key.clone(),
+                        stream_id: 0,
+                    };
+                    let us_stream = data_stream {
+                        conn: us_sock_key.clone(),
+                        stream_id: 0,
+                    };
+                    update_map(&h2_streams, &ds_stream, &us_stream)
+                        .expect("Failed to assign h2 streams");
+                    update_map(&h2_streams, &us_stream, &ds_stream)
+                        .expect("Failed to assign h2 streams");
 
                     debug!("Bound socket to {}", us_local_addr);
 
@@ -916,15 +973,16 @@ impl<'obj> Proxy<'obj> {
 
                     let forward = Request::from_parts(parts, ());
 
-                    let (response, mut stream) = client.send_request(forward, false).unwrap();
+                    let (response, mut stream) =
+                        client.send_request(forward, body.is_end_stream()).unwrap();
 
                     while let Some(Ok(chunk)) = body.data().await {
                         trace!(
                             "Sending data frame (len: {}, end of stream: {})",
                             chunk.len(),
-                            false
+                            body.is_end_stream()
                         );
-                        if let Err(e) = stream.send_data(chunk, false) {
+                        if let Err(e) = stream.send_data(chunk, body.is_end_stream()) {
                             error!("Failed to send data to upstream: {}", e);
                         }
                     }
@@ -933,6 +991,10 @@ impl<'obj> Proxy<'obj> {
 
                     // we have to wait for the response otherwise the stream gets reset
                     let _ = response.await;
+
+                    trace!("Removing upstream connection from FIB");
+                    delete_map(&fib_downstream, &us_local_addr_key)
+                        .expect("Failed to delete from FIB");
                 });
             }
         });
