@@ -7,7 +7,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use as_bytes::AsBytes;
 use bytes::Bytes;
 use common::{
-    config::beeline::Config,
+    config::beeline::{Config, TlsConfig},
     net::{get_gw_ip, TryIntoRawOctets},
     Compiler,
 };
@@ -20,8 +20,10 @@ use libbpf_rs::{
     Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
 use libc::exit;
-use rcgen::generate_simple_self_signed;
-use rustls::ServerConfig;
+use rustls::{
+    pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
+    ServerConfig,
+};
 use std::{
     env,
     io::Cursor,
@@ -116,12 +118,12 @@ fn update_map<M: MapCore, K: AsBytes, V: AsBytes>(map: &M, key: &K, val: &V) -> 
     Ok(())
 }
 
-fn delete_map<M: MapCore, K: AsBytes>(map: &M, key: &K) -> Result<()> {
-    let key = unsafe { key.as_bytes() };
+// fn delete_map<M: MapCore, K: AsBytes>(map: &M, key: &K) -> Result<()> {
+//     let key = unsafe { key.as_bytes() };
 
-    map.delete(&key)?;
-    Ok(())
-}
+//     map.delete(&key)?;
+//     Ok(())
+// }
 
 fn init_dataplane(config: Config, rodata: &mut rodata) -> Result<()> {
     let compiler = Compiler::new(config.clone());
@@ -148,7 +150,7 @@ fn init_dataplane(config: Config, rodata: &mut rodata) -> Result<()> {
         bail!("Parsing too many patterns.")
     }
 
-    info!("Injecting HTTP parser with {} states", h1.num_states());
+    info!("Injecting HTTP/1.1 parser with {} states", h1.num_states());
     for (from, to, input, action) in h1.iter_transitions() {
         let s = *from as usize;
         let t = new_h1_transition(*to, *action, rodata);
@@ -167,7 +169,7 @@ fn init_dataplane(config: Config, rodata: &mut rodata) -> Result<()> {
         bail!("Parsing too many patterns.")
     }
 
-    info!("Injecting HTTP parser with {} states", h2.num_states());
+    info!("Injecting HTTP/2 parser with {} states", h2.num_states());
     for (from, to, input, action) in h2.iter_transitions() {
         let s = *from as usize;
         let t = new_h2_transition(*to, *action, rodata);
@@ -198,7 +200,7 @@ fn print(level: PrintLevel, msg: String) {
 
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
-    pub tls_addr: Option<SocketAddr>,
+    pub tls: Option<TlsConfig>,
     pub config: Config,
 
     skel: ProxySkel<'obj>,
@@ -214,7 +216,7 @@ unsafe impl<'obj> Sync for Proxy<'obj> {}
 impl<'obj> Proxy<'obj> {
     pub fn attach<A: ToSocketAddrs>(
         address: A,
-        tls_addr: Option<A>,
+        tls: Option<TlsConfig>,
         config: Config,
         open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>,
     ) -> Result<Self> {
@@ -226,12 +228,7 @@ impl<'obj> Proxy<'obj> {
             .next()
             .expect("Failed to parse address");
 
-        let tls_addr = tls_addr.map(|addr| {
-            addr.to_socket_addrs()
-                .expect("Failed to parse TLS address")
-                .next()
-                .expect("Failed to parse TLS address")
-        });
+        let tls_addr = tls.clone().map(|c| c.socket);
 
         let skel_builder = ProxySkelBuilder::default();
         let mut open_skel = skel_builder.open(open_obj)?;
@@ -277,20 +274,20 @@ impl<'obj> Proxy<'obj> {
             .into_raw_fd();
         let sockops = skel.progs.monitor_sockets.attach_cgroup(cgroup_fd)?;
 
-        // let crypto = &skel.progs.crypto_setup;
-        // let input = libbpf_rs::ProgramInput::default();
+        let crypto = &skel.progs.crypto_setup;
+        let input = libbpf_rs::ProgramInput::default();
 
-        // let res = crypto.test_run(input)?;
-        // if res.return_value != 0 {
-        //     let err = std::io::Error::from_raw_os_error(res.return_value as i32);
-        //     bail!("Crypto setup failed {:?}", err);
-        // }
+        let res = crypto.test_run(input)?;
+        if res.return_value != 0 {
+            let err = std::io::Error::from_raw_os_error(res.return_value as i32);
+            bail!("Crypto setup failed {:?}", err);
+        }
 
-        // debug!("Crypto setup successful");
+        debug!("Crypto setup successful");
 
         Ok(Self {
             address,
-            tls_addr,
+            tls,
             config,
             skel,
             sockops,
@@ -299,12 +296,18 @@ impl<'obj> Proxy<'obj> {
     }
 
     fn new_tls_acceptor(&self) -> Result<TlsAcceptor> {
-        let mut subject_alt_names = vec![self.address.ip().to_string()];
-        if self.address.ip().is_loopback() {
-            subject_alt_names.push("localhost".to_string());
-        }
+        let Some(ref tls) = self.tls else {
+            bail!("TLS configuration not provided");
+        };
 
-        let ckey = generate_simple_self_signed(subject_alt_names)?;
+        let certs = CertificateDer::pem_file_iter(&tls.cert)
+            .context("failed to read PEM from certificate chain file")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("invalid PEM-encoded certificate")?;
+
+        let cert = certs.first().context("no certificate found")?;
+        let key = PrivateKeyDer::from_pem_file(&tls.key)
+            .context("failed to read PEM from private key file")?;
 
         let cipher_suite = KtlsCipherSuite {
             version: KtlsVersion::TLS12,
@@ -320,11 +323,7 @@ impl<'obj> Proxy<'obj> {
         let mut server_config = ServerConfig::builder_with_provider(Arc::new(provider))
             .with_protocol_versions(&[cipher_suite.version.as_supported_version()])?
             .with_no_client_auth()
-            .with_single_cert(
-                vec![ckey.cert.der().clone()],
-                rustls::pki_types::PrivatePkcs8KeyDer::from(ckey.signing_key.serialize_der())
-                    .into(),
-            )?;
+            .with_single_cert(vec![cert.clone()], key)?;
         server_config.enable_secret_extraction = true;
         server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
@@ -362,9 +361,9 @@ impl<'obj> Proxy<'obj> {
             )?;
         }
 
-        if let Some(tls) = self.config.tls {
-            trace!("Adding pqueue for {}", tls);
-            let tls_addr = addr_key::try_from(&tls)?;
+        if let Some(ref tls) = self.config.tls {
+            trace!("Adding pqueue for {}", tls.socket);
+            let tls_addr = addr_key::try_from(&tls.socket)?;
             add_pqueue_to_fib(
                 &fib,
                 fib_key {
@@ -417,11 +416,11 @@ impl<'obj> Proxy<'obj> {
         let plain_listener = listen(plain_addr)?;
         info!("Listening on {}", plain_addr);
 
-        let tls: Option<(TcpListener, TlsAcceptor)> = if let Some(tls_addr) = self.tls_addr {
-            let tls_listener = listen(tls_addr)?;
+        let tls: Option<(TcpListener, TlsAcceptor)> = if let Some(ref tls) = self.tls {
+            let tls_listener = listen(tls.socket)?;
             let tls_acceptor = self.new_tls_acceptor()?;
 
-            info!("Listening for TLS on {}", tls_addr);
+            info!("Listening for TLS on {}", tls.socket);
 
             Some((tls_listener, tls_acceptor))
         } else {

@@ -16,6 +16,7 @@ export const options = {
         },
     },
     discardResponseBodies: true,
+    insecureSkipTLSVerify: true,
 };
 
 export default () => {

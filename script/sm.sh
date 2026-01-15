@@ -45,6 +45,9 @@ function health_check {
 }
 
 function launch_proxy {
+    PWD=$(pwd)
+    cd ${ROOT}/..
+
     if [[ "${PROXY}" == "beeline" ]]; then
         BEELINE_BIN=${ROOT}/../target/release/beeline
         BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
@@ -93,6 +96,8 @@ function launch_proxy {
             sleep 3
         fi
     fi
+
+    cd ${PWD}
 }
 
 function stop_services {

@@ -387,6 +387,11 @@ static __always_inline enum pr_action _validate_jwt_signature(char *claims, u32 
     return PR_PASS;
 }
 
+bpf_profile_def(mutate);
+bpf_profile_def(mutate_prelinearize);
+bpf_profile_def(mutate_postlinearize);
+bpf_profile_def(mutate_alloc);
+bpf_profile_def(mutate_copy);
 static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m, u8 *str, u16 str_len, bool is_h2) {
     bpf_profile_start(mutate);
 
@@ -451,11 +456,6 @@ static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m
     return 0;
 }
 
-bpf_profile_def(mutate);
-bpf_profile_def(mutate_prelinearize);
-bpf_profile_def(mutate_postlinearize);
-bpf_profile_def(mutate_alloc);
-bpf_profile_def(mutate_copy);
 static __always_inline int _mutate(void *msg __arg_ctx, struct hdr_match m, u8 *str, u16 str_len, bool is_skb, bool is_h2) {
     if (is_skb) {
         return -1;
@@ -1026,6 +1026,8 @@ static __always_inline int _parse_h1_from(const char *data, const char *data_end
             continue;
         }
 
+        bpf_log("Processing character '%c' at position %d", c, i);
+
         u16 a = 0;
         _next_h1(*s, c, s, &a);
 
@@ -1037,13 +1039,13 @@ static __always_inline int _parse_h1_from(const char *data, const char *data_end
         // but it makes the verifier happy when we don't use else if here
         if ((a & a_start_capture) != 0) {
             u16 cid = a & a_id_mask & MAX_MATCH_MASK;
-            // bpf_log("Start capture range (%d, ?) in [%d, ...]", cid, i);
+            bpf_log("Start capture range (%d, ?) in [%d, ...]", cid, i);
             cidx[cid] = i;
         }
         if ((a & a_end_capture) != 0) {
             u16 cid = ((a & a_id_1_mask) >> 6) & MAX_MATCH_MASK;
             u16 rid = a & a_id_2_mask & MAX_MATCH_MASK;
-            // bpf_log("End capture range (%d, %d) in [%d, %d]", cid, rid, cidx[cid], i - cidx[cid]);
+            bpf_log("End capture range (%d, %d) in [%d, %d]", cid, rid, cidx[cid], i - cidx[cid]);
 
             pres->ms[rid] = (struct hdr_match) {
                 .in_msg = true,
@@ -1054,7 +1056,7 @@ static __always_inline int _parse_h1_from(const char *data, const char *data_end
             cidx[cid] = i;
         }
         if ((a & a_done) != 0) {
-            // bpf_log("Done parsing at %d", i);
+            bpf_log("Done parsing at %d", i);
             return i+1;
         }
     }
@@ -1573,33 +1575,33 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
 u32 key_len = 16;
 u8 key[16] = "testtest12345678";
 
-// SEC("syscall")
-// int crypto_setup() {
-//     struct bpf_crypto_ctx *cctx;
-//     struct bpf_crypto_params params = {
-//         .type = "shash",
-//         .algo = "hmac(sha256)",
-//         .key_len = key_len,
-//         .authsize = 0,
-//     };
-//     int err = -EINVAL;
-//     if (!key_len || key_len > 256) {
-//         return err;
-//     }
+SEC("syscall")
+int crypto_setup() {
+    struct bpf_crypto_ctx *cctx;
+    struct bpf_crypto_params params = {
+        .type = "shash",
+        .algo = "hmac(sha256)",
+        .key_len = key_len,
+        .authsize = 0,
+    };
+    int err = -EINVAL;
+    if (!key_len || key_len > 256) {
+        return err;
+    }
 
-//     __builtin_memcpy(&params.key, key, 16);
-//     cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
+    __builtin_memcpy(&params.key, key, 16);
+    cctx = bpf_crypto_ctx_create(&params, sizeof(params), &err);
 
-//     if (!cctx) {
-//         return -err;
-//     }
+    if (!cctx) {
+        return -err;
+    }
 
-//     err = _crypto_ctx_insert(cctx);
-//     if (err && err != -EEXIST)
-//         return -err;
+    err = _crypto_ctx_insert(cctx);
+    if (err && err != -EEXIST)
+        return -err;
 
-//     return 0;
-// }
+    return 0;
+}
 
 SEC("syscall")
 int print_profile_stats() {

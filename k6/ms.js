@@ -12,10 +12,10 @@ export const options = {
     scenarios: {
         compose_review: {
             executor: "ramping-arrival-rate",
-            preAllocatedVUs: 1000,
+            preAllocatedVUs: 200,
             stages: [
-                { target: 5000, duration: "100s" },
-                { target: 5000, duration: "5s" },
+                { target: 4000, duration: "100s" },
+                { target: 4000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
@@ -34,7 +34,6 @@ export default () => {
     };
     const params = {
         headers: headers,
-        timeout: "3s",
     };
 
     const res = http.post(`${dest}/wrk2-api/review/compose`, body, params);

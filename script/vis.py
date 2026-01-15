@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 
-import json
-import glob
 import argparse
-import re
+import glob
+import json
 import os
+import re
+
 import numpy as np
-import seaborn as sns
 import pandas as pd
+import seaborn as sns
 import tqdm
 
 # Apply the default theme
@@ -29,12 +30,15 @@ cpu = subparsers.add_parser("cpu")
 rate = subparsers.add_parser("rate")
 
 dissect = subparsers.add_parser("dissect")
-dissect_complexity = subparsers.add_parser("dissect_complexity")
-dissect_complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
-dissect_complexity.add_argument("-x", "--proxy", required=True, help="The proxy to visualize")
+dissect.add_argument(
+    "-p", "--policy", type=int, required=True, help="The policy to visualize"
+)
+dissect.add_argument("-x", "--proxy", required=True, help="The proxy to visualize")
 
 complexity = subparsers.add_parser("complexity")
-complexity.add_argument("-p", "--policy", type=int, required=True, help="The policy to visualize")
+complexity.add_argument(
+    "-p", "--policy", type=int, required=True, help="The policy to visualize"
+)
 
 lattput = subparsers.add_parser("lattput")
 
@@ -79,14 +83,16 @@ def _load_k6_summaries(paths):
                 print(f"Skipping {p}: {ratio:.2%}")
                 continue
 
-            for (metric, aggs) in data.items():
-                rows.append({
-                    "proxy": proxy,
-                    "metric_name": metric,
-                    "epoch": epoch,
-                    "file": p,
-                    **aggs
-                })
+            for metric, aggs in data.items():
+                rows.append(
+                    {
+                        "proxy": proxy,
+                        "metric_name": metric,
+                        "epoch": epoch,
+                        "file": p,
+                        **aggs,
+                    }
+                )
 
     df = pd.DataFrame.from_dict(rows)
     return df
@@ -102,6 +108,11 @@ def _load_k6_data(paths, max_epoch=30, min_duration=100):
 
         try:
             df = pd.read_csv(p, low_memory=False)
+            num_failed_res = (df["expected_response"] == False).sum()
+            if num_failed_res / len(df) > 0.1:
+                print(f"Skipping {p}: {num_failed_res / len(df)} failed responses")
+                continue
+
             df["proxy"] = proxy
             df["epoch"] = epoch
             # df["file"] = os.path.basename(p),
@@ -154,7 +165,16 @@ def _load_rt_data(paths):
             total = int(match.group(1))
             count = int(match.group(2))
 
-            df = pd.DataFrame({"proxy": [proxy], "file": [os.path.basename(p)], "total": [total], "count": [count], "func": [func], "epoch": [epoch]})
+            df = pd.DataFrame(
+                {
+                    "proxy": [proxy],
+                    "file": [os.path.basename(p)],
+                    "total": [total],
+                    "count": [count],
+                    "func": [func],
+                    "epoch": [epoch],
+                }
+            )
             dfs.append(df)
 
     return pd.concat(dfs).reset_index(drop=True)
@@ -193,7 +213,9 @@ def _parse_time_range(time_range, min=0, max=2**100):
 
 def _get_file_paths(name, filename_pattern="*.json"):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    return glob.glob(os.path.join(dir_path, "..", "res", "runs", name, filename_pattern))
+    return glob.glob(
+        os.path.join(dir_path, "..", "res", "runs", name, filename_pattern)
+    )
 
 
 def _tex_style_name(proxy):
@@ -208,8 +230,8 @@ def cdf_graph(name, time_range):
     df = _load_k6_data(paths)
     df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
 
-    df = df[df["timestamp"] < 101] # experiment is only 100s long
-    df = df[df["metric_value"] < 3000] # we have a timeout of 3s
+    df = df[df["timestamp"] < 101]  # experiment is only 100s long
+    df = df[df["metric_value"] < 3000]  # we have a timeout of 3s
 
     num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
     print("Number of epochs per proxy:")
@@ -240,17 +262,20 @@ def cdf_graph(name, time_range):
     print(f"p99 beeline: {ps_beeline[99]} envoy: {ps_envoy[99]} l4fp: {ps_l4fp[99]}")
 
     for i, proxy in enumerate(order):
-        style = _tex_style_name(proxy) # predefined in latex
+        style = _tex_style_name(proxy)  # predefined in latex
         (xs, ys) = _percentiles(proxy)
 
-        coordinates = [(x, y/100.0) for x, y in zip(xs, ys)]
+        coordinates = [(x, y / 100.0) for x, y in zip(xs, ys)]
         coordinates = sorted(coordinates)
         coordinates = "\n".join([f"({x}, {y})" for x, y in coordinates])
         plots.append((style, coordinates))
 
-    plots = [f"""\\addplot[{style}] coordinates {{
+    plots = [
+        f"""\\addplot[{style}] coordinates {{
         {coordinates}
-    }};""" for (style, coordinates) in plots]
+    }};"""
+        for (style, coordinates) in plots
+    ]
     plots = "\n".join(plots)
     print(plots)
 
@@ -264,17 +289,24 @@ def stats_graph():
 
     filters = data["filters"]
     df = pd.DataFrame(filters)
-    df["supported"] = df["name"].isin(["router", "cors", "ext_authz", "jwt", "compressor"])
+    df["supported"] = df["name"].isin(
+        ["router", "cors", "ext_authz", "jwt", "compressor"]
+    )
 
     print(f"Repos: {len(df['repo_url'].unique())}")
     print(f"Files: {len(df['download_url'].unique())}")
     print(f"Using gRPC: {df['name'].str.contains('grpc').sum()}")
     print(f"Using lua or wasm: {df['name'].isin(['lua', 'wasm']).sum()}")
     print(f"Configs: {data['filter_chains']}")
-    print("Fully compatible configs:", df.groupby("download_url")["supported"].all().values.sum())
+    print(
+        "Fully compatible configs:",
+        df.groupby("download_url")["supported"].all().values.sum(),
+    )
 
     df = df.groupby("name").size().reset_index(name="count").set_index("name")
-    df["supported"] = df.index.isin(["router", "cors", "ext_authz", "jwt", "compressor", "dynamic_forward_proxy"])
+    df["supported"] = df.index.isin(
+        ["router", "cors", "ext_authz", "jwt", "compressor", "dynamic_forward_proxy"]
+    )
 
     names = df.index.tolist()
     names[names.index("http1bridge")] = "grpc_http1"
@@ -287,8 +319,12 @@ def stats_graph():
     df = df.sort_values(by="count", ascending=False).head(10).reset_index(drop=True)
 
     cnt = len(df) + 1
+
     def _coords(df):
-        coords = [f"({count: .1f},{cnt-idx-1})" for (idx, count) in zip(df.index, df["count"])]
+        coords = [
+            f"({count: .1f},{cnt - idx - 1})"
+            for (idx, count) in zip(df.index, df["count"])
+        ]
 
         return coords
 
@@ -318,7 +354,7 @@ def cpu_graph(name):
     paths = _get_file_paths(name, "*full.csv")
     if len(paths) > 0:
         df = _load_k6_data(paths)
-        epochs = df.groupby('proxy')['epoch'].unique()
+        epochs = df.groupby("proxy")["epoch"].unique()
 
         paths = []
         for proxy in epochs.index:
@@ -332,7 +368,11 @@ def cpu_graph(name):
     df = df.round({"timestamp": 0, "CPUPerc": 3})
 
     min_ts = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
-    df = df.groupby(by=["proxy", "epoch", "timestamp"]).agg({"CPUPerc": "sum"}).reset_index()
+    df = (
+        df.groupby(by=["proxy", "epoch", "timestamp"])
+        .agg({"CPUPerc": "sum"})
+        .reset_index()
+    )
 
     order = _order_proxies(df["proxy"].unique())
 
@@ -345,18 +385,18 @@ def cpu_graph(name):
     df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "mean"}).reset_index()
 
     def _usage(proxy, start=None, end=None):
-        mask = (df["proxy"] == proxy)
+        mask = df["proxy"] == proxy
         if start is not None:
-            mask &= (df["timestamp"] >= start)
+            mask &= df["timestamp"] >= start
         if end is not None:
-            mask &= (df["timestamp"] <= end)
+            mask &= df["timestamp"] <= end
 
         data = df[mask]
         return data["timestamp"], data["CPUPerc"]
 
     plots = []
     for i, proxy in enumerate(order):
-        style = _tex_style_name(proxy) # predefined in latex
+        style = _tex_style_name(proxy)  # predefined in latex
         xs, ys = _usage(proxy)
 
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
@@ -404,7 +444,7 @@ def rate_graph(name):
 
     plots = []
     for i, proxy in enumerate(order):
-        style = _tex_style_name(proxy) # predefined in latex
+        style = _tex_style_name(proxy)  # predefined in latex
 
         xs, ys = _rate(proxy)
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
@@ -421,7 +461,10 @@ def rate_graph(name):
 
 
 def _load_dissect_df(name):
-    avg_req_latency = lambda df, proxy: df[(df["proxy"] == proxy) & (df["metric_name"] == "http_req_duration{expected_response:true}")]["avg"].mean()
+    avg_req_latency = lambda df, proxy: df[
+        (df["proxy"] == proxy)
+        & (df["metric_name"] == "http_req_duration{expected_response:true}")
+    ]["avg"].mean()
 
     paths = _get_file_paths(name, "*k6*.json")
     if len(paths) == 0:
@@ -435,7 +478,9 @@ def _load_dissect_df(name):
     envoy = avg_req_latency(k6, "envoy")
     beeline = avg_req_latency(k6, "beeline")
 
-    iters = k6[k6["metric_name"] == "iterations"].set_index("proxy")["count"].rename("reqs")
+    iters = (
+        k6[k6["metric_name"] == "iterations"].set_index("proxy")["count"].rename("reqs")
+    )
 
     # we get the IPC, parsing etc overhead for every single request
     paths = _get_file_paths(name, "*rt*.log")
@@ -469,16 +514,27 @@ def _load_dissect_df(name):
     # print(f"beeline: {beeline_comp}, envoy: {envoy_comp}, lf4p: {l4fp_comp}")
 
     # the remainder of the request duration is unaccounted for
-    df.loc[("envoy", "unaccounted"), "mean"] = envoy - df.loc[("envoy", slice(None)), "mean"].sum()
-    df.loc[("envoy_l4fp", "unaccounted"), "mean"] = l4fp - df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
-    df.loc[("beeline", "unaccounted"), "mean"] = beeline - df.loc[("beeline", slice(None)), "mean"].sum()
+    df.loc[("envoy", "unaccounted"), "mean"] = (
+        envoy - df.loc[("envoy", slice(None)), "mean"].sum()
+    )
+    df.loc[("envoy_l4fp", "unaccounted"), "mean"] = (
+        l4fp - df.loc[("envoy_l4fp", slice(None)), "mean"].sum()
+    )
+    df.loc[("beeline", "unaccounted"), "mean"] = (
+        beeline - df.loc[("beeline", slice(None)), "mean"].sum()
+    )
 
     # assert 0 <= df.loc[("envoy", "unaccounted"), "mean"], f"envoy unaccounted: {df.loc[('envoy', 'unaccounted'), 'mean']}"
     # assert 0 <= df.loc[("envoy_l4fp", "unaccounted"), "mean"], f"envoy_l4fp unaccounted: {df.loc[('envoy_l4fp', 'unaccounted'), 'mean']}"
     # assert 0 <= df.loc[("beeline", "unaccounted"), "mean"], f"beeline unaccounted: {df.loc[('beeline', 'unaccounted'), 'mean']}"
 
     # unaccounted is mostly the overhead of the uprobes, removing it from parsing
-    rename = {"user": "Processing", "parse": "Parsing", "ipc": "IPC", "unaccounted": "Other"}
+    rename = {
+        "user": "Processing",
+        "parse": "Parsing",
+        "ipc": "IPC",
+        "unaccounted": "Other",
+    }
     df = df.rename(index=rename, level="func").reset_index()
     df = df.groupby(by=["proxy", "func"]).agg({"mean": "sum"})
 
@@ -497,12 +553,16 @@ def dissect_graph(name):
         for i, p in enumerate(order):
             if (p, f) in df.index:
                 v = df.loc[(p, f), "mean"]
-                coords.append(f"({i+1}, {v})")
+                coords.append(f"({i + 1}, {v})")
             else:
-                coords.append(f"({i+1}, 0)")
+                coords.append(f"({i + 1}, 0)")
 
         coords = " ".join(coords)
-        style = "pattern=north west lines, draw=uchu-gray-5, pattern color=uchu-gray-5" if f == "Other" else ""
+        style = (
+            "pattern=north west lines, draw=uchu-gray-5, pattern color=uchu-gray-5"
+            if f == "Other"
+            else ""
+        )
         plots.append(f"\\addplot+[ybar, {style}] plot coordinates {{{coords}}};")
 
     plots = "\n".join(plots)
@@ -517,7 +577,7 @@ def _load_dissect_complexity_df(name, policy):
     for p in paths:
         name = os.path.basename(p)
         args = [s for s in name.split("-")[1:]]
-        args = {args[i]: int(args[i+1]) for i in range(0, len(args), 2)}
+        args = {args[i]: int(args[i + 1]) for i in range(0, len(args), 2)}
         comp = args["n1"] * args["m1"]
 
         try:
@@ -545,19 +605,23 @@ def dissect_complexity_graph(name, policy, proxy):
         funcs[0]: "uchu-pink-6",
         funcs[1]: "uchu-red-6",
         funcs[2]: "uchu-purple-6",
-        funcs[3]: "uchu-gray-6"
+        funcs[3]: "uchu-gray-6",
     }
     fill_style = {
         funcs[0]: "uchu-pink-1",
         funcs[1]: "uchu-red-1",
         funcs[2]: "uchu-purple-1",
-        funcs[3]: "pattern=north west lines, draw=uchu-gray-6, pattern color=uchu-gray-6"
+        funcs[
+            3
+        ]: "pattern=north west lines, draw=uchu-gray-6, pattern color=uchu-gray-6",
     }
     stack = {c: 0.0 for c in complexities}
     plots = []
 
     max_complexity = max(complexities)
-    plots.append(f"\\path[name path=axis] (axis cs:0,0) -- (axis cs:{max_complexity},0);")
+    plots.append(
+        f"\\path[name path=axis] (axis cs:0,0) -- (axis cs:{max_complexity},0);"
+    )
 
     for idx, f in enumerate(funcs):
         coords = []
@@ -569,9 +633,11 @@ def dissect_complexity_graph(name, policy, proxy):
                 coords.append(f"({c}, 0)")
 
         coords = " ".join(coords)
-        pf = funcs[idx-1] if idx > 0 else "axis"
+        pf = funcs[idx - 1] if idx > 0 else "axis"
 
-        plots.append(f"\\addplot[name path={f}, {line_style[f]}] coordinates {{{coords}}};")
+        plots.append(
+            f"\\addplot[name path={f}, {line_style[f]}] coordinates {{{coords}}};"
+        )
         plots.append(f"\\addplot[{fill_style[f]}] fill between[of = {f} and {pf}];")
 
     plots = "\n".join(plots)
@@ -585,7 +651,7 @@ def _load_complexity_df(name, policy, metric, agg):
         folder = os.path.dirname(p)
         name = os.path.basename(folder)
         args = [s for s in name.split("-")[1:]]
-        args = {args[i]: int(args[i+1]) for i in range(0, len(args), 2)}
+        args = {args[i]: int(args[i + 1]) for i in range(0, len(args), 2)}
 
         df = _load_k6_summaries([p])
         df["policy"] = policy
@@ -596,7 +662,9 @@ def _load_complexity_df(name, policy, metric, agg):
     df = pd.concat(dfs)
     df = df[df["metric_name"] == metric]
 
-    num_comps = df.groupby(["proxy", "policy", "complexity"]).size().reset_index(name="count")
+    num_comps = (
+        df.groupby(["proxy", "policy", "complexity"]).size().reset_index(name="count")
+    )
     print(num_comps.to_string())
 
     df = df.groupby(["proxy", "policy", "complexity"]).agg({agg: "mean"})
@@ -633,8 +701,8 @@ def lattput_graph(name):
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
 
-    df = df[df["timestamp"] < 101] # experiment is only 100s long
-    df = df[df["metric_value"] < 3000] # we have a timeout of 3s
+    df = df[df["timestamp"] < 101]  # experiment is only 100s long
+    df = df[df["metric_value"] < 3000]  # we have a timeout of 3s
 
     num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
     print("Number of epochs per proxy:")
@@ -642,10 +710,9 @@ def lattput_graph(name):
 
     grouped = df.groupby(["proxy", "timestamp"])
 
-    df = pd.DataFrame({
-        "http_req_duration": grouped["metric_value"].mean(),
-        "rate": grouped.size()
-    }).reset_index()
+    df = pd.DataFrame(
+        {"http_req_duration": grouped["metric_value"].mean(), "rate": grouped.size()}
+    ).reset_index()
     num_epochs = num_epochs.reset_index()
     num_epochs.columns = ["proxy", "num_epochs"]
 
@@ -657,7 +724,8 @@ def lattput_graph(name):
 
     plots = []
     for i, proxy in enumerate(order):
-        style = _tex_style_name(proxy) # predefined in latex
+        style = _tex_style_name(proxy)  # predefined in latex
+        style = _tex_style_name(proxy)  # predefined in latex
 
         pdf = df[df["proxy"] == proxy]
         print(pdf.to_string())

@@ -1,4 +1,3 @@
-import { dest } from "./common.js";
 import { check } from "k6";
 import http from "k6/http";
 import {
@@ -13,16 +12,19 @@ export const options = {
     scenarios: {
         compose_post: {
             executor: "ramping-arrival-rate",
-            preAllocatedVUs: 1000,
+            preAllocatedVUs: 200,
             stages: [
-                { target: 5000, duration: "100s" },
-                { target: 5000, duration: "5s" },
+                { target: 4000, duration: "100s" },
+                { target: 4000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
     },
     discardResponseBodies: true,
+    insecureSkipTLSVerify: true,
 };
+
+const dest = __ENV.URL || "https://moonshine:9991";
 
 function randomIntBetweenWithout(min, max, without) {
     while (true) {
@@ -66,7 +68,6 @@ export default () => {
     };
     const params = {
         headers: headers,
-        timeout: "3s",
     };
 
     var body;

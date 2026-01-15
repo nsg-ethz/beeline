@@ -170,22 +170,14 @@ impl Compiler {
                     &Variable::Buffer(name, ty, len) => {
                         let name = sanitize_var_name(name);
                         let code = if ty == "char" {
-                            let mut mask = 1;
-                            loop {
-                                mask = mask << 1;
-                                if (mask - 1) >= len.unwrap() {
-                                    break;
-                                }
-                            }
-                            let mask = mask - 1;
+                            let len = len.unwrap();
 
                             format!(
-                                "m = pres->ms[{idx}];
-                                m.len &= {mask};
+                                "m = pres->ms[{i}];
+                                m.len = (m.len > {len}) ? {len} : m.len;
                                 bpf_probe_read_kernel(ctx->{name}, m.len, data + m.idx);
                                 ctx->{name}_range = m;
                                 bpf_log(\"{name} inited to %s\", ctx->{name});",
-                                idx=i, name=name, mask=mask
                             )
                         } else if ty == "u32" {
                             format!(
@@ -499,8 +491,8 @@ impl Compiler {
                         huffman::encode(path.as_bytes(), &mut path_encoded).unwrap();
                         let (path_encoded, len_encoded) = c_array(&path_encoded);
 
-                        format!("(bpf_strncmp(ctx->path, {len}, \"{path} \") == 0) || (__builtin_memcmp(ctx->path, {path_encoded}, {len_encoded}) == 0)",
-                            len=path.len() + 1,
+                        format!("(bpf_strncmp(ctx->path, {len}, \"{path}\") == 0) || (__builtin_memcmp(ctx->path, {path_encoded}, {len_encoded}) == 0)",
+                            len=path.len(),
                             path=path,
                             len_encoded=len_encoded,
                             path_encoded=path_encoded
@@ -527,6 +519,7 @@ impl Compiler {
                     "{}if ({} && {}) {{
                     if (route_ds_{}(msg, ctx, ikey, is_skb, is_h2) != PR_PASS) {{
                             bpf_err(\"ERROR: route_{} failed.\");
+                            return PR_DROP;
                         }}
                     }}",
                     else_if, path_condition, header_condition, idx, idx
