@@ -7,10 +7,10 @@ export const options = {
     scenarios: {
         compose_post: {
             executor: "ramping-arrival-rate",
-            preAllocatedVUs: 1000,
+            preAllocatedVUs: 200,
             stages: [
-                { target: 5000, duration: "100s" },
-                { target: 5000, duration: "5s" },
+                { target: 4000, duration: "100s" },
+                { target: 4000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
@@ -19,14 +19,18 @@ export const options = {
 };
 
 export default () => {
-    const params = ["dis", "rate", "price"];
-    var require = params[randomIntBetween(0, params.length - 1)];
+    const args = ["dis", "rate", "price"];
+    var require = args[randomIntBetween(0, args.length - 1)];
 
     const lat = 38.0235 + (randomIntBetween(0, 481) - 240.5) / 1000.0;
     const lon = -122.095 + (randomIntBetween(0, 325) - 157.0) / 1000.0;
 
+    const params = {
+        tags: { name: "recommendations" },
+    };
     const res = http.get(
         `${dest}/recommendations?require=${require}&lat=${lat}&lon=${lon}`,
+        params,
     );
 
     return check(res, {
