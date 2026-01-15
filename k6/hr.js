@@ -19,6 +19,8 @@ export const options = {
     insecureSkipTLSVerify: true,
 };
 
+const dest = __ENV.URL || "https://moonshine:9991";
+
 export default () => {
     const args = ["dis", "rate", "price"];
     var require = args[randomIntBetween(0, args.length - 1)];
