@@ -5,6 +5,7 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use as_bytes::AsBytes;
+use bytes::Bytes;
 use common::{
     config::beeline::Config,
     net::{get_gw_ip, TryIntoRawOctets},
@@ -30,12 +31,13 @@ use std::{
         fd::{AsFd, AsRawFd, IntoRawFd},
         unix::fs::OpenOptionsExt,
     },
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
     signal::unix::{signal, SignalKind},
+    sync::Mutex,
 };
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, trace, warn, Level};
@@ -756,7 +758,7 @@ impl<'obj> Proxy<'obj> {
                 error!("Error handling downstream connection: {:?}", e);
             }
 
-            let mut h1_upstream_pool = h1_upstream_pool.lock().unwrap();
+            let mut h1_upstream_pool = h1_upstream_pool.lock().await;
             h1_upstream_pool.extend(upstreams.into_iter());
         });
 
@@ -773,15 +775,24 @@ impl<'obj> Proxy<'obj> {
     where
         S: AsyncReadExt + AsyncWriteExt + std::marker::Unpin + std::marker::Send + 'static,
     {
-        let utrn_wait_list_id = self.skel.maps.utrn_wait_list.info()?.info.id;
-        let sock_map_wait_list_id = self.skel.maps.sock_map_wait_list.info()?.info.id;
-        let h2_conns_id = self.skel.maps.h2_conns.info()?.info.id;
-        let h2_streams_id = self.skel.maps.h2_streams.info()?.info.id;
-        let fib_downstream_id = self.skel.maps.fib_downstream.info()?.info.id;
+        let utrn_wait_list = Arc::new(Mutex::new(self.get_utrn_wait_list()?));
+        let sock_map_wait_list = Arc::new(Mutex::new(self.get_sock_map_wait_list()?));
+        let h2_conns = Arc::new(Mutex::new(self.get_h2_conns()?));
+        let h2_streams = Arc::new(Mutex::new(self.get_h2_streams()?));
+        let fib_downstream = Arc::new(Mutex::new(self.get_downstream_fib()?));
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
+        // beeline does not support flow control
+        let max_window_size = (2 << 30) - 1;
+
         tokio::spawn(async move {
-            let mut downstream_conn = server::handshake(downstream).await.unwrap();
+            let mut downstream_conn = server::Builder::new()
+                .initial_window_size(max_window_size)
+                .initial_connection_window_size(max_window_size)
+                .max_concurrent_streams(1000)
+                .handshake::<_, Bytes>(downstream)
+                .await
+                .unwrap();
 
             while let Some(reqres) = downstream_conn.accept().await {
                 let (request, mut respond) = match reqres {
@@ -792,8 +803,20 @@ impl<'obj> Proxy<'obj> {
                     }
                 };
 
+                let utrn_wait_list = utrn_wait_list.clone();
+                let sock_map_wait_list = sock_map_wait_list.clone();
+                let h2_conns = h2_conns.clone();
+                let h2_streams = h2_streams.clone();
+                let fib_downstream = fib_downstream.clone();
+
                 tokio::spawn(async move {
                     trace!("Received request: {:?} from {:?}", request, ds_remote_addr);
+
+                    let utrn_wait_list = utrn_wait_list.lock().await;
+                    let sock_map_wait_list = sock_map_wait_list.lock().await;
+                    let h2_conns = h2_conns.lock().await;
+                    let h2_streams = h2_streams.lock().await;
+                    let fib_downstream = fib_downstream.lock().await;
 
                     let mut send_error = || {
                         warn!("Sending 500 to {:?}", ds_remote_addr);
@@ -803,28 +826,6 @@ impl<'obj> Proxy<'obj> {
                             .unwrap();
 
                         respond.send_response(response, true).unwrap();
-                    };
-
-                    let Ok(utrn_wait_list) = MapHandle::from_map_id(utrn_wait_list_id) else {
-                        send_error();
-                        return;
-                    };
-                    let Ok(sock_map_wait_list) = MapHandle::from_map_id(sock_map_wait_list_id)
-                    else {
-                        send_error();
-                        return;
-                    };
-                    let Ok(h2_conns) = MapHandle::from_map_id(h2_conns_id) else {
-                        send_error();
-                        return;
-                    };
-                    let Ok(h2_streams) = MapHandle::from_map_id(h2_streams_id) else {
-                        send_error();
-                        return;
-                    };
-                    let Ok(fib_downstream) = MapHandle::from_map_id(fib_downstream_id) else {
-                        send_error();
-                        return;
                     };
 
                     // check if there is a forwarding token in the waiting list
@@ -893,16 +894,16 @@ impl<'obj> Proxy<'obj> {
                     if tls {
                         us_sock_key = us_sock_key.invert();
                     }
-                    update_map(&sock_map_wait_list, &us_sock_key, &(!tls as u32))
+                    update_map(&*sock_map_wait_list, &us_sock_key, &(!tls as u32))
                         .expect("Failed to insert into sock_map_wait_list");
 
                     // flag conn as h2
                     let ds_sock_key =
                         sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
-                    update_map(&h2_conns, &us_sock_key, &1u32)
+                    update_map(&*h2_conns, &us_sock_key, &1u32)
                         .expect("Failed to mark connection as h2");
-                    update_map(&h2_conns, &ds_sock_key, &stream_id)
+                    update_map(&*h2_conns, &ds_sock_key, &stream_id)
                         .expect("Failed to mark connection as h2");
 
                     let ds_stream = data_stream {
@@ -913,23 +914,9 @@ impl<'obj> Proxy<'obj> {
                         conn: us_sock_key.clone(),
                         stream_id: 1,
                     };
-                    update_map(&h2_streams, &ds_stream, &us_stream)
+                    update_map(&*h2_streams, &ds_stream, &us_stream)
                         .expect("Failed to assign h2 streams");
-                    update_map(&h2_streams, &us_stream, &ds_stream)
-                        .expect("Failed to assign h2 streams");
-
-                    // we also have to route control messages
-                    let ds_stream = data_stream {
-                        conn: ds_sock_key.clone(),
-                        stream_id: 0,
-                    };
-                    let us_stream = data_stream {
-                        conn: us_sock_key.clone(),
-                        stream_id: 0,
-                    };
-                    update_map(&h2_streams, &ds_stream, &us_stream)
-                        .expect("Failed to assign h2 streams");
-                    update_map(&h2_streams, &us_stream, &ds_stream)
+                    update_map(&*h2_streams, &us_stream, &ds_stream)
                         .expect("Failed to assign h2 streams");
 
                     debug!("Bound socket to {}", us_local_addr);
@@ -952,10 +939,17 @@ impl<'obj> Proxy<'obj> {
                         us_local_addr, us_remote_addr
                     );
 
-                    update_map(&fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
+                    update_map(&*fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
                         .expect("Failed to insert into FIB");
 
-                    let (client, upstream_conn) = client::handshake(upstream).await.unwrap();
+                    let (client, upstream_conn) = client::Builder::new()
+                        .initial_window_size(max_window_size)
+                        .initial_connection_window_size(max_window_size)
+                        .max_concurrent_streams(1000)
+                        .handshake::<_, Bytes>(upstream)
+                        .await
+                        .unwrap();
+
                     tokio::spawn(async move {
                         if let Err(e) = upstream_conn.await {
                             error!("Error driving HTTP/2 connection: {}", e);
@@ -989,12 +983,18 @@ impl<'obj> Proxy<'obj> {
 
                     trace!("Sent!");
 
+                    drop(utrn_wait_list);
+                    drop(sock_map_wait_list);
+                    drop(h2_conns);
+                    drop(h2_streams);
+                    drop(fib_downstream);
+
                     // we have to wait for the response otherwise the stream gets reset
                     let _ = response.await;
 
-                    trace!("Removing upstream connection from FIB");
-                    delete_map(&fib_downstream, &us_local_addr_key)
-                        .expect("Failed to delete from FIB");
+                    // trace!("Removing upstream connection from FIB");
+                    // delete_map(&*fib_downstream, &us_local_addr_key)
+                    //     .expect("Failed to delete from FIB");
                 });
             }
         });
@@ -1024,6 +1024,16 @@ impl<'obj> Proxy<'obj> {
 
     fn get_sock_map_wait_list(&self) -> Result<MapHandle> {
         let id = self.skel.maps.sock_map_wait_list.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_h2_conns(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.h2_conns.info()?.info.id;
+        Ok(MapHandle::from_map_id(id)?)
+    }
+
+    fn get_h2_streams(&self) -> Result<MapHandle> {
+        let id = self.skel.maps.h2_streams.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
     }
 }
