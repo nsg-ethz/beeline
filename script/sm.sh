@@ -146,6 +146,7 @@ case ${ACTION} in
         sudo chmod -R o+r ${ROOT}/../test/social_network/config-*
         sudo chmod -R o+r ${ROOT}/../test/media_service/config-*
         sudo chmod -R o+r ${ROOT}/../config/envoy/*.yaml
+        sudo chmod -R o+r ${ROOT}/../res/pem/*.pem
 
         launch_proxy
         docker compose -f ${DOCKER_CONFIG} up --wait -d
@@ -172,6 +173,14 @@ case ${ACTION} in
     down)
         CPU_SYSTEM=0-39
 
+        echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
+        echo schedutil | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+        echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
+        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+
         stop_services
 
         if [[ "${PROXY}" == "beeline" ]]; then
@@ -187,14 +196,6 @@ case ${ACTION} in
         fi
 
         docker compose -f ${DOCKER_CONFIG} down
-
-        echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
-        echo schedutil | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-
-        echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
-        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
         ;;
 
 esac

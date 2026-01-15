@@ -593,6 +593,8 @@ services:
         restart: always
         volumes:
             - ../config/envoy/hr.yaml:/etc/envoy/envoy.yaml
+            - ../res/pem/cert.pem:/res/pem/cert.pem
+            - ../res/pem/key.pem:/res/pem/key.pem
 
 volumes:
     geo:

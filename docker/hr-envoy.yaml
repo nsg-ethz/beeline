@@ -524,17 +524,18 @@ services:
     # this will not be used, really
     # it's here to make CPU measurements fair
     sidecar:
-        image: envoyproxy/envoy:v1.34-latest
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile.echo
+        entrypoint: "echo -a 0.0.0.0:8080"
         hostname: sidecar
         cgroup_parent: beeline.slice
-        extra_hosts:
-            - "beeline:host-gateway"
+        ports:
+            - 9991:9991
         networks:
             default:
                 ipv4_address: 172.18.0.40
         restart: always
-        volumes:
-            - ../config/envoy/hr.yaml:/etc/envoy/envoy.yaml
 
 volumes:
     geo:
