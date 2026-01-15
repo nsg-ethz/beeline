@@ -24,8 +24,7 @@ static_resources:
                                     require_tls: EXTERNAL_ONLY
                                     routes:
                                         - match:
-                                              path:
-                                                  prefix: "/recommendations"
+                                              prefix: "/recommendations"
                                           route:
                                               cluster: frontend
                 transport_socket:
