@@ -68,6 +68,7 @@ export default () => {
     };
     const params = {
         headers: headers,
+        tags: { name: "compose" },
     };
 
     var body;

@@ -66,7 +66,7 @@ export default () => {
     };
     const params = {
         headers: headers,
-        timeout: "3s",
+        tags: { name: "compose" },
     };
 
     var body;

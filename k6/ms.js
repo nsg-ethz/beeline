@@ -34,6 +34,7 @@ export default () => {
     };
     const params = {
         headers: headers,
+        tags: { name: "compose" },
     };
 
     const res = http.post(`${dest}/wrk2-api/review/compose`, body, params);
