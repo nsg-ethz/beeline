@@ -4,7 +4,7 @@ import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
 export const options = {
     scenarios: {
-        compose_post: {
+        recommendations: {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 200,
             stages: [

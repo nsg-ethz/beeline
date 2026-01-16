@@ -53,7 +53,7 @@ function launch_proxy {
         BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
         CONFIG=${BEELINE_CONFIG} BPF_PROFILE=1 cargo b -r -p beeline
 
-        BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG}
+        BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG} > ${SUMMARY_DIR}/${PROXY}-e${EPOCH}.log
         health_check 172.17.0.1:9999
 
         if [[ -z $(pidof beeline) ]]; then
@@ -75,7 +75,7 @@ function launch_proxy {
             sleep 3
         fi
         if [[ "${PROXY}" == envoy* ]]; then
-            docker compose -f ${DOCKER_CONFIG} up sidecar --wait -d
+            docker compose -f ${DOCKER_CONFIG} --progress plain up sidecar --wait -d
             SIDECAR_CONFIG=${ROOT}/../config/envoy/${PROXY_CONFIG}
 
             # envoy is not loaded by docker
@@ -145,11 +145,12 @@ case ${ACTION} in
         # this doesn't seem like a good idea but it works
         sudo chmod -R o+r ${ROOT}/../test/social_network/config-*
         sudo chmod -R o+r ${ROOT}/../test/media_service/config-*
+        sudo chmod -R o+r ${ROOT}/../test/hotel_reservation/config-*
         sudo chmod -R o+r ${ROOT}/../config/envoy/*.yaml
         sudo chmod -R o+r ${ROOT}/../res/pem/*.pem
 
         launch_proxy
-        docker compose -f ${DOCKER_CONFIG} up --wait -d
+        docker compose -f ${DOCKER_CONFIG} --progress plain up --wait -d
 
         # populate dbs with data
         if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
@@ -164,8 +165,10 @@ case ${ACTION} in
         fi
 
         # restart services to reset statistics
-        stop_services
-        launch_proxy
+        if [[ "${DOCKER_CONFIG}" == *sn* || "${DOCKER_CONFIG}" == *ms* ]]; then
+            stop_services
+            launch_proxy
+        fi
 
         sudo -b systemd-run -q --scope -u sm-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
@@ -195,7 +198,7 @@ case ${ACTION} in
             rm ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
         fi
 
-        docker compose -f ${DOCKER_CONFIG} down
+        docker compose -f ${DOCKER_CONFIG} --progress plain down
         ;;
 
 esac

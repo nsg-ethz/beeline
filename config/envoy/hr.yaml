@@ -120,7 +120,6 @@ static_resources:
         - name: frontend
           type: STRICT_DNS
           lb_policy: ROUND_ROBIN
-          http2_protocol_options: {}
           circuit_breakers:
               thresholds:
                   - priority: DEFAULT
