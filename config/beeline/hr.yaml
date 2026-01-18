@@ -50,6 +50,30 @@ routes:
           path: "/recommendations"
       dest: frontend
     - match:
+          path: "/hotels"
+      dest: frontend
+    - match:
+          path: "/search.Search/Nearby"
+      filters:
+          - type: mutate
+            add:
+                x-processed-by: beeline
+      dest: search
+    - match:
+          path: "/reservation.Reservation/MakeReservation"
+      filters:
+          - type: mutate
+            add:
+                x-processed-by: beeline
+      dest: reservation
+    - match:
+          path: "/reservation.Reservation/CheckAvailability"
+      filters:
+          - type: mutate
+            add:
+                x-processed-by: beeline
+      dest: reservation
+    - match:
           path: "/recommendation.Recommendation/GetRecommendations"
       filters:
           - type: mutate
@@ -70,3 +94,6 @@ routes:
             add:
                 x-processed-by: beeline
       dest: user
+    - match:
+          path: "/reservation"
+      dest: frontend

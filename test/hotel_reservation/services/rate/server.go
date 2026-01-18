@@ -101,6 +101,8 @@ func (s *Server) GetRates(ctx context.Context, req *pb.Request) (*pb.Result, err
 		hotelIds = append(hotelIds, hotelID)
 		rateMap[hotelID] = struct{}{}
 	}
+	log.Trace().Msgf("requested hotels: %d", len(hotelIds))
+
 	// first check memcached(get-multi)
 	memSpan, _ := opentracing.StartSpanFromContext(ctx, "memcached_get_multi_rate")
 	memSpan.SetTag("span.kind", "client")
@@ -175,8 +177,14 @@ func (s *Server) GetRates(ctx context.Context, req *pb.Request) (*pb.Result, err
 	}
 	wg.Wait()
 
+	if ratePlans.Len() > 2 {
+		ratePlans = ratePlans[:2]
+	}
+
 	sort.Sort(ratePlans)
 	res.RatePlans = ratePlans
+
+	log.Trace().Msgf("rate plans len: %d", ratePlans.Len())
 
 	return res, nil
 }

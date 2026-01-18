@@ -46,7 +46,7 @@ type Server struct {
 	Port       int
 	Tracer     opentracing.Tracer
 	Registry   *registry.Client
-	Proxy	   string
+	Proxy      string
 }
 
 // Run the server

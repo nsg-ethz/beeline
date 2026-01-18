@@ -22,8 +22,8 @@ import (
 
 const (
 	name             = "srv-geo"
-	maxSearchRadius  = 10
-	maxSearchResults = 5
+	maxSearchRadius  = 5
+	maxSearchResults = 1
 )
 
 // Server implements the geo service

@@ -40,6 +40,7 @@ use tokio::{
     net::{TcpListener, TcpSocket, TcpStream},
     signal::unix::{signal, SignalKind},
     sync::Mutex,
+    time::{interval, Duration},
 };
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, trace, warn, Level};
@@ -118,12 +119,12 @@ fn update_map<M: MapCore, K: AsBytes, V: AsBytes>(map: &M, key: &K, val: &V) -> 
     Ok(())
 }
 
-// fn delete_map<M: MapCore, K: AsBytes>(map: &M, key: &K) -> Result<()> {
-//     let key = unsafe { key.as_bytes() };
+fn delete_map<M: MapCore, K: AsBytes>(map: &M, key: &K) -> Result<()> {
+    let key = unsafe { key.as_bytes() };
 
-//     map.delete(&key)?;
-//     Ok(())
-// }
+    map.delete(&key)?;
+    Ok(())
+}
 
 fn init_dataplane(config: Config, rodata: &mut rodata) -> Result<()> {
     let compiler = Compiler::new(config.clone());
@@ -782,7 +783,7 @@ impl<'obj> Proxy<'obj> {
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
         // beeline does not support flow control
-        let max_window_size = (2 << 30) - 1;
+        let max_window_size = (1 << 31) - 1;
 
         tokio::spawn(async move {
             let mut downstream_conn = server::Builder::new()
@@ -815,7 +816,7 @@ impl<'obj> Proxy<'obj> {
                     let sock_map_wait_list = sock_map_wait_list.lock().await;
                     let h2_conns = h2_conns.lock().await;
                     let h2_streams = h2_streams.lock().await;
-                    let fib_downstream = fib_downstream.lock().await;
+                    let fib_downstream_ = fib_downstream.lock().await;
 
                     let mut send_error = || {
                         warn!("Sending 500 to {:?}", ds_remote_addr);
@@ -824,7 +825,9 @@ impl<'obj> Proxy<'obj> {
                             .body(())
                             .unwrap();
 
-                        respond.send_response(response, true).unwrap();
+                        if let Err(e) = respond.send_response(response, true) {
+                            error!("Failed to send response: {:?}", e);
+                        }
                     };
 
                     // check if there is a forwarding token in the waiting list
@@ -938,7 +941,7 @@ impl<'obj> Proxy<'obj> {
                         us_local_addr, us_remote_addr
                     );
 
-                    update_map(&*fib_downstream, &us_local_addr_key, &ds_remote_addr_key)
+                    update_map(&*fib_downstream_, &us_local_addr_key, &ds_remote_addr_key)
                         .expect("Failed to insert into FIB");
 
                     let (client, upstream_conn) = client::Builder::new()
@@ -970,7 +973,7 @@ impl<'obj> Proxy<'obj> {
                         client.send_request(forward, body.is_end_stream()).unwrap();
 
                     while let Some(Ok(chunk)) = body.data().await {
-                        trace!(
+                        info!(
                             "Sending data frame (len: {}, end of stream: {})",
                             chunk.len(),
                             body.is_end_stream()
@@ -986,14 +989,26 @@ impl<'obj> Proxy<'obj> {
                     drop(sock_map_wait_list);
                     drop(h2_conns);
                     drop(h2_streams);
-                    drop(fib_downstream);
+                    drop(fib_downstream_);
+
+                    let mut ticker = interval(Duration::from_millis(10));
+                    loop {
+                        ticker.tick().await;
+                        if let Err(e) = body
+                            .flow_control()
+                            .release_capacity(max_window_size as usize)
+                        {
+                            error!("Failed to release capacity: {}", e);
+                        }
+                    }
 
                     // we have to wait for the response otherwise the stream gets reset
                     let _ = response.await;
 
-                    // trace!("Removing upstream connection from FIB");
-                    // delete_map(&*fib_downstream, &us_local_addr_key)
-                    //     .expect("Failed to delete from FIB");
+                    trace!("Removing upstream connection from FIB");
+                    let fib_downstream_ = fib_downstream.lock().await;
+                    delete_map(&*fib_downstream_, &us_local_addr_key)
+                        .expect("Failed to delete from FIB");
                 });
             }
         });

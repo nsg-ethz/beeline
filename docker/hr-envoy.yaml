@@ -13,7 +13,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.2
-        cgroup_parent: beeline.slice
         ports:
             - "8300:8300"
             - "8400:8400"
@@ -30,7 +29,6 @@ services:
         configs:
             - source: server_config
               target: /workspace/config.json
-        cgroup_parent: beeline.slice
         hostname: frontend
         networks:
             default:
@@ -68,7 +66,6 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -97,7 +94,6 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -124,7 +120,6 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -152,7 +147,6 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -182,7 +176,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.8
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: hotel_reserv_review_single_node
@@ -209,7 +202,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.10
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: hotel_reserv_attractions_single_node
@@ -234,7 +226,6 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -262,7 +253,6 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -290,7 +280,6 @@ services:
             - GC
             - JAEGER_SAMPLE_RATIO
             - LOG_LEVEL
-        cgroup_parent: beeline.slice
         build:
             context: ../test/hotel_reservation
         image: deathstarbench/hotel-reservation:latest
@@ -318,7 +307,6 @@ services:
             - "6831:6831/udp"
             - "6832:6832/udp"
         restart: always
-        cgroup_parent: beeline.slice
         hostname: jaeger
         networks:
             default:
@@ -334,7 +322,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.15
-        cgroup_parent: beeline.slice
         environment:
             - MEMCACHED_CACHE_SIZE=128
             - MEMCACHED_THREADS=2
@@ -354,7 +341,6 @@ services:
             default:
                 ipv4_address: 172.18.0.16
         container_name: "hotel_reserv_review_mmc"
-        cgroup_parent: beeline.slice
         restart: always
         environment:
             - MEMCACHED_CACHE_SIZE=128
@@ -369,7 +355,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.17
-        cgroup_parent: beeline.slice
         environment:
             - MEMCACHED_CACHE_SIZE=128
             - MEMCACHED_THREADS=2
@@ -388,7 +373,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.18
-        cgroup_parent: beeline.slice
         environment:
             - MEMCACHED_CACHE_SIZE=128
             - MEMCACHED_THREADS=2
@@ -407,7 +391,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.19
-        cgroup_parent: beeline.slice
         volumes:
             - geo:/data/db
         restart: always
@@ -422,7 +405,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.20
-        cgroup_parent: beeline.slice
         volumes:
             - profile:/data/db
         restart: always
@@ -437,7 +419,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.21
-        cgroup_parent: beeline.slice
         volumes:
             - rate:/data/db
         restart: always
@@ -452,7 +433,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.22
-        cgroup_parent: beeline.slice
         volumes:
             - review:/data/db
         restart: always
@@ -463,7 +443,6 @@ services:
 
     mongodb-attractions:
         image: mongo:5.0
-        cgroup_parent: beeline.slice
         hostname: attractions-db
         networks:
             default:
@@ -482,7 +461,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.24
-        cgroup_parent: beeline.slice
         volumes:
             - recommendation:/data/db
         restart: always
@@ -497,7 +475,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.25
-        cgroup_parent: beeline.slice
         volumes:
             - reservation:/data/db
         restart: always
@@ -512,7 +489,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.26
-        cgroup_parent: beeline.slice
         volumes:
             - user:/data/db
         restart: always
@@ -529,7 +505,6 @@ services:
             dockerfile: docker/Dockerfile.echo
         entrypoint: "echo -a 0.0.0.0:8080"
         hostname: sidecar
-        cgroup_parent: beeline.slice
         ports:
             - 9991:9991
         networks:

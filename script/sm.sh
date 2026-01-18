@@ -53,7 +53,7 @@ function launch_proxy {
         BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
         CONFIG=${BEELINE_CONFIG} BPF_PROFILE=1 cargo b -r -p beeline
 
-        BPF_PROFILE=1 sudo -b -E systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${BEELINE_BIN} -c ${BEELINE_CONFIG} > ${SUMMARY_DIR}/${PROXY}-e${EPOCH}.log
+        BPF_PROFILE=1 sudo -b ${BEELINE_BIN} -c ${BEELINE_CONFIG} > ${SUMMARY_DIR}/${PROXY}-e${EPOCH}.log
         health_check 172.17.0.1:9999
 
         if [[ -z $(pidof beeline) ]]; then
@@ -62,14 +62,12 @@ function launch_proxy {
         else
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         fi
-
-        sudo -b -E systemd-run -q --scope -u sm-rt-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
     else
         if [[ "${PROXY}" == *l4fp ]]; then
             PROXY_BIN=${ROOT}/../target/release/l4fp
             cargo b -r -p l4fp
 
-            sudo -b systemd-run -q --scope -u sm-proxy-opt --slice beeline.slice ${PROXY_BIN} -c 172.18.0.0/24
+            sudo -b ${PROXY_BIN} -c 172.18.0.0/24
             echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
 
             sleep 3
@@ -84,7 +82,7 @@ function launch_proxy {
             SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
 
             ENVOY_OUT=${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
-            sudo -b systemd-run -q --scope -u sm-proxy --slice beeline.slice nsenter --net=${SIDECAR_NS} envoy -c ${SIDECAR_CONFIG} > ${ENVOY_OUT} 2>&1
+            sudo -b nsenter --net=${SIDECAR_NS} envoy -c ${SIDECAR_CONFIG} > ${ENVOY_OUT} 2>&1
             echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
 
             sleep 5
@@ -101,6 +99,9 @@ function launch_proxy {
 }
 
 function stop_services {
+    sudo killall envoy > /dev/null 2>&1
+    sudo killall beeline > /dev/null 2>&1
+    sudo killall l4fp > /dev/null 2>&1
     sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
     sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
     sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
@@ -119,9 +120,6 @@ case ${ACTION} in
             exit 1
         fi
 
-        CPU_SYSTEM=0,1,20,21
-        CPU_BEELINE=2-19,22-39
-
         # clean up just to be safe
         CONTAINERS=$(docker ps -a -q)
         if [ ! -z "$CONTAINERS" ]; then
@@ -135,12 +133,6 @@ case ${ACTION} in
 
         echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
         echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-
-        echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
-        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
         # this doesn't seem like a good idea but it works
         sudo chmod -R o+r ${ROOT}/../test/social_network/config-*
@@ -162,6 +154,9 @@ case ${ACTION} in
             cd ${ROOT}/../test/media_service/scripts
             ./register_users.sh
             ./register_movies.sh
+        elif [[ "${DOCKER_CONFIG}" == *hr* ]]; then
+            echo "Waiting until everything is ready..."
+            sleep 5
         fi
 
         # restart services to reset statistics
@@ -169,20 +164,12 @@ case ${ACTION} in
             stop_services
             launch_proxy
         fi
-
-        sudo -b systemd-run -q --scope -u sm-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
 
     down)
-        CPU_SYSTEM=0-39
 
         echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
         echo schedutil | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-
-        echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
-        sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
-        sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
 
         stop_services
 
