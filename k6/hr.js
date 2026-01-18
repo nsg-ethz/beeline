@@ -79,6 +79,7 @@ function searchHotel() {
 
     const params = {
         tags: { name: "search" },
+        timeout: "3s",
     };
     const url = `${dest}/hotels?inDate=${startDate}&outDate=${endDate}&lat=${lat}&lon=${lon}`;
     const res = http.get(url, params);
@@ -89,5 +90,5 @@ function searchHotel() {
 }
 
 export default () => {
-    sear();
+    getRecommendations();
 };
