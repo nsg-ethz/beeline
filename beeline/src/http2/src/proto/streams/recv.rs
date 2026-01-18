@@ -426,7 +426,7 @@ impl Recv {
     }
 
     /// Releases capacity of the connection
-    pub fn release_connection_capacity(&mut self, capacity: WindowSize, task: &mut Option<Waker>) {
+    pub fn release_connection_capacity(&mut self, _capacity: WindowSize, task: &mut Option<Waker>) {
         tracing::trace!(
             "release_connection_capacity; size={}, connection in_flight_data={}",
             capacity,
