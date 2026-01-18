@@ -11,7 +11,7 @@ const randomUrl = randomString(64);
 
 export const options = {
     scenarios: {
-        compose_post: {
+        social_network: {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 1000,
             stages: [
@@ -67,6 +67,7 @@ export default () => {
     const params = {
         headers: headers,
         tags: { name: "compose" },
+        timeout: "3s",
     };
 
     var body;

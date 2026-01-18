@@ -10,12 +10,12 @@ const randomText = randomString(256);
 
 export const options = {
     scenarios: {
-        compose_review: {
+        media_service: {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 200,
             stages: [
-                { target: 4000, duration: "100s" },
-                { target: 4000, duration: "5s" },
+                { target: 5000, duration: "100s" },
+                { target: 5000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
@@ -35,6 +35,7 @@ export default () => {
     const params = {
         headers: headers,
         tags: { name: "compose" },
+        timeout: "3s",
     };
 
     const res = http.post(`${dest}/wrk2-api/review/compose`, body, params);
