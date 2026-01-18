@@ -1,6 +1,13 @@
 socket: 172.17.0.1:9999
+tls:
+    socket: 0.0.0.0:9991
+    cert: res/pem/cert.pem
+    key: res/pem/key.pem
 accelerate: 172.18.0.0/24
 hosts:
+    - name: nginx
+      instances:
+          - 172.18.0.24:8080
     - name: unique-id-service
       instances:
           - 172.18.0.3:9999
@@ -339,6 +346,9 @@ policies:
       destination_port: 9999
       allow: true
 routes:
+    - match:
+          path: "/wrk2-api/review/compose"
+      dest: nginx
     - match:
           path: "/unique-id-service"
       filters:
