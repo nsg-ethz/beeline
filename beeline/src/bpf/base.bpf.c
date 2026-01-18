@@ -49,7 +49,7 @@ unsigned long bpf_xxhash(const u8 *src, u32 src__sz, u64 seed) __ksym;
     #define bpf_profile_print(...)
 #endif
 
-#define MAX_CONNS 32768
+#define MAX_CONNS 64000
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -131,7 +131,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONNS/2);
+    __uint(max_entries, MAX_CONNS);
     __type(key, struct data_stream);
     __type(value, struct addr_key);
 } utrn_wait_list SEC(".maps");
@@ -208,14 +208,14 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, MAX_CONNS/2);
+    __uint(max_entries, MAX_CONNS);
     __type(key, struct sock_key);
     __type(value, u32);
 } h2_conns SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONNS/4);
+    __uint(max_entries, MAX_CONNS);
     __type(key, struct data_stream);
     __type(value, struct data_stream);
 } h2_streams SEC(".maps");
@@ -1446,7 +1446,10 @@ int process_msg(struct sk_msg_md *msg) {
     else if (res == PR_PASS) {
         if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
             bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            res = PR_UTRN;
+
+            // if it's h2, a uturn can only be performed for downstream requests
+            // if it's a response, the user space would not be able to parse it
+            res = (!is_h2 || is_downstream) ? PR_UTRN : PR_DROP;
         }
         else {
             bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
@@ -1456,9 +1459,10 @@ int process_msg(struct sk_msg_md *msg) {
     if (res == PR_UTRN) {
         struct data_stream stream = {
             .conn = ikey,
-            .stream_id = (is_h2) ? stream_id : 0,
+            .stream_id = stream_id,
         };
 
+        res = PR_PASS;
         if (bpf_map_update_elem(&utrn_wait_list, &stream, &ctx->dest, BPF_ANY) < 0) {
             bpf_err("ERROR: Failed to add uturn token to wait list");
         }
@@ -1504,7 +1508,7 @@ int process_msg(struct sk_msg_md *msg) {
         }
     }
 
-    return SK_PASS;
+    return res;
 }
 
 SEC("sockops")

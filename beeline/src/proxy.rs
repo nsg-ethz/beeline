@@ -789,7 +789,8 @@ impl<'obj> Proxy<'obj> {
             let mut downstream_conn = server::Builder::new()
                 .initial_window_size(max_window_size)
                 .initial_connection_window_size(max_window_size)
-                .max_concurrent_streams(1000)
+                .max_concurrent_streams(10000)
+                .max_local_error_reset_streams(None)
                 .handshake::<_, Bytes>(downstream)
                 .await
                 .unwrap();
@@ -948,7 +949,8 @@ impl<'obj> Proxy<'obj> {
                     let (client, upstream_conn) = client::Builder::new()
                         .initial_window_size(max_window_size)
                         .initial_connection_window_size(max_window_size)
-                        .max_concurrent_streams(1000)
+                        .max_concurrent_streams(10000)
+                        .max_local_error_reset_streams(None)
                         .handshake::<_, Bytes>(upstream)
                         .await
                         .unwrap();
