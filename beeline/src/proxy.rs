@@ -973,7 +973,7 @@ impl<'obj> Proxy<'obj> {
                         client.send_request(forward, body.is_end_stream()).unwrap();
 
                     while let Some(Ok(chunk)) = body.data().await {
-                        info!(
+                        trace!(
                             "Sending data frame (len: {}, end of stream: {})",
                             chunk.len(),
                             body.is_end_stream()
@@ -991,16 +991,18 @@ impl<'obj> Proxy<'obj> {
                     drop(h2_streams);
                     drop(fib_downstream_);
 
-                    let mut ticker = interval(Duration::from_millis(10));
-                    loop {
-                        ticker.tick().await;
-                        if let Err(e) = body
-                            .flow_control()
-                            .release_capacity(max_window_size as usize)
-                        {
-                            error!("Failed to release capacity: {}", e);
+                    tokio::spawn(async move {
+                        let mut ticker = interval(Duration::from_millis(10));
+                        loop {
+                            ticker.tick().await;
+                            if let Err(e) = body
+                                .flow_control()
+                                .release_capacity(max_window_size as usize)
+                            {
+                                error!("Failed to release capacity: {}", e);
+                            }
                         }
-                    }
+                    });
 
                     // we have to wait for the response otherwise the stream gets reset
                     let _ = response.await;
