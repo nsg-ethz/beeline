@@ -1355,7 +1355,7 @@ int process_msg(struct sk_msg_md *msg) {
                 }
                 else {
                     if (bpf_msg_redirect_hash(msg, &msg_sock_map, &h2_dest->conn, BPF_F_INGRESS) == SK_DROP) {
-                        bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
+                        bpf_err("ERROR: Failed to redirect h2 msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
                     }
                     else {
                         bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
@@ -1437,10 +1437,40 @@ int process_msg(struct sk_msg_md *msg) {
         post_forward_us_conn(&ikey, &ekey, true);
     }
 
-    // if it's an h2 connection, we have to store the latest
-    // frame destination. this allows us to route future
-    // non-HEADER frames to the correct socket
+    bpf_profile_end(sk_msg);
+
+    if (res == PR_DROP) {
+        bpf_err("No FIB entry found for %pI4:%u. Dropping.", &ctx->dest.ip4, ctx->dest.port);
+        return SK_DROP;
+    }
+    else if (res == PR_PASS) {
+        if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
+            bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            res = PR_UTRN;
+        }
+        else {
+            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+        }
+    }
+
+    if (res == PR_UTRN) {
+        struct data_stream stream = {
+            .conn = ikey,
+            .stream_id = (is_h2) ? stream_id : 0,
+        };
+
+        if (bpf_map_update_elem(&utrn_wait_list, &stream, &ctx->dest, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add uturn token to wait list");
+        }
+        else {
+            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+        }
+    }
+
     if (is_h2 && !sock_key_is_null(&ekey) && is_downstream) {
+        // if it's an h2 connection, we have to store the latest
+        // frame destination. this allows us to route future
+        // non-HEADER frames to the correct socket
         struct data_stream istream = {
             .conn = ikey,
             .stream_id = stream_id,
@@ -1455,48 +1485,22 @@ int process_msg(struct sk_msg_md *msg) {
 
             _set_h2_stream_id(msg, *stream_id);
 
-            struct data_stream estream = {
-                .conn = ekey,
-                .stream_id = *stream_id,
-            };
+            // we only assign streams if redirection worked
+            // the h2 stream id is increased regardless
+            if (res != PR_UTRN) {
+                struct data_stream estream = {
+                    .conn = ekey,
+                    .stream_id = *stream_id,
+                };
 
-            bpf_log("Assign stream [%pI4:%u->%pI4:%u](%d) to [%pI4:%u->%pI4:%u](%d)", &istream.conn.local.ip4, istream.conn.local.port, &istream.conn.remote.ip4, istream.conn.remote.port, istream.stream_id, &estream.conn.local.ip4, estream.conn.local.port, &estream.conn.remote.ip4, estream.conn.remote.port, estream.stream_id);
-            if (bpf_map_update_elem(&h2_streams, &istream, &estream, BPF_ANY) < 0) {
-                bpf_err("ERROR: Failed to update h2 stream mapping");
+                bpf_log("Assign stream [%pI4:%u->%pI4:%u](%d) to [%pI4:%u->%pI4:%u](%d)", &istream.conn.local.ip4, istream.conn.local.port, &istream.conn.remote.ip4, istream.conn.remote.port, istream.stream_id, &estream.conn.local.ip4, estream.conn.local.port, &estream.conn.remote.ip4, estream.conn.remote.port, estream.stream_id);
+                if (bpf_map_update_elem(&h2_streams, &istream, &estream, BPF_ANY) < 0) {
+                    bpf_err("ERROR: Failed to update h2 stream mapping");
+                }
+                if (bpf_map_update_elem(&h2_streams, &estream, &istream, BPF_ANY) < 0) {
+                    bpf_err("ERROR: Failed to update h2 stream mapping");
+                }
             }
-            if (bpf_map_update_elem(&h2_streams, &estream, &istream, BPF_ANY) < 0) {
-                bpf_err("ERROR: Failed to update h2 stream mapping");
-            }
-        }
-    }
-
-    bpf_profile_end(sk_msg);
-
-    if (res == PR_DROP) {
-        bpf_err("No FIB entry found for %pI4:%u. Dropping.", &ctx->dest.ip4, ctx->dest.port);
-        return SK_DROP;
-    }
-    else if (res == PR_PASS) {
-        if (bpf_msg_redirect_hash(msg, &msg_sock_map, &ekey, BPF_F_INGRESS) == SK_DROP) {
-            bpf_err("ERROR: Failed to redirect msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            res = PR_UTRN;
-        }
-        else {
-            bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            return SK_PASS;
-        }
-    }
-    if (res == PR_UTRN) {
-        struct data_stream stream = {
-            .conn = ikey,
-            .stream_id = (is_h2) ? stream_id : 0,
-        };
-
-        if (bpf_map_update_elem(&utrn_wait_list, &stream, &ctx->dest, BPF_ANY) < 0) {
-            bpf_err("ERROR: Failed to add uturn token to wait list");
-        }
-        else {
-            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
         }
     }
 

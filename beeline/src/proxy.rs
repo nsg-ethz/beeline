@@ -798,7 +798,10 @@ impl<'obj> Proxy<'obj> {
                 let (request, mut respond) = match reqres {
                     Ok((request, respond)) => (request, respond),
                     Err(err) => {
-                        warn!("Error accepting request: {:?}", err);
+                        warn!(
+                            "Error accepting request: {:?} from {:?}",
+                            err, ds_remote_addr
+                        );
                         break;
                     }
                 };
@@ -899,13 +902,11 @@ impl<'obj> Proxy<'obj> {
                     update_map(&*sock_map_wait_list, &us_sock_key, &(!tls as u32))
                         .expect("Failed to insert into sock_map_wait_list");
 
-                    // flag conn as h2
+                    // flag the upstream connection as h2
+                    // the downstream connection is flagged by the eBPF program
                     let ds_sock_key =
                         sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
-
                     update_map(&*h2_conns, &us_sock_key, &1u32)
-                        .expect("Failed to mark connection as h2");
-                    update_map(&*h2_conns, &ds_sock_key, &stream_id)
                         .expect("Failed to mark connection as h2");
 
                     let ds_stream = data_stream {
@@ -954,7 +955,10 @@ impl<'obj> Proxy<'obj> {
 
                     tokio::spawn(async move {
                         if let Err(e) = upstream_conn.await {
-                            error!("Error driving HTTP/2 connection: {}", e);
+                            error!(
+                                "Error driving HTTP/2 connection on {}: {}",
+                                us_local_addr, e
+                            );
                         }
                         trace!("Upstream connection closed {}", us_local_addr);
                     });
@@ -1000,6 +1004,7 @@ impl<'obj> Proxy<'obj> {
                                 .release_capacity(max_window_size as usize)
                             {
                                 error!("Failed to release capacity: {}", e);
+                                break;
                             }
                         }
                     });
