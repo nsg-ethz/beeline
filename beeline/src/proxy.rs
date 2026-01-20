@@ -40,7 +40,6 @@ use tokio::{
     net::{TcpListener, TcpSocket, TcpStream},
     signal::unix::{signal, SignalKind},
     sync::Mutex,
-    time::{interval, Duration},
 };
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, trace, warn, Level};
@@ -996,20 +995,6 @@ impl<'obj> Proxy<'obj> {
                     drop(h2_conns);
                     drop(h2_streams);
                     drop(fib_downstream_);
-
-                    tokio::spawn(async move {
-                        let mut ticker = interval(Duration::from_millis(10));
-                        loop {
-                            ticker.tick().await;
-                            if let Err(e) = body
-                                .flow_control()
-                                .release_capacity(max_window_size as usize)
-                            {
-                                error!("Failed to release capacity: {}", e);
-                                break;
-                            }
-                        }
-                    });
 
                     // we have to wait for the response otherwise the stream gets reset
                     let _ = response.await;

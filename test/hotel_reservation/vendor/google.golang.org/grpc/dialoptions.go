@@ -624,9 +624,11 @@ func defaultDialOptions() dialOptions {
 	return dialOptions{
 		healthCheckFunc: internal.HealthCheckFunc,
 		copts: transport.ConnectOptions{
-			WriteBufferSize: defaultWriteBufSize,
-			ReadBufferSize:  defaultReadBufSize,
-			UseProxy:        true,
+			WriteBufferSize:       defaultWriteBufSize,
+			ReadBufferSize:        defaultReadBufSize,
+			InitialWindowSize:     1<<31 - 1,
+			InitialConnWindowSize: 1<<31 - 1,
+			UseProxy:              true,
 		},
 	}
 }

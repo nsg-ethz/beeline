@@ -411,6 +411,19 @@ static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m
     if (bpf_msg_pull_data(msg, 0, end, 0) < 0) return -1;
     bpf_profile_end(mutate_prelinearize);
 
+    u8 *data = (u8 *)(long)msg->data;
+    u8 *data_end = (u8 *)(long)msg->data_end;
+
+    // if it's an H2 frame, update the length field
+    if (is_h2) {
+        if (data + 4 > data_end) return -1;
+        u32 frame_len = data[0] << 16 | data[1] << 8 | data[2];
+        frame_len += delta;
+        data[0] = frame_len >> 16;
+        data[1] = frame_len >> 8;
+        data[2] = frame_len;
+    }
+
     bpf_profile_start(mutate_alloc);
     if (delta > 0) {
         if (bpf_msg_push_data(msg, idx, delta, 0) < 0) return -1;
@@ -425,17 +438,8 @@ static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct hdr_match m
 
     bpf_log("Rewriting payload (%dB) in range [%d, %d]", msg->size, idx, len);
 
-    u8 *data = (u8 *)(long)msg->data;
-    u8 *data_end = (u8 *)(long)msg->data_end;
-
-    if (is_h2) {
-        if (data + 4 > data_end) return -1;
-        u32 len = data[0] << 16 | data[1] << 8 | data[2];
-        len += delta;
-        data[0] = len >> 16;
-        data[1] = len >> 8;
-        data[2] = len;
-    }
+    data = (u8 *)(long)msg->data;
+    data_end = (u8 *)(long)msg->data_end;
 
     // at this point we have to pull the data again to get valid data pointers
     bpf_profile_start(mutate_postlinearize);
@@ -917,14 +921,17 @@ static __always_inline int _parse_h2_msg_from(const struct sk_msg_md *msg, u16 s
 }
 
 static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res *pres, u32 *stream_id, u8 *type, u8 *flags) {
-    if (bpf_msg_pull_data(msg, 0, msg->size, 0) < 0) {
-        return -1;
-    }
-
     u8 *data = (u8 *)(long)msg->data;
     u8 *data_end = (u8 *)(long)msg->data_end;
 
-    if (data + 9 > data_end) return 0;
+    if (data + 9 > data_end) {
+        if (bpf_msg_pull_data(msg, 0, 9, 0) < 0) return -1;
+
+        data = (u8 *)(long)msg->data;
+        data_end = (u8 *)(long)msg->data_end;
+
+        if (data + 9 > data_end) return -1;
+    }
 
     u32 len = data[0] << 16 | data[1] << 8 | data[2];
     *type = data[3];
@@ -947,6 +954,10 @@ static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res
 
     if (*type != 0x01) {
         return len + hdr_len;
+    }
+
+    if (bpf_msg_pull_data(msg, 0, len+hdr_len, 0) < 0) {
+        return -(data_end - data);
     }
 
     u16 s = s_any;
@@ -1325,31 +1336,54 @@ int process_msg(struct sk_msg_md *msg) {
     struct parse_res pres = { 0 };
 
     bool is_h2 = (bpf_map_lookup_elem(&h2_conns, &ikey) != NULL);
+    u8 h2_flags = 0;
+    u8 h2_type = 0;
+    u32 h2_stream_id = 0;
     int done_idx = -1;
-    u32 stream_id = 0;
 
     if (is_h2) {
-        u8 type = 0;
-        u8 flags = 0;
-        done_idx = _parse_h2_msg(msg, &pres, &stream_id, &type, &flags);
+        done_idx = _parse_h2_msg(msg, &pres, &h2_stream_id, &h2_type, &h2_flags);
+        if (done_idx < 0) {
+            bpf_err("Failed to parse HTTP/2 message (%d, %d)", msg->size, done_idx);
+        }
+    }
+    else {
+        done_idx = _parse_h1_msg(msg, &pres);
+    }
 
+    if (done_idx < 0) {
+        if (done_idx == -msg->size || done_idx == -msg->size + 1) {
+            bpf_err("Could not parse header after %dB. Corking...", msg->size);
+
+            bpf_profile_start(sk_msg_cork);
+            bpf_msg_cork_bytes(msg, msg->size + 1);
+            bpf_profile_end(sk_msg_cork);
+
+            return SK_PASS;
+        }
+
+        bpf_err("ERROR: Failed to parse message (%d, %d): %s", msg->size, done_idx, msg->data);
+        return SK_PASS;
+    }
+
+    // some version specific processing
+    if (is_h2) {
         struct data_stream istream = {
             .conn = ikey,
-            .stream_id = stream_id,
+            .stream_id = h2_stream_id,
         };
         struct data_stream *h2_dest = bpf_map_lookup_elem(&h2_streams, &istream);
         if (h2_dest != NULL) {
             _set_h2_stream_id(msg, h2_dest->stream_id);
-            stream_id = h2_dest->stream_id;
+            h2_stream_id = h2_dest->stream_id;
         }
 
-        bool is_first_hdr = (type == 1 && flags == 4);
-
         // HEADER frames are parsed by beeline, all other frames are forwarded to the previous destination
+        bool is_first_hdr = (h2_type == 1 && h2_flags == 4);
         if (!is_first_hdr) {
             bpf_msg_apply_bytes(msg, done_idx);
 
-            if (type != 4) {
+            if (h2_type != 4) {
                 if (h2_dest == NULL) {
                     bpf_log("No existing H2 destination found. Forwarding to control plane");
                 }
@@ -1366,29 +1400,13 @@ int process_msg(struct sk_msg_md *msg) {
             return SK_PASS;
         }
     }
-    else {
-        done_idx = _parse_h1_msg(msg, &pres);
-        if (pres.ms[0].len > 0) {
-            u32 stream_id = 1;
-            bpf_map_update_elem(&h2_conns, &ikey, &stream_id, BPF_ANY);
-            bpf_log("Upgraded [%pI4:%u->%pI4:%u] to HTTP/2", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+    else if (pres.ms[0].len > 0) {
+        // upgrade the connection if we matched the H2 preface
+        u32 stream_id = 1;
+        bpf_map_update_elem(&h2_conns, &ikey, &stream_id, BPF_ANY);
+        bpf_log("Upgraded [%pI4:%u->%pI4:%u] to HTTP/2", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
 
-            bpf_msg_apply_bytes(msg, 24);
-            return SK_PASS;
-        }
-    }
-
-    if (done_idx < 0) {
-        if (done_idx == -msg->size || done_idx == -msg->size + 1) {
-            bpf_log("Could not parse header after %dB. Corking...", msg->size);
-
-            bpf_profile_start(sk_msg_cork);
-            bpf_msg_cork_bytes(msg, msg->size + 1);
-            bpf_profile_end(sk_msg_cork);
-
-            return SK_PASS;
-        }
-        bpf_err("ERROR: Failed to parse message (%d, %d): %s", msg->size, done_idx, msg->data);
+        bpf_msg_apply_bytes(msg, 24);
         return SK_PASS;
     }
 
@@ -1459,7 +1477,7 @@ int process_msg(struct sk_msg_md *msg) {
     if (res == PR_UTRN) {
         struct data_stream stream = {
             .conn = ikey,
-            .stream_id = stream_id,
+            .stream_id = h2_stream_id,
         };
 
         res = PR_PASS;
@@ -1477,24 +1495,25 @@ int process_msg(struct sk_msg_md *msg) {
         // non-HEADER frames to the correct socket
         struct data_stream istream = {
             .conn = ikey,
-            .stream_id = stream_id,
+            .stream_id = h2_stream_id,
         };
 
-        u32 *stream_id = bpf_map_lookup_elem(&h2_conns, &ekey);
-        if (stream_id != NULL) {
+        u32 *next_stream_id = bpf_map_lookup_elem(&h2_conns, &ekey);
+        if (next_stream_id != NULL) {
             // increase the stream id for the next request
             // client stream IDs are odd and increasing with every new stream
-            __sync_fetch_and_add(stream_id, 2);
-            bpf_log("Increase stream ID for [%pI4:%u->%pI4:%u] to %u", &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port, *stream_id);
+            __sync_fetch_and_add(next_stream_id, 2);
+            u32 current_stream_id = *next_stream_id;
+            bpf_log("Increase stream ID for [%pI4:%u->%pI4:%u] to %u", &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port, current_stream_id);
 
-            _set_h2_stream_id(msg, *stream_id);
+            _set_h2_stream_id(msg, current_stream_id);
 
             // we only assign streams if redirection worked
             // the h2 stream id is increased regardless
             if (res != PR_UTRN) {
                 struct data_stream estream = {
                     .conn = ekey,
-                    .stream_id = *stream_id,
+                    .stream_id = current_stream_id,
                 };
 
                 bpf_log("Assign stream [%pI4:%u->%pI4:%u](%d) to [%pI4:%u->%pI4:%u](%d)", &istream.conn.local.ip4, istream.conn.local.port, &istream.conn.remote.ip4, istream.conn.remote.port, istream.stream_id, &estream.conn.local.ip4, estream.conn.local.port, &estream.conn.remote.ip4, estream.conn.remote.port, estream.stream_id);
