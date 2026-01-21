@@ -534,12 +534,12 @@ func (t *http2Client) createHeaderFields(ctx context.Context, callHdr *CallHdr) 
 	headerFields = append(headerFields, hpack.HeaderField{Name: "user-agent", Value: t.userAgent, Sensitive: !compress_headers})
 	headerFields = append(headerFields, hpack.HeaderField{Name: "te", Value: "trailers", Sensitive: !compress_headers})
 	if callHdr.PreviousAttempts > 0 {
-		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-previous-rpc-attempts", Value: strconv.Itoa(callHdr.PreviousAttempts)})
+		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-previous-rpc-attempts", Value: strconv.Itoa(callHdr.PreviousAttempts), Sensitive: !compress_headers})
 	}
 
 	registeredCompressors := t.registeredCompressors
 	if callHdr.SendCompress != "" {
-		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-encoding", Value: callHdr.SendCompress})
+		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-encoding", Value: callHdr.SendCompress, Sensitive: !compress_headers})
 		// Include the outgoing compressor name when compressor is not registered
 		// via encoding.RegisterCompressor. This is possible when client uses
 		// WithCompressor dial option.
@@ -552,25 +552,25 @@ func (t *http2Client) createHeaderFields(ctx context.Context, callHdr *CallHdr) 
 	}
 
 	if registeredCompressors != "" {
-		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-accept-encoding", Value: registeredCompressors})
+		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-accept-encoding", Value: registeredCompressors, Sensitive: !compress_headers})
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		// Send out timeout regardless its value. The server can detect timeout context by itself.
 		// TODO(mmukhi): Perhaps this field should be updated when actually writing out to the wire.
 		timeout := time.Until(dl)
-		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-timeout", Value: grpcutil.EncodeDuration(timeout)})
+		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-timeout", Value: grpcutil.EncodeDuration(timeout), Sensitive: !compress_headers})
 	}
 	for k, v := range authData {
-		headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v)})
+		headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v), Sensitive: !compress_headers})
 	}
 	for k, v := range callAuthData {
-		headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v)})
+		headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v), Sensitive: !compress_headers})
 	}
 	if b := stats.OutgoingTags(ctx); b != nil {
-		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-tags-bin", Value: encodeBinHeader(b)})
+		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-tags-bin", Value: encodeBinHeader(b), Sensitive: !compress_headers})
 	}
 	if b := stats.OutgoingTrace(ctx); b != nil {
-		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-trace-bin", Value: encodeBinHeader(b)})
+		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-trace-bin", Value: encodeBinHeader(b), Sensitive: !compress_headers})
 	}
 
 	if md, added, ok := metadata.FromOutgoingContextRaw(ctx); ok {
@@ -581,7 +581,7 @@ func (t *http2Client) createHeaderFields(ctx context.Context, callHdr *CallHdr) 
 				continue
 			}
 			for _, v := range vv {
-				headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v)})
+				headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v), Sensitive: !compress_headers})
 			}
 		}
 		for _, vv := range added {
@@ -594,7 +594,7 @@ func (t *http2Client) createHeaderFields(ctx context.Context, callHdr *CallHdr) 
 				if isReservedHeader(k) {
 					continue
 				}
-				headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v)})
+				headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v), Sensitive: !compress_headers})
 			}
 		}
 	}
@@ -603,7 +603,7 @@ func (t *http2Client) createHeaderFields(ctx context.Context, callHdr *CallHdr) 
 			continue
 		}
 		for _, v := range vv {
-			headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v)})
+			headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v), Sensitive: !compress_headers})
 		}
 	}
 	return headerFields, nil

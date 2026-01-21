@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"runtime"
 	"strconv"
 	"sync"
@@ -789,11 +790,17 @@ func (l *loopyWriter) earlyAbortStreamHandler(eas *earlyAbortStream) error {
 	if eas.httpStatus == 0 {
 		eas.httpStatus = 200
 	}
+
+	compress_headers := true
+	if val, ok := os.LookupEnv("COMPRESS_HEADERS"); ok {
+		compress_headers = (val == "true" || val == "1")
+	}
+
 	headerFields := []hpack.HeaderField{
-		{Name: ":status", Value: strconv.Itoa(int(eas.httpStatus))},
-		{Name: "content-type", Value: grpcutil.ContentType(eas.contentSubtype)},
-		{Name: "grpc-status", Value: strconv.Itoa(int(eas.status.Code()))},
-		{Name: "grpc-message", Value: encodeGrpcMessage(eas.status.Message())},
+		{Name: ":status", Value: strconv.Itoa(int(eas.httpStatus)), Sensitive: !compress_headers},
+		{Name: "content-type", Value: grpcutil.ContentType(eas.contentSubtype), Sensitive: !compress_headers},
+		{Name: "grpc-status", Value: strconv.Itoa(int(eas.status.Code())), Sensitive: !compress_headers},
+		{Name: "grpc-message", Value: encodeGrpcMessage(eas.status.Message()), Sensitive: !compress_headers},
 	}
 
 	if err := l.writeHeader(eas.streamID, true, headerFields, nil); err != nil {

@@ -27,6 +27,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -922,13 +923,18 @@ func (t *http2Server) handleWindowUpdate(f *http2.WindowUpdateFrame) {
 }
 
 func appendHeaderFieldsFromMD(headerFields []hpack.HeaderField, md metadata.MD) []hpack.HeaderField {
+	compress_headers := true
+	if val, ok := os.LookupEnv("COMPRESS_HEADERS"); ok {
+		compress_headers = (val == "true" || val == "1")
+	}
+
 	for k, vv := range md {
 		if isReservedHeader(k) {
 			// Clients don't tolerate reading restricted headers after some non restricted ones were sent.
 			continue
 		}
 		for _, v := range vv {
-			headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v)})
+			headerFields = append(headerFields, hpack.HeaderField{Name: k, Value: encodeMetadataHeader(k, v), Sensitive: !compress_headers})
 		}
 	}
 	return headerFields
@@ -992,11 +998,17 @@ func (t *http2Server) setResetPingStrikes() {
 func (t *http2Server) writeHeaderLocked(s *Stream) error {
 	// TODO(mmukhi): Benchmark if the performance gets better if count the metadata and other header fields
 	// first and create a slice of that exact size.
+
+	compress_headers := true
+	if val, ok := os.LookupEnv("COMPRESS_HEADERS"); ok {
+		compress_headers = (val == "true" || val == "1")
+	}
+
 	headerFields := make([]hpack.HeaderField, 0, 2) // at least :status, content-type will be there if none else.
-	headerFields = append(headerFields, hpack.HeaderField{Name: ":status", Value: "200"})
-	headerFields = append(headerFields, hpack.HeaderField{Name: "content-type", Value: grpcutil.ContentType(s.contentSubtype)})
+	headerFields = append(headerFields, hpack.HeaderField{Name: ":status", Value: "200", Sensitive: !compress_headers})
+	headerFields = append(headerFields, hpack.HeaderField{Name: "content-type", Value: grpcutil.ContentType(s.contentSubtype), Sensitive: !compress_headers})
 	if s.sendCompress != "" {
-		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-encoding", Value: s.sendCompress})
+		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-encoding", Value: s.sendCompress, Sensitive: !compress_headers})
 	}
 	headerFields = appendHeaderFieldsFromMD(headerFields, s.header)
 	success, err := t.controlBuf.executeAndPut(t.checkForHeaderListSize, &headerFrame{
@@ -1036,6 +1048,11 @@ func (t *http2Server) WriteStatus(s *Stream, st *status.Status) error {
 		return nil
 	}
 
+	compress_headers := true
+	if val, ok := os.LookupEnv("COMPRESS_HEADERS"); ok {
+		compress_headers = (val == "true" || val == "1")
+	}
+
 	// TODO(mmukhi): Benchmark if the performance gets better if count the metadata and other header fields
 	// first and create a slice of that exact size.
 	headerFields := make([]hpack.HeaderField, 0, 2) // grpc-status and grpc-message will be there if none else.
@@ -1045,12 +1062,12 @@ func (t *http2Server) WriteStatus(s *Stream, st *status.Status) error {
 				return err
 			}
 		} else { // Send a trailer only response.
-			headerFields = append(headerFields, hpack.HeaderField{Name: ":status", Value: "200"})
-			headerFields = append(headerFields, hpack.HeaderField{Name: "content-type", Value: grpcutil.ContentType(s.contentSubtype)})
+			headerFields = append(headerFields, hpack.HeaderField{Name: ":status", Value: "200", Sensitive: !compress_headers})
+			headerFields = append(headerFields, hpack.HeaderField{Name: "content-type", Value: grpcutil.ContentType(s.contentSubtype), Sensitive: !compress_headers})
 		}
 	}
-	headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-status", Value: strconv.Itoa(int(st.Code()))})
-	headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-message", Value: encodeGrpcMessage(st.Message())})
+	headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-status", Value: strconv.Itoa(int(st.Code())), Sensitive: !compress_headers})
+	headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-message", Value: encodeGrpcMessage(st.Message()), Sensitive: !compress_headers})
 
 	if p := st.Proto(); p != nil && len(p.Details) > 0 {
 		stBytes, err := proto.Marshal(p)
@@ -1058,7 +1075,7 @@ func (t *http2Server) WriteStatus(s *Stream, st *status.Status) error {
 			// TODO: return error instead, when callers are able to handle it.
 			t.logger.Errorf("Failed to marshal rpc status: %s, error: %v", pretty.ToJSON(p), err)
 		} else {
-			headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-status-details-bin", Value: encodeBinHeader(stBytes)})
+			headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-status-details-bin", Value: encodeBinHeader(stBytes), Sensitive: !compress_headers})
 		}
 	}
 
