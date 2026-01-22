@@ -9,7 +9,6 @@ services:
     social-graph-service:
         build: ../test/social_network
         hostname: social-graph-service
-        cgroup_parent: beeline.slice
         depends_on:
             jaeger-agent:
                 condition: service_started
@@ -26,7 +25,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: social-graph-mongodb
-        cgroup_parent: beeline.slice
         restart: always
 
     social-graph-redis:
@@ -35,7 +33,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: social-graph-redis
-        cgroup_parent: beeline.slice
         restart: always
 
     home-timeline-redis:
@@ -44,13 +41,11 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: home-timeline-redis
-        cgroup_parent: beeline.slice
         restart: always
 
     compose-post-service:
         build: ../test/social_network
         hostname: compose-post-service
-        cgroup_parent: beeline.slice
         restart: always
         depends_on:
             jaeger-agent:
@@ -62,7 +57,6 @@ services:
     post-storage-service:
         build: ../test/social_network
         hostname: post-storage-service
-        cgroup_parent: beeline.slice
         ports:
             - 10002:9999
         restart: always
@@ -78,7 +72,6 @@ services:
     post-storage-memcached:
         image: memcached
         hostname: post-storage-memcached
-        cgroup_parent: beeline.slice
         restart: always
 
     post-storage-mongodb:
@@ -87,13 +80,11 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: post-storage-mongodb
-        cgroup_parent: beeline.slice
         restart: always
 
     user-timeline-service:
         build: ../test/social_network
         hostname: user-timeline-service
-        cgroup_parent: beeline.slice
         restart: always
         depends_on:
             jaeger-agent:
@@ -110,7 +101,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-timeline-redis
-        cgroup_parent: beeline.slice
         restart: always
 
     user-timeline-mongodb:
@@ -119,13 +109,11 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-timeline-mongodb
-        cgroup_parent: beeline.slice
         restart: always
 
     url-shorten-service:
         build: ../test/social_network
         hostname: url-shorten-service
-        cgroup_parent: beeline.slice
         restart: always
         entrypoint: UrlShortenService
         depends_on:
@@ -139,7 +127,6 @@ services:
     url-shorten-memcached:
         image: memcached
         hostname: url-shorten-memcached
-        cgroup_parent: beeline.slice
         restart: always
 
     url-shorten-mongodb:
@@ -148,13 +135,11 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: url-shorten-mongodb
-        cgroup_parent: beeline.slice
         restart: always
 
     user-service:
         build: ../test/social_network
         hostname: user-service
-        cgroup_parent: beeline.slice
         restart: always
         depends_on:
             jaeger-agent:
@@ -168,7 +153,6 @@ services:
     user-memcached:
         image: memcached
         hostname: user-memcached
-        cgroup_parent: beeline.slice
         restart: always
 
     user-mongodb:
@@ -177,13 +161,11 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-mongodb
-        cgroup_parent: beeline.slice
         restart: always
 
     media-service:
         build: ../test/social_network
         hostname: media-service
-        cgroup_parent: beeline.slice
         depends_on:
             jaeger-agent:
                 condition: service_started
@@ -197,7 +179,6 @@ services:
     media-memcached:
         image: memcached
         hostname: media-memcached
-        cgroup_parent: beeline.slice
         restart: always
 
     media-mongodb:
@@ -206,13 +187,11 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: media-mongodb
-        cgroup_parent: beeline.slice
         restart: always
 
     text-service:
         build: ../test/social_network
         hostname: text-service
-        cgroup_parent: beeline.slice
         restart: always
         depends_on:
             jaeger-agent:
@@ -224,7 +203,6 @@ services:
     unique-id-service:
         build: ../test/social_network
         hostname: unique-id-service
-        cgroup_parent: beeline.slice
         restart: always
         depends_on:
             jaeger-agent:
@@ -236,7 +214,6 @@ services:
     user-mention-service:
         build: ../test/social_network
         hostname: user-mention-service
-        cgroup_parent: beeline.slice
         depends_on:
             jaeger-agent:
                 condition: service_started
@@ -248,7 +225,6 @@ services:
     home-timeline-service:
         build: ../test/social_network
         hostname: home-timeline-service
-        cgroup_parent: beeline.slice
         depends_on:
             jaeger-agent:
                 condition: service_started
@@ -260,7 +236,6 @@ services:
     nginx-thrift:
         image: yg397/openresty-thrift:xenial
         hostname: nginx-thrift
-        cgroup_parent: beeline.slice
         ports:
             - 8080:8080
         depends_on:
@@ -278,7 +253,6 @@ services:
     media-frontend:
         image: yg397/media-frontend:xenial
         hostname: media-frontend
-        cgroup_parent: beeline.slice
         ports:
             - 8081:8080
         restart: always

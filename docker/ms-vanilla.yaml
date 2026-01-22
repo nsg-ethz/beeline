@@ -10,7 +10,6 @@ services:
     #   Enables resolving container hostnames from host machine
     dns-media:
         image: defreitas/dns-proxy-server
-        cgroup_parent: beeline.slice
         volumes:
             - /opt/dns-proxy-server/conf:/app/conf
             - /var/run/docker.sock:/var/run/docker.sock
@@ -19,7 +18,6 @@ services:
     unique-id-service:
         build: ../test/media_service
         hostname: unique-id-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10001:9090
         restart: always
@@ -30,7 +28,6 @@ services:
     movie-id-service:
         build: ../test/media_service
         hostname: movie-id-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10002:9090
         restart: always
@@ -44,7 +41,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: movie-id-mongodb
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 27018:27017
         restart: always
@@ -52,7 +48,6 @@ services:
     movie-id-memcached:
         image: memcached
         hostname: movie-id-memcached
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 11212:11211
         restart: always
@@ -60,7 +55,6 @@ services:
     text-service:
         build: ../test/media_service
         hostname: text-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10003:9090
         restart: always
@@ -71,7 +65,6 @@ services:
     rating-service:
         build: ../test/media_service
         hostname: rating-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10004:9090
         restart: always
@@ -85,7 +78,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: rating-redis
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 6382:6379
         restart: always
@@ -93,7 +85,6 @@ services:
     user-service:
         build: ../test/media_service
         hostname: user-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10005:9090
         restart: always
@@ -107,7 +98,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-mongodb
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 27019:27017
         restart: always
@@ -115,7 +105,6 @@ services:
     user-memcached:
         image: memcached
         hostname: user-memcached
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 11213:11211
         restart: always
@@ -123,7 +112,6 @@ services:
     compose-review-service:
         build: ../test/media_service
         hostname: compose-review-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10006:9090
         restart: always
@@ -134,7 +122,6 @@ services:
     compose-review-memcached:
         image: memcached
         hostname: compose-review-memcached
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 11214:11211
         restart: always
@@ -142,7 +129,6 @@ services:
     review-storage-service:
         build: ../test/media_service
         hostname: review-storage-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10007:9090
         restart: always
@@ -156,7 +142,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: review-storage-mongodb
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 27020:27017
         restart: always
@@ -164,7 +149,6 @@ services:
     review-storage-memcached:
         image: memcached
         hostname: review-storage-memcached
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 11215:11211
         restart: always
@@ -172,7 +156,6 @@ services:
     user-review-service:
         build: ../test/media_service
         hostname: user-review-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10008:9090
         restart: always
@@ -186,7 +169,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-review-mongodb
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 27021:27017
         restart: always
@@ -197,7 +179,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-review-redis
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 6381:6379
         restart: always
@@ -205,7 +186,6 @@ services:
     movie-review-service:
         build: ../test/media_service
         hostname: movie-review-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10009:9090
         restart: always
@@ -219,7 +199,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: movie-review-mongodb
-        cgroup_parent: beeline.slice
         ports:
             - 27022:27017
         restart: always
@@ -230,7 +209,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: movie-review-redis
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 6380:6379
         restart: always
@@ -238,7 +216,6 @@ services:
     nginx-web-server:
         image: yg397/openresty-thrift:xenial
         hostname: nginx-thrift
-        cgroup_parent: beeline.slice
         ports:
             - 8080:8080
         restart: always
@@ -252,7 +229,6 @@ services:
     cast-info-service:
         build: ../test/media_service
         hostname: cast-info-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10010:9090
         restart: always
@@ -266,7 +242,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: cast-info-mongodb
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 27024:27017
         restart: always
@@ -274,7 +249,6 @@ services:
     cast-info-memcached:
         image: memcached
         hostname: cast-info-memcached
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 11219:11211
         restart: always
@@ -282,7 +256,6 @@ services:
     plot-service:
         build: ../test/media_service
         hostname: plot-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10011:9090
         restart: always
@@ -296,7 +269,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: plot-mongodb
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 27025:27017
         restart: always
@@ -304,7 +276,6 @@ services:
     plot-memcached:
         image: memcached
         hostname: plot-memcached
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 11220:11211
         restart: always
@@ -312,7 +283,6 @@ services:
     movie-info-service:
         build: ../test/media_service
         hostname: movie-info-service
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 10012:9090
         restart: always
@@ -326,7 +296,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: movie-info-mongodb
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 27026:27017
         restart: always
@@ -334,7 +303,6 @@ services:
     movie-info-memcached:
         image: memcached
         hostname: movie-info-memcached
-        cgroup_parent: beeline.slice
         #    ports:
         #      - 11221:11211
         restart: always
@@ -342,7 +310,6 @@ services:
     jaeger:
         image: jaegertracing/all-in-one:latest
         hostname: jaeger
-        cgroup_parent: beeline.slice
         ports:
             #      - 5775:5775/udp
             #      - 6831:6831/udp

@@ -9,7 +9,6 @@ services:
     social-graph-service:
         build: ../test/social_network
         hostname: social-graph-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.2
@@ -29,7 +28,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: social-graph-mongodb
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.4
@@ -41,7 +39,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: social-graph-redis
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.5
@@ -52,7 +49,6 @@ services:
     home-timeline-service:
         build: ../test/social_network
         hostname: home-timeline-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.6
@@ -70,7 +66,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: home-timeline-redis
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.8
@@ -81,7 +76,6 @@ services:
     compose-post-service:
         build: ../test/social_network
         hostname: compose-post-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.9
@@ -98,7 +92,6 @@ services:
     post-storage-service:
         build: ../test/social_network
         hostname: post-storage-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.11
@@ -117,7 +110,6 @@ services:
     post-storage-memcached:
         image: memcached
         hostname: post-storage-memcached
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.13
@@ -129,7 +121,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: post-storage-mongodb
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.14
@@ -140,7 +131,6 @@ services:
     user-timeline-service:
         build: ../test/social_network
         hostname: user-timeline-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.15
@@ -160,7 +150,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-timeline-redis
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.17
@@ -172,7 +161,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-timeline-mongodb
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.18
@@ -183,7 +171,6 @@ services:
     url-shorten-service:
         build: ../test/social_network
         hostname: url-shorten-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.19
@@ -200,7 +187,6 @@ services:
     url-shorten-memcached:
         image: memcached
         hostname: url-shorten-memcached
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.21
@@ -212,7 +198,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: url-shorten-mongodb
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.22
@@ -223,7 +208,6 @@ services:
     user-service:
         build: ../test/social_network
         hostname: user-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.23
@@ -240,7 +224,6 @@ services:
     user-memcached:
         image: memcached
         hostname: user-memcached
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.25
@@ -252,7 +235,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-mongodb
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.26
@@ -263,7 +245,6 @@ services:
     media-service:
         build: ../test/social_network
         hostname: media-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.27
@@ -280,7 +261,6 @@ services:
     media-memcached:
         image: memcached
         hostname: media-memcached
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.29
@@ -292,7 +272,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: media-mongodb
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.30
@@ -303,7 +282,6 @@ services:
     text-service:
         build: ../test/social_network
         hostname: text-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.31
@@ -320,7 +298,6 @@ services:
     unique-id-service:
         build: ../test/social_network
         hostname: unique-id-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.33
@@ -337,7 +314,6 @@ services:
     user-mention-service:
         build: ../test/social_network
         hostname: user-mention-service
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.35
@@ -354,7 +330,6 @@ services:
     nginx-thrift:
         image: yg397/openresty-thrift:xenial
         hostname: nginx-thrift
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.37
@@ -375,7 +350,6 @@ services:
     media-frontend:
         image: yg397/media-frontend:xenial
         hostname: media-frontend
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.38
@@ -412,7 +386,6 @@ services:
             dockerfile: docker/Dockerfile.echo
         entrypoint: "echo -a 0.0.0.0:8080"
         hostname: sidecar
-        cgroup_parent: beeline.slice
         ports:
             - 9991:9991
         networks:

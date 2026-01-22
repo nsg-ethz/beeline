@@ -26,7 +26,6 @@ services:
                 "${SERVICES:-${REPLICAS}}",
                 "${FRONTEND_ARGS}",
             ]
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.2
@@ -36,7 +35,6 @@ services:
             context: ..
             dockerfile: docker/Dockerfile.echo
         entrypoint: "echo -a 0.0.0.0:9999"
-        cgroup_parent: beeline.slice
         deploy:
             replicas: ${REPLICAS}
         depends_on:
@@ -48,7 +46,6 @@ services:
             dockerfile: docker/Dockerfile.echo
         entrypoint: "echo -a 0.0.0.0:8080"
         hostname: sidecar
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.254
