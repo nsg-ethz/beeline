@@ -33,7 +33,7 @@ rcgen = "0.14.6"
 rustls = { version = "0.23.35", features = ["ring"] }
 tokio-rustls = { version = "0.26.4", features = ["ring"] }
 http = "1.4.0"
-http2 = { version = "0.5.11" }
+http2 = { path = "src/http2", features = ["tracing"] }
 bytes = "1.11.0"
 
 [build-dependencies]

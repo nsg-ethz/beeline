@@ -703,7 +703,7 @@ impl Compiler {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let no_match = format!("else {{ bpf_err(\"ERROR: No match\"); }}");
+        let no_match = format!("else {{ bpf_err(\"ERROR: No match for [%pI4:%u->%pI4:%u] (h2: %d)\", ikey->local.ip4, ikey->local.port, ikey->remote.ip4, ikey->remote.port, is_h2); }}");
         downstream.push_str(&no_match);
 
         let upstream = upstream

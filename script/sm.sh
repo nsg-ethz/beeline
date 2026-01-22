@@ -62,6 +62,7 @@ function launch_proxy {
         else
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         fi
+        # sudo -b -E systemd-run -q --scope -u sm-rt-monitor bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
     else
         if [[ "${PROXY}" == *l4fp ]]; then
             PROXY_BIN=${ROOT}/../target/release/l4fp
@@ -102,10 +103,10 @@ function stop_services {
     sudo killall envoy > /dev/null 2>&1
     sudo killall beeline > /dev/null 2>&1
     sudo killall l4fp > /dev/null 2>&1
-    sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
-    sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
-    sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
-    sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
+    # sudo systemctl stop sm-proxy.scope > /dev/null 2>&1
+    # sudo systemctl stop sm-proxy-opt.scope > /dev/null 2>&1
+    # sudo systemctl stop sm-rt-monitor.scope > /dev/null 2>&1
+    # sudo systemctl stop sm-cpu.scope > /dev/null 2>&1
 }
 
 case ${ACTION} in
@@ -120,6 +121,9 @@ case ${ACTION} in
             exit 1
         fi
 
+        CPU_SYSTEM=0,1,20,21
+        CPU_BEELINE=2-19,22-39
+
         # clean up just to be safe
         CONTAINERS=$(docker ps -a -q)
         if [ ! -z "$CONTAINERS" ]; then
@@ -133,6 +137,12 @@ case ${ACTION} in
 
         echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
         echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+        # echo -e "${COLOR_YELLOW}Assigning CPUs ${CPU_BEELINE} to experiment${COLOR_OFF}"
+        # sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+        # sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+        # sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
+        # sudo systemctl set-property --runtime beeline.slice AllowedCPUs=${CPU_BEELINE}
 
         # this doesn't seem like a good idea but it works
         sudo chmod -R o+r ${ROOT}/../test/social_network/config-*
@@ -164,12 +174,20 @@ case ${ACTION} in
             stop_services
             launch_proxy
         fi
+
+        # sudo -b systemd-run -q --scope -u sm-cpu ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${EPOCH}
         ;;
 
     down)
+        CPU_SYSTEM=0-39
 
         echo -e "${COLOR_YELLOW}Setting CPU governor${COLOR_OFF}"
         echo schedutil | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+        # echo -e "${COLOR_YELLOW}Resetting CPUs${COLOR_OFF}"
+        # sudo systemctl set-property --runtime user.slice AllowedCPUs=${CPU_SYSTEM}
+        # sudo systemctl set-property --runtime system.slice AllowedCPUs=${CPU_SYSTEM}
+        # sudo systemctl set-property --runtime init.scope AllowedCPUs=${CPU_SYSTEM}
 
         stop_services
 

@@ -822,14 +822,37 @@ impl<'obj> Proxy<'obj> {
                     let fib_downstream_ = fib_downstream.lock().await;
 
                     let mut send_error = || {
-                        warn!("Sending 500 to {:?}", ds_remote_addr);
-                        let response = Response::builder()
-                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        let mut response = Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "application/grpc")
                             .body(())
                             .unwrap();
 
-                        if let Err(e) = respond.send_response(response, true) {
-                            error!("Failed to send response: {:?}", e);
+                        for val in response.headers_mut().values_mut() {
+                            val.set_sensitive(true);
+                        }
+
+                        let mut send_stream = match respond.send_response(response, false) {
+                            Ok(stream) => stream,
+                            Err(e) => {
+                                error!("Failed to send response: {:?}", e);
+                                return;
+                            }
+                        };
+
+                        let mut trailers = http::HeaderMap::new();
+                        trailers.insert("grpc-status", "2".parse().unwrap()); // UNKNOWN
+                        trailers.insert(
+                            "grpc-message",
+                            "Failed to connect to upstream".parse().unwrap(),
+                        );
+
+                        for val in trailers.values_mut() {
+                            val.set_sensitive(true);
+                        }
+
+                        if let Err(e) = send_stream.send_trailers(trailers) {
+                            error!("Failed to send trailers: {:?}", e);
                         }
                     };
 
@@ -904,11 +927,11 @@ impl<'obj> Proxy<'obj> {
 
                     // flag the upstream connection as h2
                     // the downstream connection is flagged by the eBPF program
-                    let ds_sock_key =
-                        sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
                     update_map(&*h2_conns, &us_sock_key, &1u32)
                         .expect("Failed to mark connection as h2");
 
+                    let ds_sock_key =
+                        sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
                     let ds_stream = data_stream {
                         conn: ds_sock_key.clone(),
                         stream_id,

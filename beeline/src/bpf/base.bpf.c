@@ -508,7 +508,7 @@ static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool dow
     struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, &queue_key);
     if (pqueue == NULL) {
         bpf_err("ERROR: No pqueue found for addr {%pI4:%u}", &addr->ip4, addr->port);
-        return PR_UTRN;
+        return PR_DROP;
     }
 
     struct sock_key res;
@@ -942,16 +942,6 @@ static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res
 
     bpf_log("Parsing HTTP/2 message for stream %d with length %d, type %d, flags %d", *stream_id, len, *type, *flags);
 
-    if (*type == 0x03) {
-        if (data + 13 > data_end) return len + hdr_len;
-
-        u32 err = data[9] << 24 | data[10] << 16 | data[11] << 8 | data[12];
-        if (err != 0) {
-            bpf_log("WARN: Stream reset with error code %d", err);
-            return len + hdr_len;
-        }
-    }
-
     if (*type != 0x01) {
         return len + hdr_len;
     }
@@ -1138,7 +1128,7 @@ int parse_skb(struct __sk_buff *skb) {
 
     int done_idx = _parse_h1_skb(skb, &pres, NULL);
     if (done_idx < 0) {
-        bpf_log("Could not parse header after %dB. Corking...", skb->len);
+        bpf_err("Could not parse skb header (code: %d) after %dB. Corking...", done_idx, skb->len);
         return 0;
     }
 
@@ -1188,12 +1178,6 @@ int process_skb(struct __sk_buff *skb) {
         int done_idx = _parse_h1_skb(skb, &pres, &tls.header);
 
         if (done_idx < 0) {
-            if (done_idx == -skb->len || done_idx == -skb->len + 1) {
-                bpf_log("Could not parse header after %dB. Corking...", skb->len);
-
-                return 0;
-            }
-
             bpf_err("ERROR: Failed to parse message (%d, %d): %s", skb->len, done_idx, skb->data);
             return SK_PASS;
         }
@@ -1329,6 +1313,14 @@ int process_msg(struct sk_msg_md *msg) {
     bpf_profile_start(sk_msg);
 
     struct sock_key ikey = _new_sock_key_from_msg(msg);
+
+    // Not sure why, but sometimes we get messages with invalid addresses
+    // in that case, we cannot really do anything other than dropping it
+    if (msg->local_port == 0 || msg->remote_port == 0 || msg->local_ip4 == 0 || msg->remote_ip4 == 0) {
+        bpf_err("ERROR: Invalid address: [%pI4:%u->%pI4:%u] (%pI6 and %pI6)", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &msg->local_ip6, &msg->remote_ip6);
+        return SK_DROP;
+    }
+
     bool is_downstream = _cmp_proxy_addr(&ikey.remote);
     bpf_log("Processing %dB msg from [%pI4:%u->%pI4:%u] (downstream: %d)", msg->size, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, is_downstream);
 
@@ -1343,27 +1335,26 @@ int process_msg(struct sk_msg_md *msg) {
 
     if (is_h2) {
         done_idx = _parse_h2_msg(msg, &pres, &h2_stream_id, &h2_type, &h2_flags);
-        if (done_idx < 0) {
-            bpf_err("Failed to parse HTTP/2 message (%d, %d)", msg->size, done_idx);
-        }
     }
     else {
         done_idx = _parse_h1_msg(msg, &pres);
     }
 
     if (done_idx < 0) {
-        if (done_idx == -msg->size || done_idx == -msg->size + 1) {
-            bpf_err("Could not parse header after %dB. Corking...", msg->size);
+        // check if we need more bytes to parse the header
+        // H2 parsing fails with error code -1 if it doesn't even manage to parse the frame length
+        if (done_idx == -msg->size || done_idx == -msg->size + 1 || (is_h2 && done_idx == -1)) {
+            bpf_log("Could not parse msg header (code: %d, h2: %d, type: %d) from [%pI4:%u->%pI4:%u] after %dB. Corking...", done_idx, is_h2, h2_type, &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, msg->size);
 
-            bpf_profile_start(sk_msg_cork);
-            bpf_msg_cork_bytes(msg, msg->size + 1);
-            bpf_profile_end(sk_msg_cork);
+            // bpf_profile_start(sk_msg_cork);
+            // bpf_msg_cork_bytes(msg, msg->size + 1);
+            // bpf_profile_end(sk_msg_cork);
 
-            return SK_PASS;
+            return SK_DROP;
         }
 
         bpf_err("ERROR: Failed to parse message (%d, %d): %s", msg->size, done_idx, msg->data);
-        return SK_PASS;
+        return SK_DROP;
     }
 
     // some version specific processing
@@ -1383,17 +1374,15 @@ int process_msg(struct sk_msg_md *msg) {
         if (!is_first_hdr) {
             bpf_msg_apply_bytes(msg, done_idx);
 
-            if (h2_type != 4) {
-                if (h2_dest == NULL) {
-                    bpf_log("No existing H2 destination found. Forwarding to control plane");
+            if (h2_dest == NULL) {
+                bpf_log("No existing H2 destination found. Forwarding to control plane");
+            }
+            else {
+                if (bpf_msg_redirect_hash(msg, &msg_sock_map, &h2_dest->conn, BPF_F_INGRESS) == SK_DROP) {
+                    bpf_err("ERROR: Failed to redirect h2 msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
                 }
                 else {
-                    if (bpf_msg_redirect_hash(msg, &msg_sock_map, &h2_dest->conn, BPF_F_INGRESS) == SK_DROP) {
-                        bpf_err("ERROR: Failed to redirect h2 msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
-                    }
-                    else {
-                        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
-                    }
+                    bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
                 }
             }
 
@@ -1474,46 +1463,30 @@ int process_msg(struct sk_msg_md *msg) {
         }
     }
 
-    if (res == PR_UTRN) {
-        struct data_stream stream = {
-            .conn = ikey,
-            .stream_id = h2_stream_id,
-        };
-
-        res = PR_PASS;
-        if (bpf_map_update_elem(&utrn_wait_list, &stream, &ctx->dest, BPF_ANY) < 0) {
-            bpf_err("ERROR: Failed to add uturn token to wait list");
-        }
-        else {
-            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
-        }
-    }
-
     if (is_h2 && !sock_key_is_null(&ekey) && is_downstream) {
         // if it's an h2 connection, we have to store the latest
         // frame destination. this allows us to route future
         // non-HEADER frames to the correct socket
-        struct data_stream istream = {
-            .conn = ikey,
-            .stream_id = h2_stream_id,
-        };
-
         u32 *next_stream_id = bpf_map_lookup_elem(&h2_conns, &ekey);
         if (next_stream_id != NULL) {
             // increase the stream id for the next request
             // client stream IDs are odd and increasing with every new stream
             __sync_fetch_and_add(next_stream_id, 2);
-            u32 current_stream_id = *next_stream_id;
-            bpf_log("Increase stream ID for [%pI4:%u->%pI4:%u] to %u", &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port, current_stream_id);
-
-            _set_h2_stream_id(msg, current_stream_id);
+            u32 new_stream_id = *next_stream_id;
+            bpf_log("Increase stream ID for [%pI4:%u->%pI4:%u] to %u", &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port, new_stream_id);
 
             // we only assign streams if redirection worked
             // the h2 stream id is increased regardless
             if (res != PR_UTRN) {
+                // istream uses the old stream ID as it is meant for
+                // future messages that will still bear the old ID
+                struct data_stream istream = {
+                    .conn = ikey,
+                    .stream_id = h2_stream_id,
+                };
                 struct data_stream estream = {
                     .conn = ekey,
-                    .stream_id = current_stream_id,
+                    .stream_id = new_stream_id,
                 };
 
                 bpf_log("Assign stream [%pI4:%u->%pI4:%u](%d) to [%pI4:%u->%pI4:%u](%d)", &istream.conn.local.ip4, istream.conn.local.port, &istream.conn.remote.ip4, istream.conn.remote.port, istream.stream_id, &estream.conn.local.ip4, estream.conn.local.port, &estream.conn.remote.ip4, estream.conn.remote.port, estream.stream_id);
@@ -1524,6 +1497,25 @@ int process_msg(struct sk_msg_md *msg) {
                     bpf_err("ERROR: Failed to update h2 stream mapping");
                 }
             }
+
+            // update the stream ID
+            _set_h2_stream_id(msg, new_stream_id);
+            h2_stream_id = new_stream_id;
+        }
+    }
+
+    if (res == PR_UTRN) {
+        struct data_stream istream = {
+            .conn = ikey,
+            .stream_id = h2_stream_id,
+        };
+
+        res = PR_PASS;
+        if (bpf_map_update_elem(&utrn_wait_list, &istream, &ctx->dest, BPF_ANY) < 0) {
+            bpf_err("ERROR: Failed to add uturn token to wait list");
+        }
+        else {
+            bpf_log("Add uturn to wait list [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
         }
     }
 
