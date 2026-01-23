@@ -1,4 +1,3 @@
-import { dest } from "./common.js";
 import { check } from "k6";
 import http from "k6/http";
 import {
@@ -16,13 +15,14 @@ export const options = {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 200,
             stages: [
-                { target: 5000, duration: "100s" },
+                { target: 5000, duration: "200s" },
                 { target: 5000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
     },
     discardResponseBodies: true,
+    insecureSkipTLSVerify: true,
 };
 
 export default () => {
