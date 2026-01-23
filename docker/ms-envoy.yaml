@@ -10,7 +10,6 @@ services:
     #   Enables resolving container hostnames from host machine
     dns-media:
         image: defreitas/dns-proxy-server
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -24,7 +23,6 @@ services:
     unique-id-service:
         build: ../test/media_service
         hostname: unique-id-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -40,7 +38,6 @@ services:
     movie-id-service:
         build: ../test/media_service
         hostname: movie-id-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -59,7 +56,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: movie-id-mongodb
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -72,7 +68,6 @@ services:
     movie-id-memcached:
         image: memcached
         hostname: movie-id-memcached
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -85,7 +80,6 @@ services:
     text-service:
         build: ../test/media_service
         hostname: text-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -101,7 +95,6 @@ services:
     rating-service:
         build: ../test/media_service
         hostname: rating-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -120,7 +113,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: rating-redis
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -133,7 +125,6 @@ services:
     user-service:
         build: ../test/media_service
         hostname: user-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -152,7 +143,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-mongodb
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -165,7 +155,6 @@ services:
     user-memcached:
         image: memcached
         hostname: user-memcached
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -178,7 +167,6 @@ services:
     compose-review-service:
         build: ../test/media_service
         hostname: compose-review-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -194,7 +182,6 @@ services:
     compose-review-memcached:
         image: memcached
         hostname: compose-review-memcached
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -209,7 +196,6 @@ services:
     review-storage-service:
         build: ../test/media_service
         hostname: review-storage-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -228,7 +214,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: review-storage-mongodb
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -241,7 +226,6 @@ services:
     review-storage-memcached:
         image: memcached
         hostname: review-storage-memcached
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -254,7 +238,6 @@ services:
     user-review-service:
         build: ../test/media_service
         hostname: user-review-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -273,7 +256,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-review-mongodb
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -289,7 +271,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: user-review-redis
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -302,7 +283,6 @@ services:
     movie-review-service:
         build: ../test/media_service
         hostname: movie-review-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -321,7 +301,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: movie-review-mongodb
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -337,7 +316,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: movie-review-redis
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -350,7 +328,6 @@ services:
     nginx-web-server:
         image: yg397/openresty-thrift:xenial
         hostname: nginx-thrift
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -369,7 +346,6 @@ services:
     cast-info-service:
         build: ../test/media_service
         hostname: cast-info-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -388,7 +364,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: cast-info-mongodb
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -401,7 +376,6 @@ services:
     cast-info-memcached:
         image: memcached
         hostname: cast-info-memcached
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -414,7 +388,6 @@ services:
     plot-service:
         build: ../test/media_service
         hostname: plot-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -433,7 +406,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: plot-mongodb
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -446,7 +418,6 @@ services:
     plot-memcached:
         image: memcached
         hostname: plot-memcached
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -459,7 +430,6 @@ services:
     movie-info-service:
         build: ../test/media_service
         hostname: movie-info-service
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -478,7 +448,6 @@ services:
             - type: tmpfs
               target: /data/db
         hostname: movie-info-mongodb
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -491,7 +460,6 @@ services:
     movie-info-memcached:
         image: memcached
         hostname: movie-info-memcached
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -504,7 +472,6 @@ services:
     jaeger:
         image: jaegertracing/all-in-one:latest
         hostname: jaeger
-        cgroup_parent: beeline.slice
         depends_on:
             - sidecar
         networks:
@@ -527,8 +494,9 @@ services:
             dockerfile: docker/Dockerfile.echo
         entrypoint: "echo -a 0.0.0.0:8080"
         hostname: sidecar
-        cgroup_parent: beeline.slice
         networks:
             default:
                 ipv4_address: 172.18.0.40
+        ports:
+            - 9991:9991
         restart: always
