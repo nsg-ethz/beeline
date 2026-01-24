@@ -230,7 +230,7 @@ def cdf_graph(name, time_range):
     df = _load_k6_data(paths)
     df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
 
-    df = df[df["timestamp"] < 101]  # experiment is only 100s long
+    df = df[df["timestamp"] < 201]  # experiment is only 200s long
     df = df[df["metric_value"] < 3000]  # we have a timeout of 3s
 
     num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
