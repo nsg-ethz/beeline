@@ -36,7 +36,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
@@ -64,7 +65,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
@@ -92,7 +94,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
@@ -118,7 +121,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
@@ -145,7 +149,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
@@ -169,8 +174,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
-            - MEMC_TIMEOUT
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         hostname: review
         networks:
@@ -195,8 +200,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
-            - MEMC_TIMEOUT
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         hostname: attractions
         networks:
@@ -224,7 +229,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
@@ -251,7 +257,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
@@ -278,7 +285,8 @@ services:
         environment:
             - TLS
             - GC
-            - JAEGER_SAMPLE_RATIO
+            - JAEGER_SAMPLE_RATIO=0
+            - MEMC_TIMEOUT=1
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
