@@ -119,13 +119,11 @@ async fn shutdown_signal() {
 
 async fn echo_fan_out(
     State(state): State<HandlerState>,
-    Path(num_services): Path<Option<u32>>,
+    Path(num_services): Path<u32>,
     req_hdrs: HeaderMap,
     body: Bytes,
 ) -> Result<String, StatusCode> {
     debug!("Received request: {:?}", req_hdrs);
-
-    let num_services = num_services.unwrap_or(1);
 
     if let Ok(body) = String::from_utf8(body.to_vec()) {
         let mut set = JoinSet::new();
@@ -170,13 +168,11 @@ async fn echo_fan_out(
 
 async fn echo_chain(
     State(state): State<HandlerState>,
-    Path(num_services): Path<Option<u32>>,
+    Path(num_services): Path<u32>,
     req_hdrs: HeaderMap,
     body: Bytes,
 ) -> Result<String, StatusCode> {
     debug!("Received request: {:?}", req_hdrs);
-
-    let num_services = num_services.unwrap_or(1);
 
     if let Ok(body) = String::from_utf8(body.to_vec()) {
         for i in 1..=num_services {

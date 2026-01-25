@@ -938,13 +938,13 @@ impl Recv {
         self.max_stream_id
     }
 
-    pub fn next_stream_id(&self) -> Result<StreamId, Error> {
-        if let Ok(id) = self.next_stream_id {
-            Ok(id)
-        } else {
-            Err(Error::library_go_away(Reason::PROTOCOL_ERROR))
-        }
-    }
+    // pub fn next_stream_id(&self) -> Result<StreamId, Error> {
+    //     if let Ok(id) = self.next_stream_id {
+    //         Ok(id)
+    //     } else {
+    //         Err(Error::library_go_away(Reason::PROTOCOL_ERROR))
+    //     }
+    // }
 
     pub fn may_have_created_stream(&self, id: StreamId) -> bool {
         if let Ok(next_id) = self.next_stream_id {

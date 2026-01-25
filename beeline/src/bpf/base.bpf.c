@@ -1027,6 +1027,8 @@ static __always_inline int _parse_h1_from(const char *data, const char *data_end
             continue;
         }
 
+        bpf_log("Processing character '%c' at index %d -> %d", c, i, *s);
+
         u16 a = 0;
         _next_h1(*s, c, s, &a);
 
