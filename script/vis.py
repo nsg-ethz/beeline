@@ -109,7 +109,7 @@ def _load_k6_data(paths, max_epoch=30, min_duration=100):
         try:
             df = pd.read_csv(p, low_memory=False)
             num_failed_res = (df["expected_response"] == False).sum()
-            if num_failed_res / len(df) > 0.1:
+            if num_failed_res / len(df) > 0.05:
                 print(f"Skipping {p}: {num_failed_res / len(df)} failed responses")
                 continue
 
