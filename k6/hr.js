@@ -1,5 +1,4 @@
 import { check } from "k6";
-import exec from "k6/execution";
 import http from "k6/http";
 import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
