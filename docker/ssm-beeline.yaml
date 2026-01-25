@@ -15,8 +15,6 @@ services:
             - 8080:8080
         extra_hosts:
             - "beeline:host-gateway"
-        environment:
-            - RUST_LOG=trace
         entrypoint:
             [
                 "frontend",
