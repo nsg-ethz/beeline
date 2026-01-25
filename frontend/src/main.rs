@@ -1,6 +1,7 @@
 use axum::{
     Router,
     body::Bytes,
+    extract::{Path, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     routing::post,
 };
@@ -28,11 +29,16 @@ struct Args {
     #[arg(short, long, default_value = "echo")]
     service_prefix: String,
 
-    #[arg(short = 'n', long, default_value = "1")]
-    num_services: usize,
-
     #[arg(short, long, default_value = "false")]
     fan_out: bool,
+}
+
+#[derive(Clone)]
+struct HandlerState {
+    proxy: Option<String>,
+    service_prefix: String,
+    client: Client,
+    headers: HeaderMap<HeaderValue>,
 }
 
 #[tokio::main]
@@ -44,7 +50,6 @@ async fn main() {
         headers,
         proxy,
         service_prefix,
-        num_services,
         fan_out,
     } = Args::parse();
 
@@ -71,94 +76,28 @@ async fn main() {
     } else {
         "connecting directly".to_string()
     };
-    info!(
-        "Listening on {}, {} with {} services, {}",
-        address, strategy_msg, num_services, proxy_msg
-    );
+    info!("Listening on {}, {}, {}", address, strategy_msg, proxy_msg);
     if headers.len() > 0 {
         info!("Will use headers: {:?}", headers);
     }
 
-    let svc = if fan_out {
-        post(
-            async move |req_hdrs: HeaderMap, body: Bytes| -> Result<String, StatusCode> {
-                debug!("Received request: {:?}", req_hdrs);
-
-                if let Ok(body) = String::from_utf8(body.to_vec()) {
-                    let mut set = JoinSet::new();
-                    for i in 1..=num_services {
-                        let addr = if let Some(proxy) = &proxy {
-                            format!("http://{}/{}{}", proxy, service_prefix, i)
-                        } else {
-                            format!("http://{}{}/", service_prefix, i)
-                        };
-
-                        debug!("Sending request {} to {}", i, addr);
-
-                        set.spawn(
-                            client
-                                .post(addr.clone())
-                                .headers(headers.clone())
-                                .body(body.clone())
-                                .send(),
-                        );
-                    }
-
-                    while let Some(res) = set.join_next().await {
-                        let res = match res {
-                            Ok(res) => res,
-                            Err(err) => {
-                                error!("Request failed: {:?}", err);
-                                return Err(StatusCode::BAD_REQUEST);
-                            }
-                        };
-
-                        if let Err(e) = handle_echo_res(res).await {
-                            return Err(e);
-                        }
-                    }
-
-                    return Ok(body);
-                }
-
-                Err(StatusCode::BAD_REQUEST)
-            },
-        )
-    } else {
-        post(
-            async move |req_hdrs: HeaderMap, body: Bytes| -> Result<String, StatusCode> {
-                debug!("Received request: {:?}", req_hdrs);
-
-                if let Ok(body) = String::from_utf8(body.to_vec()) {
-                    for i in 1..=num_services {
-                        let addr = if let Some(proxy) = &proxy {
-                            format!("http://{}/{}{}", proxy, service_prefix, i)
-                        } else {
-                            format!("http://{}{}/", service_prefix, i)
-                        };
-
-                        debug!("Sending request {} to {}", i, addr);
-
-                        let res = client
-                            .post(addr.clone())
-                            .headers(headers.clone())
-                            .body(body.clone())
-                            .send()
-                            .await;
-                        if let Err(e) = handle_echo_res(res).await {
-                            return Err(e);
-                        }
-                    }
-
-                    return Ok(body);
-                }
-
-                Err(StatusCode::BAD_REQUEST)
-            },
-        )
+    let state = HandlerState {
+        proxy,
+        service_prefix,
+        client,
+        headers,
     };
 
-    let app = Router::new().route("/", svc);
+    let svc = if fan_out {
+        post(echo_fan_out)
+    } else {
+        post(echo_chain)
+    };
+
+    let app = Router::new()
+        .route("/", svc.clone())
+        .route("/echo/{*count}", svc)
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(address.clone())
         .await
@@ -176,6 +115,95 @@ async fn shutdown_signal() {
         _ = tokio::signal::ctrl_c() => {},
         _ = sigterm.recv() => {},
     }
+}
+
+async fn echo_fan_out(
+    State(state): State<HandlerState>,
+    Path(num_services): Path<Option<u32>>,
+    req_hdrs: HeaderMap,
+    body: Bytes,
+) -> Result<String, StatusCode> {
+    debug!("Received request: {:?}", req_hdrs);
+
+    let num_services = num_services.unwrap_or(1);
+
+    if let Ok(body) = String::from_utf8(body.to_vec()) {
+        let mut set = JoinSet::new();
+        for i in 1..=num_services {
+            let addr = if let Some(proxy) = &state.proxy {
+                format!("http://{}/{}{}", proxy, state.service_prefix, i)
+            } else {
+                format!("http://{}{}/", state.service_prefix, i)
+            };
+
+            debug!("Sending request {} to {}", i, addr);
+
+            set.spawn(
+                state
+                    .client
+                    .post(addr.clone())
+                    .headers(state.headers.clone())
+                    .body(body.clone())
+                    .send(),
+            );
+        }
+
+        while let Some(res) = set.join_next().await {
+            let res = match res {
+                Ok(res) => res,
+                Err(err) => {
+                    error!("Request failed: {:?}", err);
+                    return Err(StatusCode::BAD_REQUEST);
+                }
+            };
+
+            if let Err(e) = handle_echo_res(res).await {
+                return Err(e);
+            }
+        }
+
+        return Ok(body);
+    }
+
+    Err(StatusCode::BAD_REQUEST)
+}
+
+async fn echo_chain(
+    State(state): State<HandlerState>,
+    Path(num_services): Path<Option<u32>>,
+    req_hdrs: HeaderMap,
+    body: Bytes,
+) -> Result<String, StatusCode> {
+    debug!("Received request: {:?}", req_hdrs);
+
+    let num_services = num_services.unwrap_or(1);
+
+    if let Ok(body) = String::from_utf8(body.to_vec()) {
+        for i in 1..=num_services {
+            let addr = if let Some(proxy) = &state.proxy {
+                format!("http://{}/{}{}", proxy, state.service_prefix, i)
+            } else {
+                format!("http://{}{}/", state.service_prefix, i)
+            };
+
+            debug!("Sending request {} to {}", i, addr);
+
+            let res = state
+                .client
+                .post(addr.clone())
+                .headers(state.headers.clone())
+                .body(body.clone())
+                .send()
+                .await;
+            if let Err(e) = handle_echo_res(res).await {
+                return Err(e);
+            }
+        }
+
+        return Ok(body);
+    }
+
+    Err(StatusCode::BAD_REQUEST)
 }
 
 async fn handle_echo_res(res: reqwest::Result<reqwest::Response>) -> Result<(), StatusCode> {
