@@ -497,4 +497,6 @@ services:
         networks:
             default:
                 ipv4_address: 172.18.0.40
+        ports:
+            - 9991:9991
         restart: always

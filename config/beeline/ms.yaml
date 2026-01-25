@@ -1,4 +1,8 @@
 socket: 172.17.0.1:9999
+tls:
+    socket: 0.0.0.0:9991
+    cert: res/pem/cert.pem
+    key: res/pem/key.pem
 accelerate: 172.18.0.0/24
 hosts:
     - name: nginx
@@ -46,12 +50,6 @@ policies:
       method: GET
       path: "/api/v1/health"
       destination_port: 8080
-      allow: true
-    - name: rbac-rule-02-auth-service
-      source_ip: 172.18.0.101
-      method: POST
-      path: "/auth/login"
-      destination_port: 8443
       allow: true
     - name: rbac-rule-03-user-management
       source_ip: 172.18.0.102
@@ -340,6 +338,11 @@ policies:
       method: POST
       path: "/text-service"
       destination_port: 9999
+      allow: true
+    - name: allow-edge
+      method: POST
+      path: "/wrk2-api/review/compose"
+      destination_port: 9991
       allow: true
 routes:
     - match:
