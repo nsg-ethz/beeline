@@ -1248,10 +1248,10 @@ int process_skb(struct __sk_buff *skb) {
         u8 h2_type = 0;
 
         if (is_h2) {
-            done_idx = _parse_h2_skb(skb, &pres, &h2_stream_id, &h2_type, &h2_flags, NULL);
+            done_idx = _parse_h2_skb(skb, &pres, &h2_stream_id, &h2_type, &h2_flags, &tls.header);
         }
         else {
-            done_idx = _parse_h1_skb(skb, &pres, NULL);
+            done_idx = _parse_h1_skb(skb, &pres, &tls.header);
         }
 
         if (done_idx < 0) {
