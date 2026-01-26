@@ -35,12 +35,7 @@ impl Parser {
         self.dfa
             .start_pattern(self.s_init)
             .start_capturing()
-            .push_optional('P')?
-            .push_optional('O')?
-            .push_optional('S')?
-            .push_optional('T')?
-            .push_optional('G')?
-            .push_optional('E')?
+            .push_optional('*')?
             .end_capturing(" ")?
             .start_capturing()
             .push_optional('*')?

@@ -686,7 +686,7 @@ static __always_inline void _next_h2(u16 state, u8 input, u16 *next_state, u16 *
     *action = t.action;
 }
 
-__noinline __weak int _next_h2_hpack(u8 c, enum h2_parse_state *ps __arg_nonnull, u32 *n __arg_nonnull, u32 *k __arg_nonnull, u8 *j __arg_nonnull) {
+__always_inline int _next_h2_hpack(u8 c, enum h2_parse_state *ps __arg_nonnull, u32 *n __arg_nonnull, u32 *k __arg_nonnull, u8 *j __arg_nonnull) {
     if (*ps == H2_KEY_LEN) {
         *ps = H2_KEY;
         *j = *k-1;
@@ -754,7 +754,7 @@ static __always_inline void _parse_h2_hpack(u8 c, enum h2_parse_state *ps, u32 *
     // bpf_log("parse_hpack: c=%d, ps=%d, n=%d, m=%d, k=%d, j=%d", c, *ps, *n, *m, *k, *j);
 }
 
-static __always_inline int _get_h2_table_entry(const struct sk_msg_md *msg, u32 idx, u16 dt_size, struct header_field **hf) {
+static __always_inline int _get_h2_table_entry(u32 idx, struct header_field **hf) {
     if (idx == 0) {
         *hf = NULL;
         return -1;
@@ -777,7 +777,7 @@ static __always_inline int _get_h2_table_entry(const struct sk_msg_md *msg, u32 
     return (hf == NULL) ? -1 : idx;
 }
 
-__noinline __weak s8 _parse_h2_table_entry(const struct header_field *hf __arg_nonnull, u16 *s __arg_nonnull) {
+__always_inline s8 _parse_h2_table_entry(const struct header_field *hf __arg_nonnull, u16 *s __arg_nonnull) {
     u8 j = 0;
     u16 a = 0;
     bpf_for(j, 0, 32) {
@@ -795,29 +795,7 @@ __noinline __weak s8 _parse_h2_table_entry(const struct header_field *hf __arg_n
     return -1;
 }
 
-__noinline __weak int _add_h2_table_entry(const struct sk_msg_md *msg, u32 idx, const struct hdr_match *key __arg_nonnull, const struct hdr_match *val __arg_nonnull) {
-    struct dynamic_table_key dt_key = _new_table_key(msg, idx);
-    const u8 *key_ptr = _extract_match(msg->data, msg->data_end, &dt_key.conn, key, true);
-    const u8 *val_ptr = _extract_match(msg->data, msg->data_end, &dt_key.conn, val, false);
-    if (!key_ptr || !val_ptr) return 0;
-
-    struct header_field dt_val = { 0 };
-    u16 key_len = (key->in_msg) ? key->len & 0x1F : 0x1F;
-    int res = bpf_probe_read_kernel(dt_val.key, key_len, key_ptr);
-    res += bpf_probe_read_kernel(dt_val.val, val->len & 0x1F, val_ptr);
-
-    res += bpf_map_update_elem(&dynamic_table, &dt_key, &dt_val, BPF_ANY);
-    bpf_log("add to dynamic table: %d -> %d", idx, res);
-    bpf_log("key { %d %d %d}", key->idx, key->len, key->in_msg);
-    bpf_log("val { %d %d %d}", val->idx, val->len, val->in_msg);
-
-    return res;
-}
-
-static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start, u16 end, u16* s, struct parse_res *pres) {
-    const struct sock_key skey = _new_sock_key_from_msg(msg);
-    const u8 *data = msg->data;
-    const u8 *data_end = msg->data_end;
+static __always_inline int _parse_h2_from(const u8 *data, const u8 *data_end, u16 start, u16 end, u16* s, struct parse_res *pres, u16 *null_prefix) {
     u32 len = (u32)(data_end - data) & MAX_BYTES;
     if (end < len) len = end & MAX_BYTES;
 
@@ -827,18 +805,6 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
 
     if (data + 9 > data_end) return -1;
     u32 stream_id = data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
-
-    struct dynamic_table_info *dt_info = bpf_map_lookup_elem(&dynamic_table_info, &skey);
-    if (!dt_info) {
-        struct dynamic_table_info new_info = {
-            .size = 0,
-            .max_size = 100,
-        };
-        bpf_map_update_elem(&dynamic_table_info, &skey, &new_info, BPF_ANY);
-
-        dt_info = bpf_map_lookup_elem(&dynamic_table_info, &skey);
-        if (!dt_info) return -1;
-    }
 
     u32 n = 0, m = 0;
     u32 i = 0, k = 0;
@@ -856,16 +822,20 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
         if (data + i + 1 > data_end) break;
         u8 c = data[i];
 
+        // skb clears the TLS header, but does not remove it
+        if (null_prefix && c == '\0' && i == *null_prefix) {
+            *null_prefix = i + 1;
+            continue;
+        }
+
         _parse_h2_hpack(c, &ps, &n, &m, &k, &j);
         if (j != 0) continue;
 
         if (ps == H2_IDX) {
-            // bpf_log("%d: parsed idx: %d, dt_size: %d", i, k, dt_info->size);
-
             add_to_dt = (u8)(n == 6);
             *s = s_any;
             struct header_field *hf;
-            int idx = _get_h2_table_entry(msg, k, dt_info->size, &hf);
+            int idx = _get_h2_table_entry(k, &hf);
             if (hf == NULL) {
                 cid = -1;
                 continue;
@@ -893,7 +863,6 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
             key.in_msg = true;
         }
         else if (ps == H2_VAL_LEN) {
-            // dt_info->size += add_to_dt;
 
             if (cid >= 0) {
                 struct hdr_match val = (struct hdr_match) {
@@ -902,11 +871,6 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
                     .in_msg = true,
                 };
 
-                // if (add_to_dt) {
-                //     _add_h2_table_entry(msg, STATIC_TABLE_SIZE + dt_info->size, &key, &val);
-                // }
-
-                // bpf_log("capture: %d {%d, %d}", cid, i, k);
                 pres->ms[cid & MAX_MATCH_MASK] = val;
                 cid = -1;
             }
@@ -917,7 +881,7 @@ static __always_inline int _parse_h2_from(const struct sk_msg_md *msg, u16 start
 }
 
 static __always_inline int _parse_h2_msg_from(const struct sk_msg_md *msg, u16 start, u16 end, u16* s, struct parse_res *pres) {
-    return _parse_h2_from(msg, start, end, s, pres);
+    return _parse_h2_from(msg->data, msg->data_end, start, end, s, pres, NULL);
 }
 
 static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res *pres, u32 *stream_id, u8 *type, u8 *flags) {
@@ -940,7 +904,7 @@ static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res
     u8 hdr_len = (padded) ? 10 : 9;
     *stream_id = data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
 
-    bpf_log("Parsing HTTP/2 message for stream %d with length %d, type %d, flags %d", *stream_id, len, *type, *flags);
+    bpf_log("Parsing HTTP/2 msg for stream %d with length %d, type %d, flags %d", *stream_id, len, *type, *flags);
 
     if (*type != 0x01) {
         return len + hdr_len;
@@ -957,25 +921,57 @@ static __always_inline int _parse_h2_msg(struct sk_msg_md *msg, struct parse_res
     return res;
 }
 
-static __always_inline int _get_h2_stream_id(struct sk_msg_md *msg) {
-    u8 *data = (u8 *)(long)msg->data;
-    u8 *data_end = (u8 *)(long)msg->data_end;
+static __always_inline int _parse_h2_skb_from(const struct __sk_buff *skb, u16 start, u16 end, u16* s, struct parse_res *pres, u16 *null_prefix) {
+    return _parse_h2_from((u8*)(long)skb->data, (u8*)(long)skb->data_end, start, end, s, pres, NULL);
+}
 
+static __always_inline int _parse_h2_skb(struct __sk_buff *skb, struct parse_res *pres, u32 *stream_id, u8 *type, u8 *flags, u16 *null_prefix) {
+    u8 *data = (u8 *)(long)skb->data;
+    u8 *data_end = (u8 *)(long)skb->data_end;
+
+    if (data + 9 > data_end) {
+        if (bpf_skb_pull_data(skb, 9) < 0) return -1;
+
+        data = (u8 *)(long)skb->data;
+        data_end = (u8 *)(long)skb->data_end;
+
+        if (data + 9 > data_end) return -1;
+    }
+
+    u32 len = data[0] << 16 | data[1] << 8 | data[2];
+    *type = data[3];
+    *flags = data[4];
+    bool padded = *flags & 0x08;
+    u8 hdr_len = (padded) ? 10 : 9;
+    *stream_id = data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
+
+    bpf_log("Parsing HTTP/2 skb for stream %d with length %d, type %d, flags %d", *stream_id, len, *type, *flags);
+
+    if (*type != 0x01) {
+        return len + hdr_len;
+    }
+
+    if (bpf_skb_pull_data(skb, len + hdr_len) < 0) {
+        return -(data_end - data);
+    }
+
+    u16 s = s_any;
+    int res = _parse_h2_skb_from(skb, hdr_len, len+hdr_len, &s, pres, null_prefix);
+    if (len + hdr_len > res) return -1;
+
+    return res;
+}
+
+
+static __always_inline int _get_h2_stream_id(const u8* data, const u8* data_end) {
     if (data + 9 > data_end) return -1;
 
     return data[5] << 24 | data[6] << 16 | data[7] << 8 | data[8];
 }
 
-static __always_inline int _set_h2_stream_id(struct sk_msg_md *msg, u32 new_stream_id) {
-    if (bpf_msg_pull_data(msg, 0, 9, 0) < 0) {
-        return -1;
-    }
-
-    int stream_id = _get_h2_stream_id(msg);
+static __always_inline int _set_h2_stream_id(u8* data, u8* data_end, u32 new_stream_id) {
+    int stream_id = _get_h2_stream_id(data, data_end);
     if (stream_id <= 0) return stream_id;
-
-    u8 *data = (u8 *)(long)msg->data;
-    u8 *data_end = (u8 *)(long)msg->data_end;
 
     if (data + 9 > data_end) return -1;
 
@@ -987,6 +983,22 @@ static __always_inline int _set_h2_stream_id(struct sk_msg_md *msg, u32 new_stre
     data[8] = new_stream_id;
 
     return 0;
+}
+
+static __always_inline int _set_h2_stream_id_msg(struct sk_msg_md *msg, u32 new_stream_id) {
+    if (bpf_msg_pull_data(msg, 0, 9, 0) < 0) {
+        return -1;
+    }
+
+    return _set_h2_stream_id(msg->data, msg->data_end, new_stream_id);
+}
+
+static __always_inline int _set_h2_stream_id_skb(struct __sk_buff *skb, u32 new_stream_id) {
+    if (bpf_skb_pull_data(skb, 9) < 0) {
+        return -1;
+    }
+
+    return _set_h2_stream_id((u8*)(long)skb->data, (u8*)(long)skb->data_end, new_stream_id);
 }
 
 // ----------------------------------------------
@@ -1026,8 +1038,6 @@ static __always_inline int _parse_h1_from(const char *data, const char *data_end
             *null_prefix = i + 1;
             continue;
         }
-
-        bpf_log("Processing character '%c' at index %d -> %d", c, i, *s);
 
         u16 a = 0;
         _next_h1(*s, c, s, &a);
@@ -1128,10 +1138,58 @@ int parse_skb(struct __sk_buff *skb) {
     enum pr_action res = PR_PASS;
     struct parse_res pres = { 0 };
 
-    int done_idx = _parse_h1_skb(skb, &pres, NULL);
+    bool is_h2 = (bpf_map_lookup_elem(&h2_conns, &ikey) != NULL);
+    u8 h2_flags = 0;
+    u8 h2_type = 0;
+    u32 h2_stream_id = 0;
+    int done_idx = -1;
+
+    if (is_h2) {
+        done_idx = _parse_h2_skb(skb, &pres, &h2_stream_id, &h2_type, &h2_flags, NULL);
+    }
+    else {
+        done_idx = _parse_h1_skb(skb, &pres, NULL);
+    }
+
     if (done_idx < 0) {
         bpf_err("Could not parse skb header (code: %d) after %dB. Corking...", done_idx, skb->len);
         return 0;
+    }
+
+    // some version specific processing
+    if (is_h2) {
+        struct data_stream istream = {
+            .conn = ikey,
+            .stream_id = h2_stream_id,
+        };
+        struct data_stream *h2_dest = bpf_map_lookup_elem(&h2_streams, &istream);
+        if (h2_dest != NULL) {
+            _set_h2_stream_id_skb(skb, h2_dest->stream_id);
+            h2_stream_id = h2_dest->stream_id;
+        }
+
+        // HEADER frames are parsed by beeline, all other frames are forwarded to the previous destination
+        bool is_first_hdr = (h2_type == 1 && h2_flags == 4);
+        if (!is_first_hdr) {
+            if (h2_dest == NULL) {
+                bpf_log("No existing H2 destination found. Forwarding to control plane");
+            }
+            else {
+                if (bpf_map_update_elem(&skb_verdict, &ikey, &h2_dest->conn, BPF_ANY) < 0) {
+                    bpf_err("ERROR: Failed to save verdict");
+                }
+            }
+
+            return done_idx;
+        }
+    }
+    else if (pres.ms[0].len > 0) {
+        // upgrade the connection if we matched the H2 preface
+        u32 stream_id = 1;
+        bpf_map_update_elem(&h2_conns, &ikey, &stream_id, BPF_ANY);
+        bpf_log("Upgraded [%pI4:%u->%pI4:%u] to HTTP/2", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+
+        return 24;
     }
 
     struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);
@@ -1139,7 +1197,13 @@ int parse_skb(struct __sk_buff *skb) {
         bpf_err("ERROR: Failed to init filter context");
         return SK_DROP;
     }
-    _init_h1_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
+
+    if (is_h2) {
+        _init_h2_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
+    }
+    else {
+        _init_h1_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
+    }
 
     res = _match(skb, ctx, &ikey, is_downstream, true, false);
 
@@ -1170,6 +1234,8 @@ int process_skb(struct __sk_buff *skb) {
 
     enum pr_action res = PR_PASS;
     struct addr_key *dest = bpf_map_lookup_elem(&skb_verdict, &ikey);
+    bool is_h2 = (bpf_map_lookup_elem(&h2_conns, &ikey) != NULL);
+    u32 h2_stream_id = 0;
 
     // skb_parser is only called for non-kTLS sockets
     struct tls_size tls = { 0 };
@@ -1177,10 +1243,57 @@ int process_skb(struct __sk_buff *skb) {
         bpf_log("No skb verdict found, parsing now...");
 
         struct parse_res pres = { 0 };
-        int done_idx = _parse_h1_skb(skb, &pres, &tls.header);
+        int done_idx = -1;
+        u8 h2_flags = 0;
+        u8 h2_type = 0;
+
+        if (is_h2) {
+            done_idx = _parse_h2_skb(skb, &pres, &h2_stream_id, &h2_type, &h2_flags, NULL);
+        }
+        else {
+            done_idx = _parse_h1_skb(skb, &pres, NULL);
+        }
 
         if (done_idx < 0) {
-            bpf_err("ERROR: Failed to parse message (%d, %d): %s", skb->len, done_idx, skb->data);
+            return SK_DROP;
+        }
+
+        // some version specific processing
+        if (is_h2) {
+            struct data_stream istream = {
+                .conn = ikey,
+                .stream_id = h2_stream_id,
+            };
+            struct data_stream *h2_dest = bpf_map_lookup_elem(&h2_streams, &istream);
+            if (h2_dest != NULL) {
+                _set_h2_stream_id_skb(skb, h2_dest->stream_id);
+                h2_stream_id = h2_dest->stream_id;
+            }
+
+            // HEADER frames are parsed by beeline, all other frames are forwarded to the previous destination
+            bool is_first_hdr = (h2_type == 1 && h2_flags == 4);
+            if (!is_first_hdr) {
+                if (h2_dest == NULL) {
+                    bpf_log("No existing H2 destination found. Forwarding to control plane");
+                }
+                else {
+                    if (bpf_sk_redirect_hash(skb, &skb_sock_map, &h2_dest->conn, 0) == SK_DROP) {
+                        bpf_err("ERROR: Failed to redirect h2 msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
+                    }
+                    else {
+                        bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &h2_dest->conn.local.ip4, h2_dest->conn.local.port, &h2_dest->conn.remote.ip4, h2_dest->conn.remote.port);
+                    }
+                }
+
+                return SK_PASS;
+            }
+        }
+        else if (pres.ms[0].len > 0) {
+            // upgrade the connection if we matched the H2 preface
+            u32 stream_id = 1;
+            bpf_map_update_elem(&h2_conns, &ikey, &stream_id, BPF_ANY);
+            bpf_log("Upgraded [%pI4:%u->%pI4:%u] to HTTP/2", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port);
+
             return SK_PASS;
         }
 
@@ -1189,7 +1302,13 @@ int process_skb(struct __sk_buff *skb) {
             bpf_err("ERROR: Failed to init filter context");
             return SK_DROP;
         }
-        _init_h1_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
+
+        if (is_h2) {
+            _init_h2_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
+        }
+        else {
+            _init_h1_filter_ctx((u8*)(long)skb->data, (u8*)(long)skb->data_end, &ikey, ctx, done_idx, &pres);
+        }
 
         res = _match(skb, ctx, &ikey, is_downstream, true, false);
 
@@ -1248,10 +1367,52 @@ int process_skb(struct __sk_buff *skb) {
             bool remove_tls = (tls.header + tls.trailer) != 0;
             if (remove_tls && bpf_map_update_elem(&tls_sizes, &ekey, &tls, BPF_ANY) < 0) {
                 bpf_err("ERROR: Failed to update TLS size for [%pI4:%u->%pI4:%u]", &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+                res = (!is_h2 || is_downstream) ? PR_UTRN : PR_DROP;
+            }
+            else {
+                bpf_log("Redirecting skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
+            }
+        }
+    }
+
+    if (is_h2 && !sock_key_is_null(&ekey) && is_downstream) {
+        // if it's an h2 connection, we have to store the latest
+        // frame destination. this allows us to route future
+        // non-HEADER frames to the correct socket
+        u32 *next_stream_id = bpf_map_lookup_elem(&h2_conns, &ekey);
+        if (next_stream_id != NULL) {
+            // increase the stream id for the next request
+            // client stream IDs are odd and increasing with every new stream
+            __sync_fetch_and_add(next_stream_id, 2);
+            u32 new_stream_id = *next_stream_id;
+            bpf_log("Increase stream ID for [%pI4:%u->%pI4:%u] to %u", &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port, new_stream_id);
+
+            // we only assign streams if redirection worked
+            // the h2 stream id is increased regardless
+            if (res != PR_UTRN) {
+                // istream uses the old stream ID as it is meant for
+                // future messages that will still bear the old ID
+                struct data_stream istream = {
+                    .conn = ikey,
+                    .stream_id = h2_stream_id,
+                };
+                struct data_stream estream = {
+                    .conn = ekey,
+                    .stream_id = new_stream_id,
+                };
+
+                bpf_log("Assign stream [%pI4:%u->%pI4:%u](%d) to [%pI4:%u->%pI4:%u](%d)", &istream.conn.local.ip4, istream.conn.local.port, &istream.conn.remote.ip4, istream.conn.remote.port, istream.stream_id, &estream.conn.local.ip4, estream.conn.local.port, &estream.conn.remote.ip4, estream.conn.remote.port, estream.stream_id);
+                if (bpf_map_update_elem(&h2_streams, &istream, &estream, BPF_ANY) < 0) {
+                    bpf_err("ERROR: Failed to update h2 stream mapping");
+                }
+                if (bpf_map_update_elem(&h2_streams, &estream, &istream, BPF_ANY) < 0) {
+                    bpf_err("ERROR: Failed to update h2 stream mapping");
+                }
             }
 
-            bpf_log("Redirecting skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
-            return SK_PASS;
+            // update the stream ID
+            _set_h2_stream_id_skb(skb, new_stream_id);
+            h2_stream_id = new_stream_id;
         }
     }
 
@@ -1367,7 +1528,7 @@ int process_msg(struct sk_msg_md *msg) {
         };
         struct data_stream *h2_dest = bpf_map_lookup_elem(&h2_streams, &istream);
         if (h2_dest != NULL) {
-            _set_h2_stream_id(msg, h2_dest->stream_id);
+            _set_h2_stream_id_msg(msg, h2_dest->stream_id);
             h2_stream_id = h2_dest->stream_id;
         }
 
@@ -1501,7 +1662,7 @@ int process_msg(struct sk_msg_md *msg) {
             }
 
             // update the stream ID
-            _set_h2_stream_id(msg, new_stream_id);
+            _set_h2_stream_id_msg(msg, new_stream_id);
             h2_stream_id = new_stream_id;
         }
     }
