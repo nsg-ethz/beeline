@@ -1,14 +1,12 @@
 package frontend
 
 import (
-	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/delimitrou/DeathStarBench/tree/master/hotelReservation/dialer"
 	"github.com/delimitrou/DeathStarBench/tree/master/hotelReservation/registry"
@@ -249,9 +247,6 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Trace().Msg("SearchHandler gets searchResp")
-	//for _, hid := range searchResp.HotelIds {
-	//	log.Trace().Msgf("Search Handler hotelId = %s", hid)
-	//}
 
 	// grab locale from query params or default to en
 	locale := r.URL.Query().Get("locale")
@@ -312,28 +307,11 @@ func (s *Server) recommendHandler(w http.ResponseWriter, r *http.Request) {
 
 	var recResp *recommendation.Result
 	var err error
-
-	for attempt := 0; attempt < 2; attempt++ {
-		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-		recResp, err = s.recommendationClient.GetRecommendations(ctx, &recommendation.Request{
-			Require: require,
-			Lat:     float64(lat),
-			Lon:     float64(lon),
-		})
-		cancel()
-		if err == nil {
-			break
-		}
-		if ctx.Err() == context.DeadlineExceeded && attempt == 0 {
-			// Timeout: reinit client and try again
-			if initErr := s.initRecommendationClient("srv-recommendation"); initErr != nil {
-				http.Error(w, "Failed to reinitialize recommendation client: "+initErr.Error(), http.StatusInternalServerError)
-				return
-			}
-			continue
-		}
-		break
-	}
+	recResp, err = s.recommendationClient.GetRecommendations(r.Context(), &recommendation.Request{
+		Require: require,
+		Lat:     float64(lat),
+		Lon:     float64(lon),
+	})
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -347,27 +325,11 @@ func (s *Server) recommendHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var profileResp *profile.Result
+	profileResp, err = s.profileClient.GetProfiles(r.Context(), &profile.Request{
+		HotelIds: recResp.HotelIds,
+		Locale:   locale,
+	})
 
-	for attempt := 0; attempt < 2; attempt++ {
-		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-		profileResp, err = s.profileClient.GetProfiles(ctx, &profile.Request{
-			HotelIds: recResp.HotelIds,
-			Locale:   locale,
-		})
-		cancel()
-		if err == nil {
-			break
-		}
-		if ctx.Err() == context.DeadlineExceeded && attempt == 0 {
-			// Timeout: reinit client and try again
-			if initErr := s.initProfileClient("srv-profile"); initErr != nil {
-				http.Error(w, "Failed to reinitialize profile client: "+initErr.Error(), http.StatusInternalServerError)
-				return
-			}
-			continue
-		}
-		break
-	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
