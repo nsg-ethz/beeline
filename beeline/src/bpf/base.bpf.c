@@ -485,11 +485,11 @@ static __always_inline int _fib_insert(const struct addr_key *addr, bool downstr
             return -1;
         }
 
-        return bpf_map_push_elem(pqueue, key, BPF_ANY);
+        return bpf_map_push_elem(pqueue, key, BPF_EXIST);
     }
 }
 
-static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool downstream, bool sk_msg, struct sock_key *ekey) {
+static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool downstream, bool sk_msg, struct sock_key *ekey, bool is_h2) {
     if (downstream) {
         struct sock_key *res_ptr;
         res_ptr = bpf_map_lookup_elem(&fib_downstream, addr);
@@ -512,8 +512,11 @@ static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool dow
     }
 
     struct sock_key res;
-    if (bpf_map_pop_elem(pqueue, &res) < 0) {
-        return PR_UTRN;
+    if (is_h2) {
+        if (bpf_map_peek_elem(pqueue, &res) < 0) return PR_UTRN;
+    }
+    else {
+        if (bpf_map_pop_elem(pqueue, &res) < 0) return PR_UTRN;
     }
     *ekey = res;
 
@@ -542,8 +545,11 @@ static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key
     return PR_PASS;
 }
 
-static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, bool sk_msg) {
+static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, bool sk_msg, bool is_h2) {
     if (dkey == NULL || ukey == NULL) return PR_DROP;
+
+    // H2 multiplexes the same connection
+    // if (is_h2) return PR_PASS;
 
     // make upstream connection available for new requests
     int res = _fib_insert(&ukey->local, false, sk_msg, ukey);
@@ -1339,13 +1345,13 @@ int process_skb(struct __sk_buff *skb) {
     }
 
     struct sock_key ekey = { 0 };
-    res = _fib_query(dest, !is_downstream, false, &ekey);
+    res = _fib_query(dest, !is_downstream, false, &ekey, is_h2);
 
     if (is_downstream) {
         post_forward_ds_conn(&ikey, &ekey, false);
     }
     else {
-        post_forward_us_conn(&ikey, &ekey, false);
+        post_forward_us_conn(&ikey, &ekey, false, is_h2);
     }
 
     bpf_profile_end(sk_skb);
@@ -1598,13 +1604,13 @@ int process_msg(struct sk_msg_md *msg) {
     }
 
     struct sock_key ekey = { 0 };
-    res = _fib_query(&ctx->dest, !is_downstream, true, &ekey);
+    res = _fib_query(&ctx->dest, !is_downstream, true, &ekey, is_h2);
 
     if (is_downstream) {
         post_forward_ds_conn(&ikey, &ekey, true);
     }
     else {
-        post_forward_us_conn(&ikey, &ekey, true);
+        post_forward_us_conn(&ikey, &ekey, true, is_h2);
     }
 
     bpf_profile_end(sk_msg);

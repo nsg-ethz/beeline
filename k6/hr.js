@@ -8,13 +8,13 @@ export const options = {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 200,
             stages: [
-                { target: 20000, duration: "200s" },
+                { target: 20000, duration: "100s" },
                 { target: 20000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
     },
-    discardResponseBodies: true,
+    // discardResponseBodies: true,
     insecureSkipTLSVerify: true,
 };
 
@@ -33,6 +33,11 @@ export default () => {
         `${dest}/recommendations?require=${require}&lat=${lat}&lon=${lon}`,
         params,
     );
+
+    if (res.status != 200) {
+        console.log(res.body);
+    }
+
     return check(res, {
         "status is 200": (r) => r.status === 200,
     });

@@ -4,6 +4,7 @@ tls:
     cert: res/pem/cert.pem
     key: res/pem/key.pem
 accelerate: 172.18.0.0/24
+stats: true
 hosts:
     - name: frontend
       http2: true

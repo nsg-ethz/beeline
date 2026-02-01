@@ -114,8 +114,12 @@ impl FlowControl {
     pub fn inc_window(&mut self, sz: WindowSize) -> Result<(), Reason> {
         let (val, overflow) = self.window_size.0.overflowing_add(sz as i32);
 
+        // beeline: it's possible that we get a window update that the
+        // data plane forwards to the control plane. If this happends to often,
+        // we get an overflow. we can safely ignore this.
         if overflow {
-            return Err(Reason::FLOW_CONTROL_ERROR);
+            self.window_size = Window(MAX_WINDOW_SIZE as i32);
+            return Ok(());
         }
 
         if val > MAX_WINDOW_SIZE as i32 {

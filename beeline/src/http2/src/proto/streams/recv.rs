@@ -128,12 +128,12 @@ impl Recv {
     pub fn open(
         &mut self,
         id: StreamId,
-        mode: Open,
+        _: Open,
         counts: &mut Counts,
     ) -> Result<Option<StreamId>, Error> {
         assert!(self.refused.is_none());
 
-        counts.peer().ensure_can_open(id, mode)?;
+        // counts.peer().ensure_can_open(id, mode)?;
 
         // let next_id = self.next_stream_id()?;
         // if id < next_id {
@@ -650,8 +650,9 @@ impl Recv {
 
             // Receiving a DATA frame when not expecting one is a protocol
             // error.
-            proto_err!(conn: "unexpected DATA frame; stream={:?}", stream.id);
-            return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
+            // proto_err!(conn: "unexpected DATA frame; stream={:?}", stream.id);
+            // return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
+            return Ok(());
         }
 
         tracing::trace!(
@@ -1241,11 +1242,11 @@ impl Recv {
 
 // ===== impl Open =====
 
-impl Open {
-    pub fn is_push_promise(&self) -> bool {
-        matches!(*self, Self::PushPromise)
-    }
-}
+// impl Open {
+//     pub fn is_push_promise(&self) -> bool {
+//         matches!(*self, Self::PushPromise)
+//     }
+// }
 
 // ===== impl RecvHeaderBlockError =====
 

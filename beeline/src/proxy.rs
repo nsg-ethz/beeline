@@ -788,7 +788,7 @@ impl<'obj> Proxy<'obj> {
             let mut downstream_conn = server::Builder::new()
                 .initial_window_size(max_window_size)
                 .initial_connection_window_size(max_window_size)
-                .max_concurrent_streams(10000)
+                .max_concurrent_streams(1000000)
                 .max_local_error_reset_streams(None)
                 .handshake::<_, Bytes>(downstream)
                 .await
@@ -813,7 +813,7 @@ impl<'obj> Proxy<'obj> {
                 let fib_downstream = fib_downstream.clone();
 
                 tokio::spawn(async move {
-                    trace!("Received request: {:?} from {:?}", request, ds_remote_addr);
+                    debug!("Received request: {:?} from {:?}", request, ds_remote_addr);
 
                     let utrn_wait_list = utrn_wait_list.lock().await;
                     let sock_map_wait_list = sock_map_wait_list.lock().await;
@@ -971,7 +971,7 @@ impl<'obj> Proxy<'obj> {
                     let (client, upstream_conn) = client::Builder::new()
                         .initial_window_size(max_window_size)
                         .initial_connection_window_size(max_window_size)
-                        .max_concurrent_streams(10000)
+                        .max_concurrent_streams(1000000)
                         .max_local_error_reset_streams(None)
                         .handshake::<_, Bytes>(upstream)
                         .await
@@ -984,7 +984,7 @@ impl<'obj> Proxy<'obj> {
                                 us_local_addr, e
                             );
                         }
-                        trace!("Upstream connection closed {}", us_local_addr);
+                        debug!("Upstream connection closed {}", us_local_addr);
                     });
 
                     let mut client = client.ready().await.unwrap();

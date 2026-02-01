@@ -20,8 +20,7 @@ use crate::{
     codec::{Codec, SendError, UserError},
     ext::Protocol,
     frame::{self, Frame, Reason},
-    proto,
-    proto::{peer, Error, Initiator, Open, Peer, WindowSize},
+    proto::{self, peer, Error, Initiator, Open, Peer, WindowSize, MAX_WINDOW_SIZE},
     server, tracing,
 };
 
@@ -580,7 +579,7 @@ impl Inner {
 
     fn recv_data<B>(
         &mut self,
-        peer: peer::Dyn,
+        _: peer::Dyn,
         send_buffer: &SendBuffer<B>,
         frame: frame::Data,
     ) -> Result<(), Error> {
@@ -600,22 +599,11 @@ impl Inner {
                     return Ok(());
                 }
 
-                if self.actions.may_have_forgotten_stream(peer, id) {
-                    tracing::debug!("recv_data for old stream={:?}, sending STREAM_CLOSED", id,);
+                // it's possible that beeline has redirected this stream so far,
+                // that's why we don't have it in the store
 
-                    let sz = frame.payload().len();
-                    // This should have been enforced at the codec::FramedRead layer, so
-                    // this is just a sanity check.
-                    assert!(sz <= super::MAX_WINDOW_SIZE as usize);
-                    let sz = sz as WindowSize;
-
-                    self.actions.recv.ignore_data(sz)?;
-                    return Err(Error::library_reset(id, Reason::STREAM_CLOSED));
-                }
-
-                proto_err!(conn: "recv_data: stream not found; id={:?}", id);
-                return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
-                // return Ok(());
+                let stream = Stream::new(id, MAX_WINDOW_SIZE, MAX_WINDOW_SIZE);
+                self.store.insert(id, stream)
             }
         };
 

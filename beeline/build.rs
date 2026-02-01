@@ -11,7 +11,9 @@ fn main() {
     };
     println!("cargo:rerun-if-env-changed=BPF_PROFILE");
 
-    let log_level = std::env::var("RUST_LOG").map(|s| s.to_lowercase());
+    let log_level = std::env::var("BPF_LOG")
+        .or(std::env::var("RUST_LOG"))
+        .map(|s| s.to_lowercase());
     let log_level: u32 = match log_level.as_deref() {
         Ok("debug") => 2,
         Ok("trace") => 2,
