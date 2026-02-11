@@ -1,10 +1,8 @@
 # Beeline
 
-Beeline is an eBPF-based fast path for L7 policy enforcement. Given an input policy, Beeline synthesizes a specialized data plane that can parse L7 messages, authorize JWT, and more.
+Beeline is an eBPF-based fast path for L7 policy enforcement. Given an input policy, Beeline synthesizes a specialized data plane that can parse HTTP/1.1 and HTTP/2 messages and enforce various policies like JWT authorization, or header mutation.
 
 ## Project Structure
-
-Generally, the `ms` prefix stands for [Media Service](https://github.com/delimitrou/DeathStarBench/tree/master/mediaMicroservices), `sn` stands for [Social Network](https://github.com/delimitrou/DeathStarBench/tree/master/socialNetwork) and `ssm` stands for Synthetic Service Mesh.
 
 * `beeline`: source code for Beelines' control plane in Rust and data plane in eBPF
 * `common`: general helpers used throughout the project
@@ -65,6 +63,12 @@ Before running any benchmark, make sure that the following requirements are met:
 * The soft and hard limit of open files in `/etc/security/limits.conf` is high enough
 * The `DEST_HOST` (in `script/bench.sh` and `script/pc.sh`) and `dest` in `k6/common.js` points to the machine that runs your application
 
+The benchmarking scripts use the following terminology:
+* `ms` stands for [Media Service](https://github.com/delimitrou/DeathStarBench/tree/master/mediaMicroservices)
+* `sn` stands for [Social Network](https://github.com/delimitrou/DeathStarBench/tree/master/socialNetwork)
+* `hr` stands for [Hotel Reservation](https://github.com/delimitrou/DeathStarBench/tree/master/hotelReservation)
+* `ssm` stands for Synthetic Service Mesh.
+
 Now, you can run the experiments and visualize them as follows:
 ```
 # media service experiment
@@ -74,6 +78,11 @@ script/vis.py -n [YOUR_EXPERIMENT_NAME] cdf
 
 # social network experiment
 script/exp/fp-sn.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
+script/vis.py -n [YOUR_EXPERIMENT_NAME] rate
+script/vis.py -n [YOUR_EXPERIMENT_NAME] cdf
+
+# hotel reservation experiment
+script/exp/fp-hr.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
 script/vis.py -n [YOUR_EXPERIMENT_NAME] rate
 script/vis.py -n [YOUR_EXPERIMENT_NAME] cdf
 
@@ -88,6 +97,12 @@ script/vis.py -n [YOUR_EXPERIMENT_NAME] complexity -p [1,2,3 or 4]
 # dissecting the policy 4
 script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [YOUR_EXPERIMENT_NAME] -s k6/pc-rps.js
 script/vis.py -n [YOUR_EXPERIMENT_NAME] dissect_complexity -p [1,2,3 or 4] -x [beeline, envoy_l4fp, or envoy]
+
+# start the service mesh without generating load
+PROXY_CONFIG=[BENCHMARK].yaml script/sm.sh up -c docker/[BENCHMARK]-[PROXY].yaml -n [YOUR_EXPERIMENT_NAME] -p [PROXY] -e [NUM_EPOCHS]
+
+# for example to start the hotel reservation application with beeline
+PROXY_CONFIG=hr.yaml script/sm.sh down -c docker/hr-beeline.yaml -n test -p beeline -e 1
 ```
 
 To reproduce the policy statistics, run the following code:
