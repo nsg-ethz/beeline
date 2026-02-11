@@ -8,17 +8,17 @@ export const options = {
             executor: "ramping-arrival-rate",
             preAllocatedVUs: 200,
             stages: [
-                { target: 20000, duration: "100s" },
+                { target: 20000, duration: "200s" },
                 { target: 20000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
     },
-    // discardResponseBodies: true,
+    discardResponseBodies: true,
     insecureSkipTLSVerify: true,
 };
 
-const dest = __ENV.URL || "http://moonshine:5000";
+const dest = __ENV.URL || "https://moonshine:9991";
 
 export default () => {
     const args = ["dis", "rate", "price"];
