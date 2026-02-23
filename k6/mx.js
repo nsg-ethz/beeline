@@ -8,29 +8,31 @@ const fullArgument = "b".repeat(16384);
 
 export const options = {
     scenarios: {
-        tput: {
-            executor: "ramping-vus",
-            startVUs: 0,
+        mixed_workload: {
+            executor: "ramping-arrival-rate",
+            preAllocatedVUs: 200,
             stages: [
-                { duration: "5s", target: vus },
-                { duration: "60s", target: vus },
+                { target: 20000, duration: "200s" },
+                { target: 20000, duration: "5s" },
             ],
-            gracefulRampDown: "3s",
+            gracefulStop: "3s",
         },
     },
+    discardResponseBodies: true,
 };
 
 export default () => {
     const echos = randomIntBetween(1, 6);
-    const argumentSize = randomIntBetween(100, 16384);
+    const argumentSize = randomIntBetween(1, 10000);
     const argument = fullArgument.slice(0, argumentSize);
 
     const params = {
         tags: { name: "echo" },
+        headers: { test: argument },
         timeout: "3s",
     };
 
-    const url = `${dest}/echo/${echos}?arg=${argument}`;
+    const url = http.url`${dest}/echo/${echos}`;
     const res = http.post(url, params);
     return check(res, {
         "status is 200": (r) => r.status === 200,
