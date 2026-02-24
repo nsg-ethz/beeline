@@ -1,11 +1,6 @@
-use crate::{
-    bpf::types::*,
-    parse::h2::{create_header_maps, dfa::Dfa, Action},
-};
+use crate::parse::h2::{create_header_maps, dfa::Dfa, Action};
 use anyhow::Result;
-use as_bytes::AsBytes;
 use httlib_huffman as huffman;
-use libbpf_rs::{MapCore, MapFlags, MapHandle};
 
 pub struct Parser {
     s_any: u16,
@@ -45,13 +40,35 @@ impl Parser {
     ///
     /// Returns an error if the pattern configuration fails.
     pub fn capture_http_hdr(&mut self, key: &str) -> Result<()> {
+        let cid = self.dfa.insert_new_capture_start();
+        let (st_keys, st_hfs) = create_header_maps();
+
+        fn insert_idx(dfa: &mut Dfa, from: u16, cid: u8, idx: u8) -> Result<()> {
+            let mut key_encoded = Vec::new();
+            key_encoded.insert(0, idx + 16);
+
+            dfa.start_pattern(from)
+                .push(&key_encoded)?
+                .capture_field_value(Some(cid));
+            Ok(())
+        }
+
+        if let Some(idx) = st_keys.get(key) {
+            insert_idx(&mut self.dfa, self.s_any, cid, *idx as u8)?;
+        } else if let Some(vals) = st_hfs.get(key) {
+            for (_, idx) in vals.iter() {
+                insert_idx(&mut self.dfa, self.s_any, cid, *idx as u8)?;
+            }
+        }
+
         let mut key_encoded = Vec::new();
         huffman::encode(key.as_bytes(), &mut key_encoded)?;
+        key_encoded.insert(0, 16);
 
         self.dfa
             .start_pattern(self.s_any)
             .push(&key_encoded)?
-            .capture_field_value();
+            .capture_field_value(Some(cid));
 
         Ok(())
     }
@@ -76,46 +93,4 @@ impl Parser {
     ) -> impl Iterator<Item = (&'a u16, &'a u16, &'a u8, &'a Action)> {
         self.dfa.iter_transitions()
     }
-}
-
-pub fn populate_static_table(static_table: &MapHandle) -> Result<()> {
-    let insert = |idx: u32, key: &str, val: Option<&str>| {
-        let mut hf_key = Vec::new();
-        huffman::encode(key.as_bytes(), &mut hf_key)?;
-
-        let mut hf_val = Vec::new();
-        if let Some(val) = val {
-            huffman::encode(val.as_bytes(), &mut hf_val)?;
-        }
-
-        hf_key.resize(32, 0);
-        hf_val.resize(32, 0);
-
-        let hf = header_field {
-            key: hf_key.try_into().unwrap(),
-            val: hf_val.try_into().unwrap(),
-        };
-
-        let idx = unsafe { idx.as_bytes() };
-        let hf = unsafe { hf.as_bytes() };
-
-        static_table.update(&idx, &hf, MapFlags::ANY)?;
-
-        anyhow::Ok(())
-    };
-
-    let (st_keys, st_hfs) = create_header_maps();
-    for (key, vals) in st_hfs.iter() {
-        for (val, idx) in vals.iter() {
-            insert(*idx as u32, key, Some(val))?;
-        }
-    }
-
-    for (key, idx) in st_keys.iter() {
-        insert(*idx as u32, key, None)?;
-    }
-
-    static_table.freeze()?;
-
-    Ok(())
 }

@@ -1,7 +1,7 @@
 use crate::{
     bpf::{types::*, TypedLookUp, *},
     parse::h1::{Action as H1Action, Parser as H1Parser},
-    parse::h2::{populate_static_table, Action as H2Action, Parser as H2Parser},
+    parse::h2::{Action as H2Action, Parser as H2Parser},
 };
 use anyhow::{anyhow, bail, Context, Result};
 use as_bytes::AsBytes;
@@ -247,10 +247,6 @@ impl<'obj> Proxy<'obj> {
         rodata.tls_port = tls_port as u32;
 
         let skel = open_skel.load()?;
-
-        let static_table = skel.maps.static_table.info()?.info.id;
-        let static_table = MapHandle::from_map_id(static_table)?;
-        populate_static_table(&static_table)?;
 
         let msg_sock_map_fd = skel.maps.msg_sock_map.as_fd().as_raw_fd();
         skel.progs.process_msg.attach_sockmap(msg_sock_map_fd)?;

@@ -4,7 +4,6 @@ enum pr_action _mutate_{idx}(void *msg __arg_ctx, struct filter_ctx *ctx, bool i
     if (!ctx) return PR_DROP;
 
     struct hdr_match append_range = {
-        .in_msg = true,
         .idx = ctx->done_idx,
         .len = 0
     };

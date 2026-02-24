@@ -46,10 +46,10 @@ impl DfaBuilder<'_> {
         Ok(sid)
     }
 
-    pub fn capture_field_value(&mut self) -> &mut Self {
+    pub fn capture_field_value(&mut self, cid: Option<u8>) -> &mut Self {
         assert!(self.prev_trans.is_some());
 
-        let cid = self.dfa.insert_new_capture_start();
+        let cid = cid.unwrap_or_else(|| self.dfa.insert_new_capture_start());
 
         if let Some((_, act)) = self.dfa.transitions.get_mut(&self.prev_trans.unwrap()) {
             *act = Action::CaptureFieldValue(cid);
@@ -88,7 +88,7 @@ impl Dfa {
         self.sid
     }
 
-    fn insert_new_capture_start(&mut self) -> u8 {
+    pub fn insert_new_capture_start(&mut self) -> u8 {
         let cid = self.cid;
         self.cid += 1;
         cid

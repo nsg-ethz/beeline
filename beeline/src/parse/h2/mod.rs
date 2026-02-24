@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 mod dfa;
 mod parser;
-pub use parser::populate_static_table;
 pub use parser::Parser;
 
 fn create_header_maps() -> (

@@ -778,6 +778,8 @@ impl Compiler {
             ctx.push(var.clone());
         };
 
+        insert(Variable::buffer("preface", "char", Some(24)));
+
         let mut max_path_len = 16;
         let mut auth = false;
         for route in &self.config.routes {
@@ -808,7 +810,6 @@ impl Compiler {
             }
         }
 
-        insert(Variable::buffer("preface", "char", Some(24)));
         insert(Variable::buffer("method", "char", Some(7)));
         insert(Variable::buffer("path", "char", Some(max_path_len)));
         insert(Variable::buffer("status_code", "u32", None));
