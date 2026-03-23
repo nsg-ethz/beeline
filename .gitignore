@@ -1,11 +1,8 @@
-.vscode/
-target
-a.out
-venv
-servers.pid
-logs
-res
+/target
+/venv
+/res
 *.skel.rs
 run.sh
-config/*/pc.yaml
+/config/*/pc.yaml
 .clangd
+/include
