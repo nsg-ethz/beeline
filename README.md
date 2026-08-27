@@ -3,7 +3,7 @@
 Beeline is an eBPF-based fast path for L7 policy enforcement. Given an input policy, Beeline synthesizes a specialized data plane that can parse HTTP/1.1 and HTTP/2 messages and enforce various policies like JWT authorization, or header mutation.
 
 > [!TIP]
-> Check out [beeper](https://github.com/lerboe/beeper) if you're interested in Beeline's parsing stage and want to try it out yourself.
+> Check out [Beeper](https://github.com/lerboe/beeper) if you're interested in Beeline's parsing stage and want to try it out yourself.
 
 ## Project Structure
 
