@@ -111,3 +111,19 @@ GITHUB_API=[GITHUB_API_TOKEN] python3 script/stats.py search
 python3 script/stats.py count -p res/stats/stats.json
 script/vis.py stats
 ```
+
+
+## Citation
+
+If you use this library to conduct your own research, please cite the full paper as follows:
+```
+@misc{beeline,
+      title={Enforcing Application-Layer Policies in eBPF}, 
+      author={Laurin Brandner and Ayush Mishra and Sebastiano Miano and Aurojit Panda and Gianni Antichi and Laurent Vanbever},
+      year={2026},
+      eprint={2605.31084},
+      archivePrefix={arXiv},
+      primaryClass={cs.NI},
+      url={https://arxiv.org/abs/2605.31084}, 
+}
+```
