@@ -1,0 +1,69 @@
+name: CI
+
+on:
+    push:
+        branches:
+            - "**"
+    pull_request:
+        branches: [main]
+    workflow_call:
+
+jobs:
+    test:
+        name: Test [${{ matrix.os }}, ${{ matrix.rust }}, ${{ matrix.profile }}]
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-24.04, ubuntu-26.04]
+                rust: [stable, nightly]
+                profile: [dev]
+                include:
+                    - os: ubuntu-24.04
+                      rust: stable
+                      profile: release
+                    - os: ubuntu-26.04
+                      rust: stable
+                      profile: release
+        # Anything nightly is treated as informational-only.
+        continue-on-error: ${{ matrix.rust == 'nightly' }}
+        steps:
+            - uses: actions/checkout@v7
+            - uses: dtolnay/rust-toolchain@master
+              with:
+                  toolchain: ${{ matrix.rust }}
+                  components: rustfmt
+            - name: "Get kernel release"
+              id: kernel
+              run: echo "release=$(uname -r)" >> "${GITHUB_OUTPUT}"
+            - name: Install apt dependencies
+              uses: awalsh128/cache-apt-pkgs-action@v1
+              with:
+                  packages: clang-18 llvm-18 libelf-dev zlib1g-dev linux-headers-${{ steps.kernel.outputs.release }}
+                  version: 1.0
+            - name: Configure apt dependencies
+              run: |
+                  sudo ln -sf /usr/include/asm-generic /usr/include/asm
+                  sudo rm -f /bin/clang && sudo ln -s /usr/bin/clang-18 /bin/clang && sudo ln -s /usr/bin/llvm-strip-18 /bin/llvm-strip
+            - name: Cache bpftool
+              id: cache-bpftool
+              uses: actions/cache@v6
+              with:
+                  path: /usr/local/sbin/bpftool
+                  key: bpftool-v7.7.0-${{ runner.os }}-${{ runner.arch }}
+            - name: Install bpftool
+              if: steps.cache-bpftool.outputs.cache-hit != 'true'
+              env:
+                  BPFTOOL_VERSION: v7.7.0
+              run: |
+                  arch=$([ "${{ runner.arch }}" = "ARM64" ] && echo arm64 || echo amd64)
+                  curl -sSL "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/bpftool-${BPFTOOL_VERSION}-${arch}.tar.gz" | sudo tar -xz -C /usr/local/sbin bpftool
+                  sudo chmod +x /usr/local/sbin/bpftool
+            - uses: Swatinem/rust-cache@v2
+            - name: Build
+              run: cargo build --profile=${{ matrix.profile }} --locked --verbose --workspace
+            - name: Test
+              run: cargo test --profile=${{ matrix.profile }} --locked --verbose -p beeline --all-features
+            - name: Run HTTP/2 conformance tests (h2spec)
+              run: ./ci/h2spec.sh
+              if: matrix.rust == 'stable'

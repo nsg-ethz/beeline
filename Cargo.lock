@@ -236,7 +236,7 @@ dependencies = [
  "httparse",
  "jwt",
  "ktls",
- "libbpf-rs 0.27.2",
+ "libbpf-rs",
  "libbpf-sys",
  "libc",
  "rcgen",
@@ -316,20 +316,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24b1f0365a6c6bb4020cd05806fd0d33c44d38046b8bd7f0e40814b9763cabfc"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "cargo_metadata"
-version = "0.15.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eee4243f1f26fc7a42710e7439c149e2b10b05472f88090acce52632f231a73a"
-dependencies = [
- "camino",
- "cargo-platform",
- "semver",
- "serde",
- "serde_json",
- "thiserror 1.0.64",
 ]
 
 [[package]]
@@ -1186,13 +1172,13 @@ dependencies = [
  "as-bytes",
  "clap",
  "common",
- "libbpf-cargo 0.24.8",
- "libbpf-rs 0.24.8 (git+https://github.com/libbpf/libbpf-rs.git?branch=master)",
+ "libbpf-rs",
  "libbpf-sys",
  "libc",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "xbpf",
 ]
 
 [[package]]
@@ -1203,61 +1189,20 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "libbpf-cargo"
-version = "0.24.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "704727a07f185a76c58faa7b8ed08fba3194661c212183aea1174fe2970ee185"
-dependencies = [
- "anyhow",
- "cargo_metadata 0.15.4",
- "clap",
- "libbpf-rs 0.24.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "memmap2 0.5.10",
- "regex",
- "semver",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "libbpf-cargo"
 version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78da1f54d4070442b5911ea2ace04f0b102ef162a5f2aaaa51ba59b6dc3863fe"
 dependencies = [
  "anyhow",
- "cargo_metadata 0.19.2",
+ "cargo_metadata",
  "clap",
- "libbpf-rs 0.27.2",
- "memmap2 0.9.12",
+ "libbpf-rs",
+ "memmap2",
  "serde",
  "serde_json",
  "tempfile",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "libbpf-rs"
-version = "0.24.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93edd9cd673087fa7518fd63ad6c87be2cd9b4e35034b1873f3e3258c018275b"
-dependencies = [
- "bitflags",
- "libbpf-sys",
- "libc",
- "vsprintf",
-]
-
-[[package]]
-name = "libbpf-rs"
-version = "0.24.8"
-source = "git+https://github.com/libbpf/libbpf-rs.git?branch=master#c3ed425215b67514afa6a46f90adaccfa2074cd4"
-dependencies = [
- "bitflags",
- "libbpf-sys",
- "libc",
- "vsprintf",
 ]
 
 [[package]]
@@ -1336,15 +1281,6 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
-
-[[package]]
-name = "memmap2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83faa42c0a078c393f6b29d5db232d8be22776a891f8f56e5284faee4a20b327"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "memmap2"
@@ -1743,18 +1679,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b6dfecf2c74bce2466cabf93f6664d6998a69eb21e39f4207930065b27b771f"
 dependencies = [
  "bitflags",
-]
-
-[[package]]
-name = "regex"
-version = "1.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38200e5ee88914975b69f657f0801b6f6dccafd44fd9326302a4aaeecfacb1d8"
-dependencies = [
- "aho-corasick",
- "memchr",
- "regex-automata",
- "regex-syntax",
 ]
 
 [[package]]
@@ -2932,8 +2856,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5adc088d36be1ab4b8ecef5dd6caa25449d7429f0f9582c4dca06f31de9be0d"
 dependencies = [
  "glob",
- "libbpf-cargo 0.27.2",
- "libbpf-rs 0.27.2",
+ "libbpf-cargo",
+ "libbpf-rs",
  "tokio",
  "tracing",
  "tracing-subscriber",

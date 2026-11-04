@@ -41,12 +41,6 @@ cargo install jwt-cli
 Note: depending on your kernel version, you'll have to install [dwarves](https://github.com/acmel/dwarves) from source.
 
 Next, install [bpftool](https://github.com/libbpf/bpftool) from source.
-
-Then, generate a new vmlinux file as follows:
-```
-bpftool btf dump file /sys/kernel/btf/vmlinux format c > include/vmlinux.h
-```
-
 Finally, load the crypto kernel module that exposes the crypto API to eBPF:
 ```
 ./scripts/reload-lkm.sh
