@@ -39,7 +39,7 @@ jobs:
             - name: Install apt dependencies
               uses: awalsh128/cache-apt-pkgs-action@v1
               with:
-                  packages: clang-18 llvm-18 libelf-dev zlib1g-dev linux-headers-${{ steps.kernel.outputs.release }}
+                  packages: clang-18 llvm-18 libelf-dev zlib1g-dev dwarves linux-headers-${{ steps.kernel.outputs.release }}
                   version: 1.0
             - name: Configure apt dependencies
               run: |
