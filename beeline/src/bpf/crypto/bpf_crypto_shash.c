@@ -9,14 +9,10 @@
 #include <linux/filter.h>
 #include <linux/module.h>
 #include <linux/types.h>
-#include <linux/xxhash.h>
 
 #define DYNPTR_TYPE_SHIFT	28
 #define DYNPTR_SIZE_MASK	0xFFFFFF
 #define DYNPTR_RDONLY_BIT	(UL(1) << (31))
-
-static const char base64url_table[65] =
-	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 // bpf_crypto_ctx is not exported, making verification fail
 // because the BTF id does not match. We will cast to
@@ -163,79 +159,10 @@ __bpf_kfunc int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx,
 	return crypto_shash_digest(desc, src, src__sz, dst);
 }
 
-__bpf_kfunc int bpf_base64url_encode(const u8 *src,
-								  u32 src__sz,
-								  char *dst,
-								  u32 dst__sz)
-{
-	if (dst__sz < 4*(src__sz/3))
-		return -EINVAL;
-
-	u32 ac = 0;
-	int bits = 0;
-	int i;
-	char *cp = dst;
-
-	for (i = 0; i < src__sz; i++) {
-		ac = (ac << 8) | src[i];
-		bits += 8;
-		do {
-			bits -= 6;
-			*cp++ = base64url_table[(ac >> bits) & 0x3f];
-		} while (bits >= 6);
-	}
-	if (bits) {
-		*cp++ = base64url_table[(ac << (6 - bits)) & 0x3f];
-		bits -= 6;
-	}
-
-	return cp - dst;
-}
-
-__bpf_kfunc int bpf_base64url_decode(const u8 *src,
-								  u32 src__sz,
-								  char *dst,
-								  u32 dst__sz)
-{
-    if (dst__sz < 3*(src__sz/4))
-		return -EINVAL;
-
-    u32 ac = 0;
-	int bits = 0;
-	int i;
-	char *bp = dst;
-
-	for (i = 0; i < src__sz; i++) {
-		const char *p = strchr(base64url_table, src[i]);
-
-		if (p == NULL || src[i] == 0)
-			return -1;
-		ac = (ac << 6) | (p - base64url_table);
-		bits += 6;
-		if (bits >= 8) {
-			bits -= 8;
-			*bp++ = (u8)(ac >> bits);
-		}
-	}
-	if (ac & ((1 << bits) - 1))
-		return -1;
-	return bp - dst;
-}
-
-__bpf_kfunc unsigned long bpf_xxhash(const u8 *src,
-								  u32 src__sz,
-								  u64 seed)
-{
-    return xxhash(src, src__sz, seed);
-}
-
 __bpf_kfunc_end_defs();
 
 BTF_KFUNCS_START(crypto_kfunc_btf_ids)
 BTF_ID_FLAGS(func, bpf_crypto_digest, KF_RCU)
-BTF_ID_FLAGS(func, bpf_base64url_encode, KF_RCU)
-BTF_ID_FLAGS(func, bpf_base64url_decode, KF_RCU)
-BTF_ID_FLAGS(func, bpf_xxhash, KF_RCU)
 BTF_KFUNCS_END(crypto_kfunc_btf_ids)
 
 static const struct btf_kfunc_id_set cryto_kfunc_set = {

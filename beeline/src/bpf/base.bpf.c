@@ -6,9 +6,136 @@ struct bpf_crypto_ctx *bpf_crypto_ctx_acquire(struct bpf_crypto_ctx *ctx) __ksym
 void bpf_crypto_ctx_release(struct bpf_crypto_ctx *ctx) __ksym;
 int bpf_crypto_encrypt(struct bpf_crypto_ctx *ctx, const struct bpf_dynptr *src, const struct bpf_dynptr *dst, const struct bpf_dynptr *iv) __ksym;
 int bpf_crypto_digest(const struct bpf_crypto_ctx *ctx, const u8 *src, u32 src__sz, u8 *dst, u32 dst__sz) __ksym;
-int bpf_base64url_encode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
-int bpf_base64url_decode(const u8 *src, u32 src__sz, char *dst, u32 dst__sz) __ksym;
-unsigned long bpf_xxhash(const u8 *src, u32 src__sz, u64 seed) __ksym;
+
+static const char base64url_table[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+static __always_inline int _base64url_value(u8 c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '-') return 62;
+    if (c == '_') return 63;
+    return -1;
+}
+
+// unpadded; indices derive from the iterator so the verifier sees no loop-carried state
+static __always_inline int bpf_base64url_encode(const u8 *src, u32 src_len, char *dst, u32 dst_len) {
+    u32 len = src_len / 3 * 4 + (src_len % 3 ? src_len % 3 + 1 : 0);
+    if (len > dst_len) return -EINVAL;
+
+    u32 g;
+    bpf_for(g, 0, (src_len + 2) / 3) {
+        u32 v = 0;
+        for (u32 k = 0; k < 3; k++) {
+            u32 idx = 3 * g + k;
+            v = (v << 8) | (idx < src_len ? src[idx] : 0);
+        }
+        for (u32 k = 0; k < 4; k++) {
+            u32 out = 4 * g + k;
+            if (out < len) dst[out] = base64url_table[(v >> (18 - 6 * k)) & 0x3f];
+        }
+    }
+
+    return len;
+}
+
+static __always_inline int bpf_base64url_decode(const u8 *src, u32 src_len, char *dst, u32 dst_len) {
+    u32 len = src_len / 4 * 3 + (src_len % 4 ? src_len % 4 - 1 : 0);
+    if (src_len % 4 == 1 || len > dst_len) return -EINVAL;
+
+    u32 g;
+    bpf_for(g, 0, (src_len + 3) / 4) {
+        u32 v = 0;
+        for (u32 k = 0; k < 4; k++) {
+            u32 idx = 4 * g + k;
+            int c = idx < src_len ? _base64url_value(src[idx]) : 0;
+            if (c < 0) return -EINVAL;
+            v = (v << 6) | c;
+        }
+
+        u32 n = len - 3 * g < 3 ? len - 3 * g : 3;
+        // the bits after the last output byte must be zero
+        if (v & (0xFFFFFF >> (8 * n))) return -EINVAL;
+
+        for (u32 k = 0; k < 3; k++) {
+            u32 out = 3 * g + k;
+            if (out < len) dst[out] = v >> (16 - 8 * k);
+        }
+    }
+
+    return len;
+}
+
+#define XXH64_P1 0x9E3779B185EBCA87ULL
+#define XXH64_P2 0xC2B2AE3D27D4EB4FULL
+#define XXH64_P3 0x165667B19E3779F9ULL
+#define XXH64_P4 0x85EBCA77C2B2AE63ULL
+#define XXH64_P5 0x27D4EB2F165667C5ULL
+
+static __always_inline u64 _rotl64(u64 x, u32 r) {
+    return (x << r) | (x >> (64 - r));
+}
+
+static __always_inline u64 _xxh64_round(u64 acc, u64 in) {
+    return _rotl64(acc + in * XXH64_P2, 31) * XXH64_P1;
+}
+
+static __always_inline u64 _xxh64_merge(u64 acc, u64 v) {
+    return (acc ^ _xxh64_round(0, v)) * XXH64_P1 + XXH64_P4;
+}
+
+// the input may be unaligned
+static __always_inline u64 _read_u64(const u8 *p) {
+    u64 v;
+    __builtin_memcpy(&v, p, 8);
+    return v;
+}
+
+// XXH64, same as the kernel's xxhash() on 64-bit
+// ponytail: plain loops, only verifies for a constant len; switch to bpf_for for variable lengths
+static __always_inline u64 bpf_xxhash(const u8 *src, u32 len, u64 seed) {
+    u32 i = 0;
+    u64 h;
+
+    if (len >= 32) {
+        u64 v1 = seed + XXH64_P1 + XXH64_P2;
+        u64 v2 = seed + XXH64_P2;
+        u64 v3 = seed;
+        u64 v4 = seed - XXH64_P1;
+        for (; i + 32 <= len; i += 32) {
+            v1 = _xxh64_round(v1, _read_u64(src + i));
+            v2 = _xxh64_round(v2, _read_u64(src + i + 8));
+            v3 = _xxh64_round(v3, _read_u64(src + i + 16));
+            v4 = _xxh64_round(v4, _read_u64(src + i + 24));
+        }
+        h = _rotl64(v1, 1) + _rotl64(v2, 7) + _rotl64(v3, 12) + _rotl64(v4, 18);
+        h = _xxh64_merge(h, v1);
+        h = _xxh64_merge(h, v2);
+        h = _xxh64_merge(h, v3);
+        h = _xxh64_merge(h, v4);
+    } else {
+        h = seed + XXH64_P5;
+    }
+
+    h += len;
+    for (; i + 8 <= len; i += 8)
+        h = _rotl64(h ^ _xxh64_round(0, _read_u64(src + i)), 27) * XXH64_P1 + XXH64_P4;
+    if (i + 4 <= len) {
+        u32 k;
+        __builtin_memcpy(&k, src + i, 4);
+        h = _rotl64(h ^ (u64)k * XXH64_P1, 23) * XXH64_P2 + XXH64_P3;
+        i += 4;
+    }
+    for (; i < len; i++)
+        h = _rotl64(h ^ src[i] * XXH64_P5, 11) * XXH64_P1;
+
+    h ^= h >> 33;
+    h *= XXH64_P2;
+    h ^= h >> 29;
+    h *= XXH64_P3;
+    h ^= h >> 32;
+    return h;
+}
 
 #if LOG_LEVEL == 1
     #define bpf_log(...) (0)
