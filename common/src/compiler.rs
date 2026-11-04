@@ -93,6 +93,24 @@ fn c_array(data: &[u8]) -> (String, usize) {
     (format!("(u8[{}]){{{}}}", len, data), len)
 }
 
+fn huffman_encode(val: &str) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    huffman::encode(val.as_bytes(), &mut encoded).unwrap();
+    encoded
+}
+
+// HTTP/2 values can be Huffman encoded on the wire or in the HPACK tables
+fn str_eq(var: &str, val: &str) -> String {
+    let encoded = huffman_encode(val);
+    let len_encoded = encoded.len();
+    let encoded: String = encoded.iter().map(|b| format!("\\x{b:02x}")).collect();
+    format!(
+        "(bpf_strncmp(ctx->{var}, {len}, \"{val}\") == 0 || __builtin_memcmp(ctx->{var}, \"{encoded}\", {len_encoded}) == 0)",
+        var = sanitize_var_name(var),
+        len = val.len(),
+    )
+}
+
 fn h2_hdr(key: &str, val: &str) -> (String, usize) {
     let mut key_encoded = Vec::new();
     huffman::encode(key.as_bytes(), &mut key_encoded).unwrap();
@@ -140,20 +158,20 @@ impl Compiler {
                 &Variable::Buffer(name, ty, size) => {
                     if ty == "char" {
                         format!(
-                            "struct hdr_match {name}_range;\nu8 {name}[{size}];",
+                            "struct http_match {name}_range;\nu8 {name}[{size}];",
                             name = sanitize_var_name(name),
-                            size = size.unwrap()
+                            size = size.unwrap() + 1
                         )
                     } else {
                         format!(
-                            "struct hdr_match {name}_range;\n{ty} {name};",
+                            "struct http_match {name}_range;\n{ty} {name};",
                             name = sanitize_var_name(name),
                             ty = ty
                         )
                     }
                 }
                 &Variable::Range(name) => {
-                    format!("struct hdr_match {}_range;", sanitize_var_name(name))
+                    format!("struct http_match {}_range;", sanitize_var_name(name))
                 }
             })
             .collect::<Vec<String>>()
@@ -167,29 +185,67 @@ impl Compiler {
             .map(|(i, var)| {
                 // TODO: let the initialization fail if len < size
                 match &var {
+                    // the parser captures the whole authorization header, which
+                    // is split into the claims and the signature of the JWT here
+                    &Variable::Buffer(name, _, _) if name == "jwt_claims" => format!(
+                        "m = _pres_match(pres, h1_mids[{i}]);
+                        ctx->jwt_claims_range = (struct http_match){{ 0 }};
+                        ctx->jwt_sig_range = (struct http_match){{ 0 }};
+                        if (m.len > 7) {{
+                            bpf_probe_read_kernel(buf, 7, data + m.idx);
+                            u32 k = 0, dots = 0, dot = 0;
+                            bool bearer = true;
+                            bpf_for(k, 0, 7) {{
+                                if ((buf[k] | 0x20) != \"bearer \"[k]) bearer = false;
+                            }}
+
+                            u32 len = m.len - 7;
+                            if (len > 4095) len = 4095;
+                            if (bearer) bpf_probe_read_kernel(ctx->jwt_claims, len, data + m.idx + 7);
+
+                            bpf_for(k, 0, len) {{
+                                if (!bearer || k >= 4095) break;
+                                if (ctx->jwt_claims[k] == '.' && ++dots == 2) {{
+                                    dot = k;
+                                    break;
+                                }}
+                            }}
+
+                            if (dot > 0) {{
+                                ctx->jwt_claims_range = (struct http_match){{ .idx = m.idx + 7, .len = dot }};
+                                ctx->jwt_sig_range = (struct http_match){{ .idx = m.idx + 8 + dot, .len = m.len - 8 - dot }};
+
+                                u32 sig_len = ctx->jwt_sig_range.len;
+                                if (sig_len > 63) sig_len = 63;
+                                bpf_probe_read_kernel(ctx->jwt_sig, sig_len, data + ctx->jwt_sig_range.idx);
+                            }}
+                        }}
+                        bpf_log(\"jwt inited to (%d, %d)\", ctx->jwt_claims_range.len, ctx->jwt_sig_range.len);"
+                    ),
+                    &Variable::Buffer(name, _, _) if name == "jwt_sig" => String::new(),
                     &Variable::Buffer(name, ty, len) => {
                         let name = sanitize_var_name(name);
                         let code = if ty == "char" {
                             let len = len.unwrap();
 
                             format!(
-                                "m = pres->ms[{i}];
+                                "m = _pres_match(pres, h1_mids[{i}]);
+                                ctx->{name}_range = m;
                                 m.len = (m.len > {len}) ? {len} : m.len;
                                 bpf_probe_read_kernel(ctx->{name}, m.len, data + m.idx);
-                                ctx->{name}_range = m;
+                                ctx->{name}[m.len] = '\\0';
                                 bpf_log(\"{name} inited to %s\", ctx->{name});",
                             )
                         } else if ty == "u32" {
                             format!(
-                                "m = pres->ms[{}];
+                                "m = _pres_match(pres, h1_mids[{i}]);
+                                ctx->{name}_range = m;
                                 m.len &= 0x3f;
                                 bpf_probe_read_kernel(buf, m.len, data + m.idx);
                                 buf[m.len] = '\\0'; // this way, we don't need an if-clause
                                 bpf_strtoul(buf, m.len + 1, 10, &tmp);
-                                ctx->{} = tmp;
-                                ctx->{}_range = m;
-                                bpf_log(\"{} inited to %d\", ctx->{});",
-                                i, name, name, name, name
+                                ctx->{name} = tmp;
+                                bpf_log(\"{name} inited to %d\", ctx->{name});",
                             )
                         } else {
                             unimplemented!("{}", ty)
@@ -203,8 +259,8 @@ impl Compiler {
                     }
                     &Variable::Range(name) => {
                         let name = sanitize_var_name(name);
-                        format!("ctx->{}_range = pranges[{}];
-                            bpf_log(\"{} inited to (%d, %d)\", ctx->{}_range.idx, ctx->{}_range.len);", name, i, name, name, name)
+                        format!("ctx->{name}_range = _pres_match(pres, h1_mids[{i}]);
+                            bpf_log(\"{name} inited to (%d, %d)\", ctx->{name}_range.idx, ctx->{name}_range.len);")
                     }
                 }
             })
@@ -220,37 +276,31 @@ impl Compiler {
                 match &var {
                     &Variable::Buffer(name, ty, len) => {
                         let name = sanitize_var_name(name);
+                        let get = format!(
+                            "m = (struct http_match){{ 0 }};
+                            str.len = 0;
+                            if (_h2_match(msg, is_skb, pres, h2_mids[{i}], &str) == 0) m = _pres_match(pres, h2_mids[{i}]);
+                            ctx->{name}_range = m;"
+                        );
                         let code = if ty == "char" {
-                            let mut mask = 1;
-                            loop {
-                                mask = mask << 1;
-                                if (mask - 1) >= len.unwrap() {
-                                    break;
-                                }
-                            }
-                            let mask = mask - 1;
+                            let len = len.unwrap();
 
                             format!(
-                                "m = pres->ms[{idx}];
-                                m.len &= {mask};
-                                ptr = _extract_match(data, data_end, skey, &m, false);
-                                bpf_probe_read_kernel(ctx->{name}, m.len, ptr);
-                                ctx->{name}_range = m;
+                                "{get}
+                                str.len = (str.len > {len}) ? {len} : str.len;
+                                bpf_probe_read_kernel(ctx->{name}, str.len, str.ptr);
+                                ctx->{name}[str.len] = '\\0';
                                 bpf_log(\"{name} inited to %s\", ctx->{name});",
-                            idx=i, name=name
                             )
                         } else if ty == "u32" {
                             format!(
-                                "m = pres->ms[{idx}];
-                                m.len &= 0x3f;
-                                ptr = _extract_match(data, data_end, skey, &m, false);
-                                bpf_probe_read_kernel(buf, m.len, ptr);
-                                buf[m.len] = '\\0'; // this way, we don't need an if-clause
-                                bpf_strtoul(buf, m.len + 1, 10, &tmp);
+                                "{get}
+                                str.len &= 0x3f;
+                                bpf_probe_read_kernel(buf, str.len, str.ptr);
+                                buf[str.len] = '\\0'; // this way, we don't need an if-clause
+                                bpf_strtoul(buf, str.len + 1, 10, &tmp);
                                 ctx->{name} = tmp;
-                                ctx->{name}_range = m;
-                                bpf_log(\"{name} inited to %s\", ctx->{name});",
-                                idx=i, name=name
+                                bpf_log(\"{name} inited to %d\", ctx->{name});",
                             )
                         } else {
                             unimplemented!("{}", ty)
@@ -264,8 +314,8 @@ impl Compiler {
                     }
                     &Variable::Range(name) => {
                         let name = sanitize_var_name(name);
-                        format!("ctx->{}_range = pranges[{}];
-                            bpf_log(\"{} inited to (%d, %d)\", ctx->{}_range.idx, ctx->{}_range.len);", name, i, name, name, name)
+                        format!("ctx->{name}_range = _pres_match(pres, h2_mids[{i}]);
+                            bpf_log(\"{name} inited to (%d, %d)\", ctx->{name}_range.idx, ctx->{name}_range.len);")
                     }
                 }
             })
@@ -359,45 +409,20 @@ impl Compiler {
         if let Some(remove) = mutate.remove {
             for key in remove.iter() {
                 let key = sanitize_var_name(&key);
-                let rmv_auth = if key == "authorization" {
-                    format!(
-                        "if (ctx->jwt_claims_range.len > 0) {{
-                            remove_range.in_msg = true;
-                            remove_range.idx = ctx->jwt_claims_range.idx-7-{key_len};
-                            remove_range.len = ctx->jwt_claims_range.len+ctx->jwt_sig_range.len+8+{key_len_crlf};
-                            if (_mutate(msg, remove_range, NULL, 0, is_h2) < 0) {{
-                                bpf_err(\"ERROR: Failed to remove {key}\");
-                                return PR_DROP;
-                            }}
-                            ctx->done_idx -= remove_range.len;
-                            {offset}
-                        }}",
-                        key = key,
-                        key_len = key.len() + 2,
-                        key_len_crlf = key.len() + 3,
-                        offset=offset("remove_range.idx", "-remove_range.len")
-                    )
-                } else {
-                    String::new()
-                };
-
                 let rmv_hdr = format!(
-                    "{rmv_auth}
-                    if (ctx->{key}_range.len > 0) {{
-                        remove_range.in_msg = true;
+                    "if (ctx->{key}_range.len > 0) {{
                         remove_range.idx = ctx->{key}_range.idx-{key_len};
                         remove_range.len = ctx->{key}_range.len+{key_len_crlf};
-                        if (_mutate(msg, remove_range, NULL, 0, is_h2) < 0) {{
+                        if (_mutate(msg, remove_range, NULL, 0, is_skb, is_h2) < 0) {{
                             bpf_err(\"ERROR: Failed to remove {key}\");
                             return PR_DROP;
                         }}
                         ctx->done_idx -= remove_range.len;
                         {offset}
                     }}",
-                    rmv_auth = rmv_auth,
                     key = key,
                     key_len = key.len() + 2,
-                    key_len_crlf = key.len() + 3,
+                    key_len_crlf = key.len() + 4,
                     offset = offset("remove_range.idx", "-remove_range.len")
                 );
 
@@ -410,8 +435,12 @@ impl Compiler {
                 let new_hdr_h1 = format!("{}: {}\\r\\n", key, val);
                 let hdr_len_h1 = new_hdr_h1.len() - 2;
                 let (new_hdr_h2, hdr_len_h2) = h2_hdr(key, val);
+                // HTTP/1.1 headers go in front of the CRLF that ends the header block
+                // ponytail: assumes CRLF CRLF at the end, a bare LF ending needs the
+                // last bytes of the message read to find the offset
                 let add = format!(
                     "if (is_h2) {{
+                        append_range.idx = ctx->done_idx;
                         new_hdr = {new_hdr_h2};
                         if (_mutate(msg, append_range, new_hdr, {hdr_len_h2}, is_skb, is_h2) < 0) {{
                             bpf_err(\"ERROR: Failed to add %s\", new_hdr);
@@ -420,6 +449,7 @@ impl Compiler {
                         ctx->done_idx += {hdr_len_h2};
                     }}
                     else {{
+                        append_range.idx = ctx->done_idx - 2;
                         new_hdr = (u8*)\"{new_hdr_h1}\";
                         if (_mutate(msg, append_range, new_hdr, {hdr_len_h1}, is_skb, is_h2) < 0) {{
                             bpf_err(\"ERROR: Failed to add %s\", new_hdr);
@@ -487,16 +517,7 @@ impl Compiler {
                     if path == "*" {
                         "true".to_string()
                     } else {
-                        let mut path_encoded = Vec::new();
-                        huffman::encode(path.as_bytes(), &mut path_encoded).unwrap();
-                        let (path_encoded, len_encoded) = c_array(&path_encoded);
-
-                        format!("(bpf_strncmp(ctx->path, {len}, \"{path}\") == 0) || (__builtin_memcmp(ctx->path, {path_encoded}, {len_encoded}) == 0)",
-                            len=path.len(),
-                            path=path,
-                            len_encoded=len_encoded,
-                            path_encoded=path_encoded
-                        )
+                        str_eq("path", path)
                     }
                 } else {
                     "true".to_string()
@@ -505,9 +526,7 @@ impl Compiler {
                 let header_condition = if let Some(headers) = &route.pattern.headers {
                     headers
                         .iter()
-                        .map(|(key, val)| {
-                            format!("bpf_strncmp(ctx->{}, {}, \"{}\") == 0", key, val.len(), val)
-                        })
+                        .map(|(key, val)| str_eq(key, val))
                         .collect::<Vec<String>>()
                         .join(" && ")
                 } else {
@@ -592,21 +611,13 @@ impl Compiler {
                 let method_cond = p
                     .method
                     .as_ref()
-                    .map(|method| {
-                        format!(
-                            "bpf_strncmp(ctx->method, {}, \"{}\") == 0",
-                            method.len(),
-                            method
-                        )
-                    })
+                    .map(|method| str_eq("method", method))
                     .unwrap_or(String::from("true"));
 
                 let path_cond = p
                     .path
                     .as_ref()
-                    .map(|path| {
-                        format!("bpf_strncmp(ctx->path, {}, \"{}\") == 0", path.len(), path)
-                    })
+                    .map(|path| str_eq("path", path))
                     .unwrap_or(String::from("true"));
 
                 let dest_ip4_cond = p
@@ -633,14 +644,7 @@ impl Compiler {
                     .map(|hdrs| {
                         let cond = hdrs
                             .iter()
-                            .map(|(key, val)| {
-                                format!(
-                                    "bpf_strncmp(ctx->{}, {}, \"{}\") == 0",
-                                    sanitize_var_name(key),
-                                    val.len(),
-                                    val
-                                )
-                            })
+                            .map(|(key, val)| str_eq(key, val))
                             .collect::<Vec<_>>()
                             .join(" && ");
 
@@ -790,7 +794,8 @@ impl Compiler {
 
             if let Some(headers) = &route.pattern.headers {
                 for (key, val) in headers {
-                    insert(Variable::buffer(key, "char", Some(val.len())));
+                    let size = val.len().max(huffman_encode(val).len());
+                    insert(Variable::buffer(key, "char", Some(size)));
                 }
             }
 

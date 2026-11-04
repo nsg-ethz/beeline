@@ -1,0 +1,72 @@
+# The config of beeline/tests. Build the tests with CONFIG=config/beeline/test.yaml
+stats: true
+hosts:
+    - name: server1
+      instances:
+          - 127.0.0.1:48001
+    - name: server2
+      instances:
+          - 127.0.0.1:48002
+    - name: server3
+      instances:
+          - 127.0.0.1:48003
+    # HTTP/2 is chosen by the client IP, so these hosts use their own one
+    - name: h2-server1
+      http2: true
+      instances:
+          - 127.0.0.2:48011
+    - name: h2-server2
+      http2: true
+      instances:
+          - 127.0.0.2:48012
+routes:
+    - match:
+          path: "/jwt"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+          - type: mutate
+            add:
+                x-processed-by: beeline
+            remove:
+                - authorization
+      dest: server3
+    - match:
+          path: "/h2"
+          headers:
+              backend: server2
+      dest: h2-server2
+    - match:
+          path: "/h2"
+      dest: h2-server1
+    - match:
+          path: "/api"
+          headers:
+              backend: server2
+      filters:
+          - type: mutate
+            add:
+                x-processed-by: beeline
+            remove:
+                - x-remove-me
+      dest: server2
+    - match:
+          path: "*"
+          headers:
+              backend: server1
+      dest: server1
+    - match:
+          path: "*"
+      dest: server3
+policies:
+    - name: deny-put-admin
+      method: PUT
+      path: "/admin"
+      allow: false
+    - name: deny-delete-admin
+      method: DELETE
+      path: "/admin"
+      allow: false
+    - name: allow-rest
+      allow: true

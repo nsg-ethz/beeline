@@ -1,17 +1,19 @@
-use crate::{
-    bpf::{types::*, TypedLookUp, *},
-    parse::h1::{Action as H1Action, Parser as H1Parser},
-    parse::h2::{Action as H2Action, Parser as H2Parser},
-};
+use crate::bpf::{types::*, TypedLookUp, *};
+use ::bytes::Bytes;
 use anyhow::{anyhow, bail, Context, Result};
 use as_bytes::AsBytes;
-use bytes::Bytes;
+use beeper::{
+    http1,
+    pseudo_header::{METHOD, PATH, STATUS},
+    MatchId, MessageBuffer,
+};
 use common::{
+    compiler::Variable,
     config::beeline::{Config, TlsConfig},
     net::{get_gw_ip, TryIntoRawOctets},
     Compiler,
 };
-use http::{Request, Response, StatusCode};
+use http::{header::AUTHORIZATION, Request, Response, StatusCode};
 use http2::{client, server};
 use ktls::{CorkStream, KtlsCipherSuite, KtlsCipherType, KtlsVersion};
 use libbpf_rs::{
@@ -45,33 +47,71 @@ use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, trace, warn, Level};
 
 pub mod bpf;
-pub mod parse;
 
-fn new_h1_transition(state: u16, action: H1Action, rodata: &rodata) -> trans {
-    let action = match action {
-        H1Action::StartCapture(mid) => rodata.a_start_capture | (mid as u16) & rodata.a_id_mask,
-        H1Action::EndCapture(cid, mid) => {
-            let id = (cid as u16) << 6 | (mid as u16);
-            rodata.a_end_capture | id & rodata.a_id_mask
-        }
-        H1Action::Done => rodata.a_done,
-        H1Action::None => 0,
-    };
+/// The match id the data plane reads as "not captured".
+const NO_MATCH: u8 = 0xFF;
 
-    trans { state, action }
+/// The parsers for the filter context variables, along with the match id every
+/// variable has in each of them.
+struct Parsers {
+    h1: http1::Parser,
+    h2: beeper::http2::Parser,
+    h1_preface: MatchId,
+    h1_mids: Vec<u8>,
+    h2_mids: Vec<u8>,
 }
 
-fn new_h2_transition(state: u16, action: H2Action, rodata: &rodata) -> trans {
-    let action = match action {
-        H2Action::CaptureFieldValue(cid) => {
-            rodata.a_start_capture | (cid as u16) & rodata.a_id_mask
-        }
-        // H2Action::EndCapturing(rid) => rodata.a_end_capture | (rid as u16) & rodata.a_id_mask,
-        H2Action::Done => rodata.a_done,
-        H2Action::None => 0,
-    };
+/// Configures the parsers to capture the filter context variables.
+///
+/// The match ids only depend on `vars`, so every call hands out the same ones.
+fn new_parsers(vars: &[Variable]) -> Result<Parsers> {
+    let mut h1 = http1::Parser::new();
+    let mut h2 = beeper::http2::Parser::new();
+    let h1_preface = h1.match_http2_preface()?;
+    let mut h1_mids = Vec::new();
+    let mut h2_mids = Vec::new();
 
-    trans { state, action }
+    for var in vars {
+        let h1_mid = match var.name() {
+            "preface" => h1_preface,
+            "method" => h1.capture_hdr(METHOD)?,
+            "path" => h1.capture_hdr(PATH)?,
+            "status_code" => h1.capture_hdr(STATUS)?,
+            "jwt_claims" | "jwt_sig" => h1.capture_hdr(AUTHORIZATION)?,
+            name => h1.capture_hdr(name)?,
+        };
+        h1_mids.push(h1_mid.into());
+
+        let h2_mid = match var.name() {
+            "preface" | "jwt_claims" | "jwt_sig" => NO_MATCH,
+            "method" => h2.capture_hdr(METHOD)?.into(),
+            "path" => h2.capture_hdr(PATH)?.into(),
+            "status_code" => h2.capture_hdr(STATUS)?.into(),
+            name => h2.capture_hdr(name)?.into(),
+        };
+        h2_mids.push(h2_mid);
+    }
+
+    Ok(Parsers {
+        h1,
+        h2,
+        h1_preface,
+        h1_mids,
+        h2_mids,
+    })
+}
+
+/// Frees the HPACK dynamic tables the parsers keep for the connection between
+/// `a` and `b`. A parser keys them by the socket that sends, so both directions
+/// are freed.
+fn forget_conn(parsers: &[beeper::http2::AttachedParser], a: SocketAddr, b: SocketAddr) {
+    for parser in parsers {
+        for (local, remote) in [(a, b), (b, a)] {
+            if let Err(e) = parser.forget_conn(local, remote) {
+                warn!("Failed to forget HTTP/2 connection {local} -> {remote}: {e}");
+            }
+        }
+    }
 }
 
 fn add_pqueue_to_fib<M: MapCore>(map: &M, key: fib_key) -> Result<()> {
@@ -126,55 +166,15 @@ fn delete_map<M: MapCore, K: AsBytes>(map: &M, key: &K) -> Result<()> {
 }
 
 fn init_dataplane(config: Config, rodata: &mut rodata) -> Result<()> {
-    let compiler = Compiler::new(config.clone());
-    let vars = compiler.get_ctx_vars();
-    let mut h1 = H1Parser::new(rodata.s_init, rodata.s_any);
-
-    for hdr in vars.iter() {
-        match hdr.name() {
-            "preface" => h1.match_preface()?,
-            "method" => h1.match_http_req_status_line()?,
-            "path" => (),
-            "status_code" => h1.match_http_status_code()?,
-            "jwt_claims" => h1.match_http_hdr_auth()?,
-            "jwt_sig" => (),
-            name => h1.match_http_hdr(name)?,
-        }
-    }
-
-    // this is necessary so that the DFA won't
-    // parse beyond the HTTP header
-    h1.done_on_http_hdr_end()?;
-
-    if h1.num_captures() >= 15 {
+    let vars = Compiler::new(config.clone()).get_ctx_vars();
+    let parsers = new_parsers(&vars)?;
+    if vars.len() > rodata.h1_mids.len() {
         bail!("Parsing too many patterns.")
     }
 
-    info!("Injecting HTTP/1.1 parser with {} states", h1.num_states());
-    for (from, to, input, action) in h1.iter_transitions() {
-        let s = *from as usize;
-        let t = new_h1_transition(*to, *action, rodata);
-        rodata.s2ts_h1[s][*input as usize] = t;
-    }
-
-    let mut h2 = H2Parser::new(rodata.s_init, rodata.s_any);
-
-    for hdr in vars.iter() {
-        match hdr.name() {
-            name => h2.capture_http_hdr(name)?,
-        }
-    }
-
-    if h2.num_captures() >= 15 {
-        bail!("Parsing too many patterns.")
-    }
-
-    info!("Injecting HTTP/2 parser with {} states", h2.num_states());
-    for (from, to, input, action) in h2.iter_transitions() {
-        let s = *from as usize;
-        let t = new_h2_transition(*to, *action, rodata);
-        rodata.s2ts_h2[s][*input as usize] = t;
-    }
+    rodata.h1_preface_mid = parsers.h1_preface.into();
+    rodata.h1_mids[..vars.len()].copy_from_slice(&parsers.h1_mids);
+    rodata.h2_mids[..vars.len()].copy_from_slice(&parsers.h2_mids);
 
     if let Some(network) = &config.network {
         let addr_raw = network.addr.try_into_ne_octets()?;
@@ -206,6 +206,11 @@ pub struct Proxy<'obj> {
     skel: ProxySkel<'obj>,
     #[allow(dead_code)]
     sockops: Link,
+    #[allow(dead_code)]
+    parsers: (
+        Vec<http1::AttachedParser>,
+        Arc<Vec<beeper::http2::AttachedParser>>,
+    ),
     h1_upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
 }
 
@@ -248,6 +253,30 @@ impl<'obj> Proxy<'obj> {
 
         let skel = open_skel.load()?;
 
+        // every program that parses has its own copy of the parser stubs
+        let vars = Compiler::new(config.clone()).get_ctx_vars();
+        let (mut h1_parsers, mut h2_parsers) = (Vec::new(), Vec::new());
+        let progs = [
+            (&skel.progs.process_msg, MessageBuffer::Msg),
+            (&skel.progs.parse_skb, MessageBuffer::Skb),
+            (&skel.progs.process_skb, MessageBuffer::Skb),
+        ];
+        for (prog, buf) in progs {
+            let (parse_h1, parse_h2, get_h2) = match buf {
+                MessageBuffer::Msg => ("parse_h1_msg", "parse_h2_msg", "get_h2_match_msg"),
+                _ => ("parse_h1_skb", "parse_h2_skb", "get_h2_match_skb"),
+            };
+
+            let fd = prog.as_fd().as_raw_fd();
+            let Parsers { h1, h2, .. } = new_parsers(&vars)?;
+            h1_parsers.push(h1.parse_fn(parse_h1, buf.clone()).attach(fd)?);
+            h2_parsers.push(
+                h2.parse_fn(parse_h2, buf.clone())
+                    .get_fn(get_h2, buf)
+                    .attach(fd)?,
+            );
+        }
+
         let msg_sock_map_fd = skel.maps.msg_sock_map.as_fd().as_raw_fd();
         skel.progs.process_msg.attach_sockmap(msg_sock_map_fd)?;
 
@@ -287,6 +316,7 @@ impl<'obj> Proxy<'obj> {
             config,
             skel,
             sockops,
+            parsers: (h1_parsers, Arc::new(h2_parsers)),
             h1_upstream_pool: Arc::new(Mutex::new(Vec::new())),
         })
     }
@@ -580,6 +610,7 @@ impl<'obj> Proxy<'obj> {
         let fib_downstream = self.get_downstream_fib()?;
 
         let h1_upstream_pool = self.h1_upstream_pool.clone();
+        let h2_parsers = self.parsers.1.clone();
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
 
         tokio::spawn(async move {
@@ -753,6 +784,9 @@ impl<'obj> Proxy<'obj> {
                 error!("Error handling downstream connection: {:?}", e);
             }
 
+            // the connection can carry HTTP/2 after a preface upgrade
+            forget_conn(&h2_parsers, ds_local_addr, ds_remote_addr);
+
             let mut h1_upstream_pool = h1_upstream_pool.lock().await;
             h1_upstream_pool.extend(upstreams.into_iter());
         });
@@ -779,6 +813,7 @@ impl<'obj> Proxy<'obj> {
 
         // beeline does not support flow control
         let max_window_size = (1 << 31) - 1;
+        let h2_parsers = self.parsers.1.clone();
 
         tokio::spawn(async move {
             let mut downstream_conn = server::Builder::new()
@@ -803,6 +838,7 @@ impl<'obj> Proxy<'obj> {
                 };
 
                 let utrn_wait_list = utrn_wait_list.clone();
+                let h2_parsers = h2_parsers.clone();
                 let sock_map_wait_list = sock_map_wait_list.clone();
                 let h2_conns = h2_conns.clone();
                 let h2_streams = h2_streams.clone();
@@ -981,6 +1017,7 @@ impl<'obj> Proxy<'obj> {
                             );
                         }
                         debug!("Upstream connection closed {}", us_local_addr);
+                        forget_conn(&h2_parsers, us_local_addr, us_remote_addr);
                     });
 
                     let mut client = client.ready().await.unwrap();
@@ -1024,6 +1061,8 @@ impl<'obj> Proxy<'obj> {
                         .expect("Failed to delete from FIB");
                 });
             }
+
+            forget_conn(&h2_parsers, ds_local_addr, ds_remote_addr);
         });
 
         Ok(())
@@ -1062,5 +1101,29 @@ impl<'obj> Proxy<'obj> {
     fn get_h2_streams(&self) -> Result<MapHandle> {
         let id = self.skel.maps.h2_streams.info()?.info.id;
         Ok(MapHandle::from_map_id(id)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jwt_vars_share_the_authorization_capture() {
+        let vars = vec![
+            Variable::buffer("preface", "char", Some(24)),
+            Variable::range("authorization"),
+            Variable::buffer("method", "char", Some(7)),
+            Variable::buffer("jwt_claims", "char", Some(4095)),
+            Variable::buffer("jwt_sig", "char", Some(63)),
+        ];
+        let parsers = new_parsers(&vars).unwrap();
+
+        assert_eq!(parsers.h1_mids[0], u8::from(parsers.h1_preface));
+        assert_eq!(parsers.h1_mids[3], parsers.h1_mids[1]);
+        assert_eq!(parsers.h1_mids[4], parsers.h1_mids[1]);
+        assert_ne!(parsers.h1_mids[2], parsers.h1_mids[1]);
+        assert_eq!(&parsers.h2_mids[3..], &[NO_MATCH, NO_MATCH]);
+        assert_eq!(parsers.h2_mids[0], NO_MATCH);
     }
 }

@@ -59,6 +59,12 @@ You should now be able to compile and run Beeline as follows:
 CONFIG=config/beeline/debug.yaml RUST_LOG=debug cargo run -p beeline
 ```
 
+To run the integration tests, build them with the test config. They use the ports 48001-48003 on 127.0.0.1 and 48011-48012 on 127.0.0.2:
+
+```
+CONFIG=config/beeline/test.yaml cargo test -p beeline
+```
+
 ## Benchmarking
 
 Before running any benchmark, make sure that the following requirements are met:

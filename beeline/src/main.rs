@@ -23,6 +23,8 @@ struct Args {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        // eprintln! panics on a closed stderr, which kills the task that logs
+        .log_internal_errors(false)
         .init();
 
     let args = Args::parse();

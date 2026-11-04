@@ -9,13 +9,24 @@ struct filter_ctx {
 
 // ---
 
+static __always_inline struct http_match _pres_match(const struct http_parse_res *pres, u8 mid) {
+    if (mid >= MAX_MATCHES) return (struct http_match){ 0 };
+    return pres->ms[mid & MAX_MATCH_MASK];
+}
+
+static __always_inline int _h2_match(void *buf, bool is_skb, const struct http_parse_res *pres, u8 mid, struct bytes *str) {
+    if (mid >= MAX_MATCHES) return -ENOENT;
+    if (is_skb) return get_h2_match_skb(buf, pres, mid, str);
+    return get_h2_match_msg(buf, pres, mid, str);
+}
+
 bpf_profile_def(ctx);
-static __always_inline void _init_h1_filter_ctx(const u8 *data, const u8 *data_end, const struct sock_key *skey, struct filter_ctx *ctx, u16 done_idx, const struct parse_res *pres) {
+static __always_inline void _init_h1_filter_ctx(const u8 *data, const u8 *data_end, const struct sock_key *skey, struct filter_ctx *ctx, u16 done_idx, const struct http_parse_res *pres) {
     bpf_profile_start(ctx);
 
     u8 buf[64]; // a number cannot be larger than 64 bytes
     unsigned long tmp = 0;
-    struct hdr_match m = {0};
+    struct http_match m = {0};
 
     {init_h1}
 
@@ -25,13 +36,13 @@ static __always_inline void _init_h1_filter_ctx(const u8 *data, const u8 *data_e
     bpf_profile_end(ctx);
 }
 
-static __always_inline void _init_h2_filter_ctx(const u8 *data, const u8 *data_end, const struct sock_key *skey, struct filter_ctx *ctx, u16 done_idx, const struct parse_res *pres) {
+static __always_inline void _init_h2_filter_ctx(void *msg, bool is_skb, const struct sock_key *skey, struct filter_ctx *ctx, u16 done_idx, const struct http_parse_res *pres) {
     bpf_profile_start(ctx);
 
     u8 buf[64]; // a number cannot be larger than 64 bytes
     unsigned long tmp = 0;
-    struct hdr_match m = {0};
-    u8 *ptr = NULL;
+    struct http_match m = {0};
+    struct bytes str = {0};
 
     {init_h2}
 

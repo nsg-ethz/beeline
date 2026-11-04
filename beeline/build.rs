@@ -1,6 +1,6 @@
 use common::{config::beeline::Config, Compiler};
-use libbpf_cargo::SkeletonBuilder;
-use std::{env, ffi::OsStr, fs, path::PathBuf};
+use std::{env, ffi::OsString, fs, path::PathBuf};
+use xbpf::build::Builder;
 
 fn main() {
     let bpf_profile = std::env::var("BPF_PROFILE").unwrap_or("0".to_string());
@@ -22,54 +22,49 @@ fn main() {
         Ok("error") => 1,
         _ => 0,
     };
+    println!("cargo:rerun-if-env-changed=BPF_LOG");
     println!("cargo:rerun-if-env-changed=RUST_LOG");
 
     let manifest_dir =
         env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set in build script");
     let root_dir = PathBuf::from(&manifest_dir).join("..");
-    let target_dir = root_dir.join("target").join("bpf");
     let base = PathBuf::from(&manifest_dir).join("src/bpf/base.bpf.c");
     let filter_dir = PathBuf::from(&manifest_dir).join("src/bpf/filter/");
-    let out = PathBuf::from(&target_dir).join("proxy.bpf.c");
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("proxy.bpf.c");
 
     println!("cargo:rerun-if-changed={}", base.to_str().unwrap());
     println!("cargo:rerun-if-changed={}", filter_dir.to_str().unwrap());
 
-    match fs::create_dir(&target_dir) {
-        Ok(_) => Ok(()),
-        Err(ref e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-        Err(e) => Err(e),
-    }
-    .expect("Failed to create target/bpf");
-
-    let mut stats = "0";
-    if let Some(config) = env::var_os("CONFIG") {
-        let config = PathBuf::from(&root_dir).join(config);
-        let config = fs::File::open(config).expect("Failed to open config file");
-        let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
-
-        if config.stats {
-            stats = "1";
-        }
-
-        let compiler = Compiler::new(config);
-        compiler.generate(&base, &out);
-    }
+    let config = env::var("CONFIG").unwrap_or(String::from("config/beeline/debug.yaml"));
+    let config = root_dir
+        .join(config)
+        .canonicalize()
+        .expect("Failed to find config file");
     println!("cargo:rerun-if-env-changed=CONFIG");
+    println!("cargo:rerun-if-changed={}", config.display());
+    // the data plane only enforces this config, tests have to load the same one
+    println!("cargo:rustc-env=BEELINE_CONFIG={}", config.display());
 
-    let mut builder = SkeletonBuilder::new();
-    let builder = builder.source(&out).clang_args([
-        OsStr::new("-D"),
-        OsStr::new(format!("LOG_LEVEL={log_level}").as_str()),
-        OsStr::new("-D"),
-        OsStr::new(format!("BPF_PROFILE={bpf_profile}").as_str()),
-        OsStr::new("-D"),
-        OsStr::new(format!("STATS={stats}").as_str()),
-        OsStr::new("-I"),
-        OsStr::new("../include"),
-    ]);
+    let config = fs::File::open(config).expect("Failed to open config file");
+    let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
+    let stats = config.stats as u32;
+    Compiler::new(config).generate(&base, &out);
 
-    let out = PathBuf::from(&manifest_dir).join("src/bpf/proxy.skel.rs");
-    builder.build_and_generate(&out).unwrap();
-    println!("cargo:rerun-if-changed={}", out.to_str().unwrap());
+    let mut args = beeper::build::clang_args();
+    args.extend(
+        [
+            format!("LOG_LEVEL={log_level}"),
+            format!("BPF_PROFILE={bpf_profile}"),
+            format!("STATS={stats}"),
+        ]
+        .into_iter()
+        .flat_map(|def| [OsString::from("-D"), OsString::from(def)]),
+    );
+
+    // the files below src are templates, only the generated program is compiled
+    Builder::new()
+        .sources_with_suffix("template-only")
+        .source(&out)
+        .clang_arg(args.iter())
+        .build();
 }
