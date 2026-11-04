@@ -6,3 +6,5 @@ run.sh
 /config/*/pc.yaml
 .clangd
 /include
+.envrc
+/graft
