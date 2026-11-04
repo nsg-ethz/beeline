@@ -62,5 +62,11 @@ jobs:
             - uses: Swatinem/rust-cache@v2
             - name: Build
               run: cargo build --profile=${{ matrix.profile }} --locked --verbose --workspace
+            - name: Load crypto kernel module
+              run: |
+                  # kbuild only generates the module BTF the kfuncs need if it finds vmlinux
+                  sudo cp /sys/kernel/btf/vmlinux /usr/lib/modules/$(uname -r)/build/
+                  ./script/reload-lkm.sh
+                  test -e /sys/kernel/btf/bpf_crypto_shash
             - name: Test
               run: CONFIG=config/beeline/test.yaml cargo test --profile=${{ matrix.profile }} --locked --verbose -p beeline --all-features
