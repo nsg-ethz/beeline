@@ -11,10 +11,7 @@ use std::{
 };
 use types::*;
 
-include!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/src/bpf/proxy.skel.rs"
-));
+xbpf::include_bpf!("proxy");
 
 impl Eq for addr_key {}
 

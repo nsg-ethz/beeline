@@ -1,5 +1,5 @@
 use crate::bpf::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use common::{
     config::beeline::Cidr,
     net::{get_gw_ip, TryIntoRawOctets},
@@ -56,10 +56,11 @@ impl<'obj> Proxy<'obj> {
         }
 
         let addr_raw = cidr.addr.try_into_ne_octets()?;
-        open_skel.maps.rodata_data.ip4_start = addr_raw;
-        open_skel.maps.rodata_data.ip4_end = addr_raw + cidr.len();
         let gw_raw = get_gw_ip(cidr.addr).try_into_ne_octets()?;
-        open_skel.maps.rodata_data.gw = gw_raw;
+        let rodata = open_skel.maps.rodata_data.as_mut().context("rodata")?;
+        rodata.ip4_start = addr_raw;
+        rodata.ip4_end = addr_raw + cidr.len();
+        rodata.gw = gw_raw;
 
         let skel = open_skel.load()?;
 
