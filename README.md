@@ -43,7 +43,7 @@ Note: depending on your kernel version, you'll have to install [dwarves](https:/
 Next, install [bpftool](https://github.com/libbpf/bpftool) from source.
 Finally, load the crypto kernel module that exposes the crypto API to eBPF:
 ```
-./scripts/reload-lkm.sh
+./script/reload-lkm.sh
 ```
 Check if the kfuncs have registered correctly. Consult [this tutorial](https://eunomia.dev/tutorials/features/struct_ops/) if an error occurs, .e.g, if `dmesg` logs "missing module BTF, cannot register kfunc".
 

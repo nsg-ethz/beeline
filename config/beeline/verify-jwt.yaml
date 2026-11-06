@@ -1,0 +1,13 @@
+# Measure the verifier with: CONFIG=config/beeline/verify-jwt.yaml cargo run -p beeline -- --verify
+hosts:
+    - name: server1
+      instances:
+          - 127.0.0.1:8001
+routes:
+    - match:
+          path: "/api"
+      filters:
+          - type: jwt
+            secret: "testtest12345678"
+            issuer: beeline
+      dest: server1

@@ -27,3 +27,5 @@ enum pr_action _validate_jwt_admission_{idx}(struct filter_ctx *ctx) {
 
     return PR_PASS;
 }
+
+VERIFY(jwt_{idx}, _validate_jwt_signature(ctx->jwt_claims, ctx->jwt_claims_range.len, ctx->jwt_sig, ctx->jwt_sig_range.len, ctx->tmp); _validate_jwt_admission_{idx}(ctx))

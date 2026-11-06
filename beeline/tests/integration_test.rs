@@ -55,7 +55,8 @@ async fn proxy() -> SocketAddr {
         .unwrap();
     tokio::spawn(async move {
         let mut open_obj = OpenObject(MaybeUninit::uninit());
-        let proxy = Proxy::attach(addr, None, config, &mut open_obj.0).expect("attach proxy");
+        let proxy =
+            Proxy::attach(addr, None, config, &mut open_obj.0, false).expect("attach proxy");
         proxy.listen().await
     });
 

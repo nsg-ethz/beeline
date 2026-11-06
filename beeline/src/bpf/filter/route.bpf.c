@@ -5,3 +5,5 @@ static __always_inline enum pr_action route_ds_{idx}(void *msg __arg_ctx, struct
 
     return PR_PASS;
 }
+
+VERIFY(route_{idx}, route_ds_{idx}(msg, ctx, ikey, is_skb, is_h2))

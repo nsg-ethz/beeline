@@ -709,6 +709,24 @@ static __always_inline int _set_h2_stream_id_skb(struct __sk_buff *skb, u32 new_
 
 // ----------------------------------------------
 
+// every filter has a verify_* program that only inlines that filter, so the
+// verifier stats of a filter can be read in isolation. They load with --verify only
+#define VERIFY(name, call)                                                            \
+    SEC("?sk_msg")                                                                    \
+    int verify_##name(struct sk_msg_md *msg) {                                        \
+        struct sock_key skey = _new_sock_key_from_msg(msg);                           \
+        const struct sock_key *ikey = &skey;                                          \
+        struct filter_ctx *ctx = bpf_map_lookup_elem(&ctx_percpu, &percpu_key);       \
+        struct http_parse_res *pres = bpf_map_lookup_elem(&pres_percpu, &percpu_key); \
+        if (ctx == NULL || pres == NULL) return SK_DROP;                              \
+        bool is_skb = false;                                                          \
+        bool is_h2 = bpf_map_lookup_elem(&h2_conns, ikey) != NULL;                    \
+        bool is_downstream = _cmp_proxy_addr(&skey.remote);                           \
+        u16 done_idx = msg->size;                                                     \
+        call;                                                                         \
+        return SK_PASS;                                                               \
+    }
+
 {{FILTERS}}
 
 // this function will only be called if kTLS is not active for this socket

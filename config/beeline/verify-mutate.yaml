@@ -1,0 +1,15 @@
+# Measure the verifier with: CONFIG=config/beeline/verify-mutate.yaml cargo run -p beeline -- --verify
+hosts:
+    - name: server1
+      instances:
+          - 127.0.0.1:8001
+routes:
+    - match:
+          path: "/api"
+      filters:
+          - type: mutate
+            add:
+                x-processed-by: beeline
+            remove:
+                - authorization
+      dest: server1

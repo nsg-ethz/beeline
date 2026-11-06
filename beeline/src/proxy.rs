@@ -17,9 +17,11 @@ use http::{header::AUTHORIZATION, Request, Response, StatusCode};
 use http2::{client, server};
 use ktls::{CorkStream, KtlsCipherSuite, KtlsCipherType, KtlsVersion};
 use libbpf_rs::{
+    btf::BtfType,
+    query::{LinkInfoIter, LinkTypeInfo, ProgInfoIter, ProgramInfo},
     set_print,
-    skel::{OpenSkel, SkelBuilder},
-    Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
+    skel::{OpenSkel, Skel, SkelBuilder},
+    AsRawLibbpf, Link, MapCore, MapFlags, MapHandle, MapType, PrintLevel,
 };
 use libc::exit;
 use rustls::{
@@ -27,6 +29,7 @@ use rustls::{
     ServerConfig,
 };
 use std::{
+    collections::HashMap,
     env,
     io::Cursor,
     mem::MaybeUninit,
@@ -36,6 +39,7 @@ use std::{
         unix::fs::OpenOptionsExt,
     },
     sync::Arc,
+    time::Duration,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -198,6 +202,103 @@ fn print(level: PrintLevel, msg: String) {
     }
 }
 
+fn boottime() -> Duration {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) };
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
+fn print_verifier_stats(
+    skel: &ProxySkel,
+    logs: &[(String, Vec<u8>)],
+    load_ends: &[Duration],
+) -> Result<()> {
+    let infos: HashMap<u32, ProgramInfo> = ProgInfoIter::default()
+        .map(|info| (info.id, info))
+        .collect();
+
+    let mut proxy = Vec::new();
+    for prog in skel.object().progs() {
+        let name = prog.name().to_string_lossy().into_owned();
+        let verify_us = logs
+            .iter()
+            .find(|(n, _)| *n == name)
+            .and_then(|(_, log)| {
+                let log = String::from_utf8_lossy(log);
+                let us = log.split("verification time ").nth(1)?.split(' ').next()?;
+                Some(us.to_string())
+            })
+            .unwrap_or(String::from("-"));
+        let id = libbpf_rs::Program::id_from_fd(prog.as_fd())?;
+        proxy.push((name, id, verify_us));
+    }
+
+    // beeper loads its own objects, they are found by the program they extend
+    let btf = skel.object().btf()?.context("proxy BTF")?;
+    let mut beeper = Vec::new();
+    for link in LinkInfoIter::default() {
+        let LinkTypeInfo::Tracing(tracing) = link.info else {
+            continue;
+        };
+        let Some((target, ..)) = proxy.iter().find(|(_, id, _)| *id == tracing.target_obj_id)
+        else {
+            continue;
+        };
+        let func = btf
+            .type_by_id::<BtfType>(tracing.target_btf_id.into())
+            .and_then(|ty| ty.name())
+            .unwrap_or_default();
+        let info = infos.get(&link.prog_id).context("beeper program info")?;
+        let name = format!(
+            "{} -> {target}/{}",
+            info.name.to_string_lossy(),
+            func.to_string_lossy()
+        );
+        beeper.push((name, link.prog_id, String::from("-")));
+    }
+
+    // the kernel stamps the start of every load, the next stamp ends it
+    // ponytail: libbpf's work between two loads counts towards the first one
+    let mut marks = load_ends.to_vec();
+    for (_, id, _) in proxy.iter().chain(&beeper) {
+        marks.push(infos.get(id).context("program info")?.load_time);
+    }
+    marks.sort();
+
+    for (title, progs) in [("proxy", &proxy), ("beeper", &beeper)] {
+        println!(
+            "{:<48} {:>12} {:>12} {:>12}",
+            title, "load (us)", "verify (us)", "insns"
+        );
+        let mut total = Duration::ZERO;
+        for (name, id, verify_us) in progs {
+            let info = &infos[id];
+            let end = marks.iter().find(|m| **m > info.load_time);
+            let load = end.map(|end| *end - info.load_time).unwrap_or_default();
+            if !name.starts_with("verify_") {
+                total += load;
+            }
+            println!(
+                "{:<48} {:>12} {:>12} {:>12}",
+                name,
+                load.as_micros(),
+                verify_us,
+                info.verified_insns
+            );
+        }
+        println!(
+            "{:<48} {:>12}\n",
+            "data plane total",
+            total.as_micros()
+        );
+    }
+
+    Ok(())
+}
+
 pub struct Proxy<'obj> {
     pub address: SocketAddr,
     pub tls: Option<TlsConfig>,
@@ -224,6 +325,7 @@ impl<'obj> Proxy<'obj> {
         tls: Option<TlsConfig>,
         config: Config,
         open_obj: &'obj mut MaybeUninit<libbpf_rs::OpenObject>,
+        verify: bool,
     ) -> Result<Self> {
         set_print(Some((PrintLevel::Debug, print)));
 
@@ -243,6 +345,25 @@ impl<'obj> Proxy<'obj> {
             open_skel.progs.process_skb.set_log_level(1);
         }
 
+        // the kernel only logs the verification time on the stats log level
+        let mut logs = Vec::new();
+        if verify {
+            for mut prog in open_skel.open_object_mut().progs_mut() {
+                prog.set_autoload(true);
+                prog.set_log_level(4);
+                // a truncated log fails the load, so the buffer is generous
+                let mut log = vec![0u8; 1 << 16];
+                unsafe {
+                    libbpf_rs::libbpf_sys::bpf_program__set_log_buf(
+                        prog.as_libbpf_object().as_ptr(),
+                        log.as_mut_ptr().cast(),
+                        log.len() as _,
+                    );
+                }
+                logs.push((prog.name().to_string_lossy().into_owned(), log));
+            }
+        }
+
         let mut rodata = open_skel.maps.rodata_data.as_mut().context("rodata")?;
         init_dataplane(config.clone(), &mut rodata)?;
 
@@ -252,6 +373,7 @@ impl<'obj> Proxy<'obj> {
         rodata.tls_port = tls_port as u32;
 
         let skel = open_skel.load()?;
+        let mut load_ends = vec![boottime()];
 
         // every program that parses has its own copy of the parser stubs
         let vars = Compiler::new(config.clone()).get_ctx_vars();
@@ -269,12 +391,13 @@ impl<'obj> Proxy<'obj> {
 
             let fd = prog.as_fd().as_raw_fd();
             let Parsers { h1, h2, .. } = new_parsers(&vars)?;
-            h1_parsers.push(h1.parse_fn(parse_h1, buf.clone()).attach(fd)?);
-            h2_parsers.push(
-                h2.parse_fn(parse_h2, buf.clone())
-                    .get_fn(get_h2, buf)
-                    .attach(fd)?,
-            );
+            let h1 = h1.parse_fn(parse_h1, buf.clone());
+            let h2 = h2.parse_fn(parse_h2, buf.clone()).get_fn(get_h2, buf);
+
+            h1_parsers.push(h1.attach(fd)?);
+            load_ends.push(boottime());
+            h2_parsers.push(h2.attach(fd)?);
+            load_ends.push(boottime());
         }
 
         let msg_sock_map_fd = skel.maps.msg_sock_map.as_fd().as_raw_fd();
@@ -309,6 +432,10 @@ impl<'obj> Proxy<'obj> {
         }
 
         debug!("Crypto setup successful");
+
+        if verify {
+            print_verifier_stats(&skel, &logs, &load_ends)?;
+        }
 
         Ok(Self {
             address,

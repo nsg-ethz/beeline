@@ -51,3 +51,5 @@ static __always_inline void _init_h2_filter_ctx(void *msg, bool is_skb, const st
 
     bpf_profile_end(ctx);
 }
+VERIFY(ctx_h1, _init_h1_filter_ctx(msg->data, msg->data_end, ikey, ctx, done_idx, pres))
+VERIFY(ctx_h2, _init_h2_filter_ctx(msg, is_skb, ikey, ctx, done_idx, pres))

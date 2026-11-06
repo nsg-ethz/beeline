@@ -28,3 +28,5 @@ static __always_inline enum pr_action _match(void *msg __arg_ctx, struct filter_
 
     return PR_PASS;
 }
+
+VERIFY(match, _match(msg, ctx, ikey, is_downstream, is_skb, is_h2))

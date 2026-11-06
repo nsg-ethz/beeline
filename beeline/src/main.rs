@@ -15,6 +15,10 @@ struct Args {
     #[arg(short, long, action)]
     validate: bool,
 
+    /// Load the data plane and report the verifier stats of every program
+    #[arg(long, action)]
+    verify: bool,
+
     #[arg(long)]
     tls: Option<SocketAddr>,
 }
@@ -32,7 +36,8 @@ async fn main() -> Result<()> {
     let config = args
         .config
         .or(env::var("CONFIG").ok())
-        .unwrap_or(String::from("config/beeline/debug.yaml"));
+        // the data plane is compiled for this config
+        .unwrap_or(String::from(env!("BEELINE_CONFIG")));
 
     let config = std::fs::File::open(config)?;
     let config: Config = serde_yaml::from_reader(&config).expect("Failed to parse config");
@@ -53,9 +58,9 @@ async fn main() -> Result<()> {
     };
 
     let mut open_obj = MaybeUninit::uninit();
-    let proxy = Proxy::attach(&addr, tls, config, &mut open_obj)?;
+    let proxy = Proxy::attach(&addr, tls, config, &mut open_obj, args.verify)?;
 
-    if !args.validate {
+    if !args.validate && !args.verify {
         proxy.listen().await
     } else {
         Ok(())

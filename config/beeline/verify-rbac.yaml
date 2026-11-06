@@ -1,0 +1,21 @@
+# Measure the verifier with: CONFIG=config/beeline/verify-rbac.yaml cargo run -p beeline -- --verify
+hosts:
+    - name: server1
+      instances:
+          - 127.0.0.1:8001
+routes:
+    - match:
+          path: "/api"
+      dest: server1
+policies:
+    - name: deny-delete
+      method: DELETE
+      path: "/api"
+      destination_ip: 127.0.0.1
+      destination_port: 8001
+      source_ip: 127.0.0.1
+      headers:
+          x-user: admin
+      allow: false
+    - name: allow-rest
+      allow: true

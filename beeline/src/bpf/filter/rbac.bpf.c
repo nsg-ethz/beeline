@@ -10,3 +10,5 @@ static __always_inline enum pr_action _check_rbac(struct filter_ctx *ctx, const 
 
     {no_match_action}
 }
+
+VERIFY(rbac, _check_rbac(ctx, ikey))

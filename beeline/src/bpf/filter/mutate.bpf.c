@@ -15,3 +15,5 @@ enum pr_action _mutate_{idx}(void *msg __arg_ctx, struct filter_ctx *ctx, bool i
 
     return PR_PASS;
 }
+
+VERIFY(mutate_{idx}, _mutate_{idx}(msg, ctx, is_skb, is_h2))

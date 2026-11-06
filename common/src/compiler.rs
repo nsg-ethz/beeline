@@ -786,19 +786,28 @@ impl Compiler {
 
         let mut max_path_len = 16;
         let mut auth = false;
-        for route in &self.config.routes {
-            if let Some(path) = &route.pattern.path {
+        // RBAC policies match on the same variables as routes
+        let patterns = self
+            .config
+            .routes
+            .iter()
+            .map(|r| (&r.pattern.path, &r.pattern.headers))
+            .chain(self.config.policies.iter().map(|p| (&p.path, &p.headers)));
+        for (path, headers) in patterns {
+            if let Some(path) = path {
                 // +12 because we're also matching HTTP/1.1\r\n in the path
                 max_path_len = max_path_len.max(path.len() + 12)
             }
 
-            if let Some(headers) = &route.pattern.headers {
+            if let Some(headers) = headers {
                 for (key, val) in headers {
                     let size = val.len().max(huffman_encode(val).len());
                     insert(Variable::buffer(key, "char", Some(size)));
                 }
             }
+        }
 
+        for route in &self.config.routes {
             for filter in &route.filters {
                 match filter {
                     CFilter::Jwt(_) => {

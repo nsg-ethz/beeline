@@ -1,0 +1,13 @@
+# Measure the verifier with: CONFIG=config/beeline/verify-lb.yaml cargo run -p beeline -- --verify
+hosts:
+    - name: server1
+      load_balancer:
+          type: ring
+          size: 50
+      instances:
+          - 127.0.0.1:8001
+          - 127.0.0.1:8002
+routes:
+    - match:
+          path: "/api"
+      dest: server1

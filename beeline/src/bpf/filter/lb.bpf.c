@@ -13,3 +13,5 @@ static __always_inline enum pr_action _load_balance_{idx}(struct filter_ctx *ctx
 
     return PR_PASS;
 }
+
+VERIFY(lb_{idx}, _load_balance_{idx}(ctx, ikey))
