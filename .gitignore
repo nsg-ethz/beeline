@@ -1,5 +1,5 @@
 /target
-/venv
+.venv
 /res
 *.skel.rs
 run.sh
@@ -7,4 +7,5 @@ run.sh
 .clangd
 /include
 .envrc
-/graft
+.claude
+.trail
