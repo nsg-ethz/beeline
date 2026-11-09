@@ -53,7 +53,7 @@ function launch_proxy {
         BEELINE_CONFIG=${ROOT}/../config/beeline/${PROXY_CONFIG}
         CONFIG=${BEELINE_CONFIG} BPF_PROFILE=1 cargo b -r -p beeline
 
-        BPF_PROFILE=1 sudo -b ${BEELINE_BIN} -c ${BEELINE_CONFIG} > ${SUMMARY_DIR}/${PROXY}-e${EPOCH}.log
+        BPF_PROFILE=1 sudo ${BEELINE_BIN} -c ${BEELINE_CONFIG} > ${SUMMARY_DIR}/${PROXY}-e${EPOCH}.log &
         health_check 172.17.0.1:9999
 
         if [[ -z $(pidof beeline) ]]; then
@@ -62,13 +62,13 @@ function launch_proxy {
         else
             echo -e "${COLOR_GREEN}Launched beeline${COLOR_OFF}"
         fi
-        sudo -b bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
+        sudo bpftool prog tracelog > ${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log &
     else
         if [[ "${PROXY}" == *l4fp ]]; then
             PROXY_BIN=${ROOT}/../target/release/l4fp
             cargo b -r -p l4fp
 
-            sudo -b ${PROXY_BIN} -c 172.18.0.0/24
+            sudo ${PROXY_BIN} -c 172.18.0.0/24 &
             echo -e "${COLOR_GREEN}Launched L4 fast path${COLOR_OFF}"
 
             sleep 3
@@ -83,7 +83,7 @@ function launch_proxy {
             SIDECAR_NS=$(docker inspect ${SIDECAR_NAME} -f '{{.NetworkSettings.SandboxKey}}')
 
             ENVOY_OUT=${SUMMARY_DIR}/${PROXY}-rt-e${EPOCH}.log
-            sudo -b nsenter --net=${SIDECAR_NS} envoy -c ${SIDECAR_CONFIG} > ${ENVOY_OUT} 2>&1
+            sudo nsenter --net=${SIDECAR_NS} envoy -c ${SIDECAR_CONFIG} > ${ENVOY_OUT} 2>&1 &
             echo -e "${COLOR_GREEN}Launched envoy${COLOR_OFF}"
 
             sleep 5
