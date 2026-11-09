@@ -18,7 +18,7 @@ export const options = {
     insecureSkipTLSVerify: true,
 };
 
-const dest = __ENV.URL || "https://moonshine:9991";
+const dest = __ENV.URL || `https://${__ENV.DEST_HOST || "localhost"}:9991`;
 
 export default () => {
     const args = ["dis", "rate", "price"];

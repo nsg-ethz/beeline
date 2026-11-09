@@ -24,7 +24,7 @@ export const options = {
     insecureSkipTLSVerify: true,
 };
 
-const dest = __ENV.URL || "https://moonshine:9991";
+const dest = __ENV.URL || `https://${__ENV.DEST_HOST || "localhost"}:9991`;
 
 function randomIntBetweenWithout(min, max, without) {
     while (true) {

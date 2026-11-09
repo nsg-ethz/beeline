@@ -4,7 +4,7 @@ import http from "k6/http";
 import encoding from "k6/encoding";
 import exec from "k6/execution";
 
-export const dest = __ENV.URL || "http://moonshine:8080";
+export const dest = __ENV.URL || `http://${__ENV.DEST_HOST || "localhost"}:8080`;
 
 export const payloadSize = __ENV.PAYLOAD_SIZE || 100;
 const randomBody = "b".repeat(payloadSize);

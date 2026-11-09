@@ -5,7 +5,7 @@ import {
     randomIntBetween,
 } from "https://jslib.k6.io/k6-utils/1.3.0/index.js";
 
-const dest = __ENV.URL || "https://moonshine:9991";
+const dest = __ENV.URL || `https://${__ENV.DEST_HOST || "localhost"}:9991`;
 
 const randomText = randomString(256);
 

@@ -1,13 +1,8 @@
 #!/bin/bash
 
-COLOR_RED='\033[0;31m'
-COLOR_GREEN='\033[0;32m'
-COLOR_YELLOW='\033[0;33m'
-COLOR_OFF='\033[0m' # No Color
+# Softirq time is also charged to the task it interrupts, so the sum of all
+# rows except host double counts some of it. Use the host row for the total.
 
-ROOT=$(dirname "$(readlink -f "$0")")
-
-# Parse arguments
 while getopts "n:p:e:" opt; do
     case $opt in
         n ) NAME=${OPTARG} ;;
@@ -21,31 +16,38 @@ done
 
 ROOT=$(dirname "$(readlink -f "$0")")
 SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
-SOCIAL_NETWORK_DIR=${ROOT}/../test/social_network
-
 mkdir -p ${SUMMARY_DIR}
 
-function read_cpu_usage() {
-    awk '$1 == "usage_usec" { print $2 }' /sys/fs/cgroup/beeline.slice/cpu.stat
-}
+# USER_HZ ticks to microseconds
+TICK_US=$(( 1000000 / $(getconf CLK_TCK) ))
 
-TS=$(date +%s%N)
-CPU=$(read_cpu_usage)
+mapfile -t CONTAINERS < <(docker ps --no-trunc --filter label=com.docker.compose.service \
+    --format '{{.ID}} {{.Label "com.docker.compose.service"}}')
+
+PROCS=()
+for pid in $(pidof beeline envoy l4fp); do
+    # the sidecar container also runs envoy, its cgroup already covers it
+    grep -q docker- /proc/${pid}/cgroup || PROCS+=("${pid} $(< /proc/${pid}/comm)")
+done
 
 FILE=${SUMMARY_DIR}/${PROXY}-cpu-e${EPOCH}.log
-echo "timestamp,CPUPerc" > ${FILE}
-
-SUDO_GROUP=$(id -gn "$SUDO_USER")
-chown "$SUDO_USER:$SUDO_GROUP" -R ${SUMMARY_DIR}
+echo "timestamp,name,user_usec,system_usec" > ${FILE}
 
 while sleep 1; do
-    TS_NEW=$(date +%s%N)
-    CPU_NEW=$(read_cpu_usage)
-
-    RES=$(bc -l <<< "(${CPU_NEW} - ${CPU}) / (${TS_NEW} - ${TS}) * 1000")
-    echo "${TS_NEW},${RES}" >> ${FILE}
-    sync
-
-    TS=${TS_NEW}
-    CPU=${CPU_NEW}
+    ts=${EPOCHREALTIME/./}000
+    {
+        for c in "${CONTAINERS[@]}"; do
+            read -r id svc <<< "$c"
+            { read -r _; read -r _ u; read -r _ k; } < /sys/fs/cgroup/system.slice/docker-${id}.scope/cpu.stat
+            echo "${ts},${svc},${u},${k}"
+        done
+        for p in "${PROCS[@]}"; do
+            read -r pid comm <<< "$p"
+            read -r -a f < /proc/${pid}/stat
+            echo "${ts},${comm},$(( f[13] * TICK_US )),$(( f[14] * TICK_US ))"
+        done
+        read -r _ u n k _ _ irq sirq steal _ < /proc/stat
+        echo "${ts},softirq,0,$(( (irq + sirq) * TICK_US ))"
+        echo "${ts},host,$(( (u + n) * TICK_US )),$(( (k + irq + sirq + steal) * TICK_US ))"
+    } >> ${FILE}
 done

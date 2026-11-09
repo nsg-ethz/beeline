@@ -136,6 +136,9 @@ def _load_cpu_data(paths):
         proxy, epoch = _parse_cpu_path(p)
 
         df = pd.read_csv(p)
+        df["usec"] = df["user_usec"] + df["system_usec"]
+        df["CPUPerc"] = df.groupby("name")["usec"].diff() * 1000 / df.groupby("name")["timestamp"].diff()
+        df = df.dropna(subset=["CPUPerc"])
         df["proxy"] = proxy
         df["epoch"] = epoch
         df["file"] = os.path.basename(p)
@@ -364,6 +367,7 @@ def cpu_graph(name):
         paths = _get_file_paths(name, "*cpu*.log")
 
     df = _load_cpu_data(paths)
+    df = df[df["name"] == "host"].copy()
     df["timestamp"] /= 1e9
     df = df.round({"timestamp": 0, "CPUPerc": 3})
 

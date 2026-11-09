@@ -62,9 +62,11 @@ CONFIG=config/beeline/test.yaml cargo test -p beeline
 ## Benchmarking
 
 Before running any benchmark, make sure that the following requirements are met:
-* The firewall allows traffic from the Docker network to reach the host. Explicitely enable this using the following rule: `sudo ufw allow from 172.18.0.0/24`
+* The firewall allows traffic from the Docker network (`172.18.0.0/24`) and from `LOAD_GEN_HOST` on port 9991 to reach the host. `script/bench.sh` adds these ufw rules for the duration of a run and deletes them at the end
 * The soft and hard limit of open files in `/etc/security/limits.conf` is high enough
-* The `DEST_HOST` (in `script/bench.sh` and `script/pc.sh`) and `dest` in `k6/common.js` points to the machine that runs your application
+* Run the scripts on the machine that runs your application. Set `LOAD_GEN_HOST` to a second machine that generates the load with [k6](https://k6.io)
+* The load generator has k6 installed and is reachable over SSH without a password. `script/bench.sh` uploads the k6 scripts to a temporary directory on it
+* The load generator reaches your application under `$(hostname)`. If not, set `DEST_HOST` to an address it can reach
 
 The benchmarking scripts use the following terminology:
 * `ms` stands for [Media Service](https://github.com/delimitrou/DeathStarBench/tree/master/mediaMicroservices)
@@ -75,30 +77,30 @@ The benchmarking scripts use the following terminology:
 Now, you can run the experiments and visualize them as follows:
 ```
 # media service experiment
-script/exp/fp-ms.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
+LOAD_GEN_HOST=[LOAD_GEN_HOST] script/exp/fp-ms.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
 script/vis.py -n [YOUR_EXPERIMENT_NAME] rate
 script/vis.py -n [YOUR_EXPERIMENT_NAME] cdf
 
 # social network experiment
-script/exp/fp-sn.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
+LOAD_GEN_HOST=[LOAD_GEN_HOST] script/exp/fp-sn.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
 script/vis.py -n [YOUR_EXPERIMENT_NAME] rate
 script/vis.py -n [YOUR_EXPERIMENT_NAME] cdf
 
 # hotel reservation experiment
-script/exp/fp-hr.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
+LOAD_GEN_HOST=[LOAD_GEN_HOST] script/exp/fp-hr.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [NUM_EPOCHS]
 script/vis.py -n [YOUR_EXPERIMENT_NAME] rate
 script/vis.py -n [YOUR_EXPERIMENT_NAME] cdf
 
 # slow path experiment
-script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -p 0 -f 1 -t [YOUR_EXPERIMENT_NAME]
+LOAD_GEN_HOST=[LOAD_GEN_HOST] script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -p 0 -f 1 -t [YOUR_EXPERIMENT_NAME]
 script/vis.py -n [YOUR_EXPERIMENT_NAME] complexity -p 0
 
 # policy complexity experiment
-script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [YOUR_EXPERIMENT_NAME]
+LOAD_GEN_HOST=[LOAD_GEN_HOST] script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [YOUR_EXPERIMENT_NAME]
 script/vis.py -n [YOUR_EXPERIMENT_NAME] complexity -p [1,2,3 or 4]
 
 # dissecting the policy 4
-script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [YOUR_EXPERIMENT_NAME] -s k6/pc-rps.js
+LOAD_GEN_HOST=[LOAD_GEN_HOST] script/exp/pc.sh -n [YOUR_EXPERIMENT_NAME] -f 1 -t [YOUR_EXPERIMENT_NAME] -s k6/pc-rps.js
 script/vis.py -n [YOUR_EXPERIMENT_NAME] dissect_complexity -p [1,2,3 or 4] -x [beeline, envoy_l4fp, or envoy]
 
 # start the service mesh without generating load
