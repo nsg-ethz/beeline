@@ -32,7 +32,6 @@ SUMMARY_DIR=${ROOT}/../res/runs/${NAME}
 mkdir -p ${SUMMARY_DIR}
 
 cd ${ROOT}
-source ${ROOT}/../venv/bin/activate
 
 function health_check {
     for i in $(seq 1 20); do
