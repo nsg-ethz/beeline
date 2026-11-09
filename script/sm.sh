@@ -146,7 +146,7 @@ case ${ACTION} in
         if [[ "${DOCKER_CONFIG}" == *sn* ]]; then
             echo -e "${COLOR_YELLOW}Preparing social network...${COLOR_OFF}"
             cd ${ROOT}/../test/social_network
-            python3 scripts/init_social_graph.py
+            uv run scripts/init_social_graph.py
         elif [[ "${DOCKER_CONFIG}" == *ms* ]]; then
             echo -e "${COLOR_YELLOW}Preparing media service...${COLOR_OFF}"
             cd ${ROOT}/../test/media_service/scripts
