@@ -290,67 +290,88 @@ def stats_graph():
     with open(path, "r") as f:
         data = json.load(f)
 
-    filters = data["filters"]
-    df = pd.DataFrame(filters)
-    df["supported"] = df["name"].isin(
-        ["router", "cors", "ext_authz", "jwt", "compressor"]
-    )
+    df = pd.DataFrame(data["filters"])
+    configs = pd.DataFrame(data["configs"])
 
-    print(f"Repos: {len(df['repo_url'].unique())}")
-    print(f"Files: {len(df['download_url'].unique())}")
-    print(f"Using gRPC: {df['name'].str.contains('grpc').sum()}")
-    print(f"Using lua or wasm: {df['name'].isin(['lua', 'wasm']).sum()}")
-    print(f"Configs: {data['filter_chains']}")
+    print(f"Repos: {configs['repo_url'].nunique()}")
+    print(f"Files: {len(configs)}")
+    print(f"Endpoints: {configs['num_endpoints'].sum()}")
+    print(f"Fully supported endpoints: {configs['num_endpoints_supported'].sum()}")
     print(
-        "Fully compatible configs:",
-        df.groupby("download_url")["supported"].all().values.sum(),
+        "Fully supported configs:",
+        (configs["num_endpoints"] == configs["num_endpoints_supported"]).sum(),
     )
 
-    df = df.groupby("name").size().reset_index(name="count").set_index("name")
-    df["supported"] = df.index.isin(
-        ["router", "cors", "ext_authz", "jwt", "compressor", "dynamic_forward_proxy"]
-    )
+    undocumented = df[~df["documented"]]
+    print(f"Undocumented filters: {len(undocumented)} ({undocumented['name'].nunique()} unique)")
 
-    names = df.index.tolist()
-    names[names.index("http1bridge")] = "grpc_http1"
-    names[names.index("grpc_json_transcoder")] = "grpc_json"
-    names[names.index("dynamic_forward_proxy")] = "forward_proxy"
-    df = df.reset_index()
-    df["name"] = names
-    # df["count"] = (df["count"] / num_filter_chains) * 100
+    df = df[df["documented"]]
+    df = df.groupby("name").agg(
+        count=("name", "size"),
+        supported=("supported", "first"),
+    ).reset_index()
+    df = df.sort_values(by="count", ascending=False).head(1000).reset_index(drop=True)
 
-    df = df.sort_values(by="count", ascending=False).head(10).reset_index(drop=True)
+    categories = {
+        "custom": [
+            "lua", "wasm", "golang", "ext_proc",
+        ],
+        "protocol": [
+            "grpc_web", "grpc_json_transcoder", "grpc_http1_bridge",
+            "grpc_http1_reverse_bridge", "connect_grpc_bridge", "grpc_field_extraction",
+            "proto_message_extraction", "grpc_stats", "ai_protocol_manager", "mcp",
+            "compressor", "decompressor", "header_to_metadata", "json_to_metadata",
+            "transform", "buffer", "upstream_codec", "custom_response", "aws_lambda",
+            "header_mutation"
+        ],
+        "routing": [
+            "router", "dynamic_forward_proxy", "local_ratelimit", "ratelimit",
+            "ratelimit_quota", "fault", "adaptive_concurrency", "admission_control",
+            "bandwidth_limit", "bandwidth_share", "health_check",
+            "tap", "cache", "cache_v2", "stateful_session",
+            "set_metadata", "set_filter_state", "filter_chain", "cdn_loop", "file_server",
+            "geoip", "composite"
+        ],
+        "security": [
+            "cors", "ext_authz", "jwt", "rbac", "oauth2", "credential_injector",
+            "aws_request_signing", "csrf", "basic_auth", "api_key_auth", "ip_tagging",
+            "checksum",
+        ],
+    }
+    category = {name: cat for (cat, names) in categories.items() for name in names}
+    missing = set(df["name"]) - category.keys()
+    assert not missing, f"Uncategorized filters: {missing}"
+    df["category"] = df["name"].map(category)
 
-    cnt = len(df) + 1
+    counts = df.groupby(["category", "supported"])["count"].sum()
 
-    def _coords(df):
-        coords = [
-            f"({count: .1f},{cnt - idx - 1})"
-            for (idx, count) in zip(df.index, df["count"])
-        ]
+    def _coords(supported):
+        return "\n".join(
+            f"({idx + 1}, {counts.get((cat, supported), 0)})"
+            for (idx, cat) in enumerate(categories)
+        )
 
-        return coords
+    num_filters = df["count"].sum() + len(undocumented)
+    num_supported = df.loc[df["supported"], "count"].sum()
+    print(f"Supported filters: {num_supported}/{num_filters} ({num_supported / num_filters:.0%})")
+    cat_totals = df.groupby("category")["count"].sum()
+    for name, count, cat in zip(df["name"], df["count"], df["category"]):
+        print(f"{name}: {count / num_filters:.2%} of total, {count / cat_totals[cat]:.2%} of {cat}")
+    print(f"""\\addplot[draw=uchu-green-6, fill=uchu-green-1] coordinates {{
+{_coords(True)}
+}};""")
+    print(f"""\\addplot[draw=uchu-red-6, fill=uchu-red-1] coordinates {{
+{_coords(False)}
+}};""")
+    print()
 
-    supported = df.loc[df["supported"] == True]
-    supported = "\n".join(_coords(supported))
-
-    unsupported = df.loc[df["supported"] == False]
-    unsupported = "\n".join(_coords(unsupported))
-
-    labels = [name.replace("_", "\\_") for name in list(df["name"]) + ["other"]]
-    labels = ",".join(reversed(labels))
-
-    supported = f"""\\addplot[draw=uchu-green-6, fill=uchu-green-1] coordinates {{
-{supported}
-}};"""
-    unsupported = f"""\\addplot[draw=uchu-red-6, fill=uchu-red-1] coordinates {{
-{unsupported}
-}};"""
-
-    plots = "\n".join([supported, unsupported])
-    print(plots)
-
-    print(f"yticklabels={{{labels}}}")
+    for idx, cat in enumerate(categories):
+        unsupported = counts.get((cat, False), 0)
+        total = unsupported + counts.get((cat, True), 0)
+        print(
+            f"\\node[anchor=south, text=uchu-red-6, fill=white] ({cat} label) "
+            f"at ({idx + 1}, {total}) {{\\scriptsize {round(unsupported / total * 100)}\\%}};"
+        )
 
 
 def cpu_graph(name):
