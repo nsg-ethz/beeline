@@ -727,6 +727,15 @@ static __always_inline int _set_h2_stream_id_skb(struct __sk_buff *skb, u32 new_
         return SK_PASS;                                                               \
     }
 
+// the cost of one profiled section. Build with BPF_PROFILE=1
+bpf_profile_def(telemetry);
+static __always_inline void _telemetry(void) {
+    bpf_profile_start(telemetry);
+    bpf_profile_end(telemetry);
+}
+
+VERIFY(telemetry, _telemetry())
+
 {{FILTERS}}
 
 // this function will only be called if kTLS is not active for this socket

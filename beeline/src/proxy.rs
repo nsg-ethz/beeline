@@ -1,6 +1,6 @@
 use crate::bpf::{types::*, TypedLookUp, *};
 use ::bytes::Bytes;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use as_bytes::AsBytes;
 use beeper::{
     http1,
@@ -211,11 +211,20 @@ fn boottime() -> Duration {
     Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
 }
 
-fn print_verifier_stats(
+struct ProgStats {
+    table: &'static str,
+    name: String,
+    load: Duration,
+    verify: Option<Duration>,
+    verified_insns: u32,
+    size: Option<usize>,
+}
+
+fn verifier_stats(
     skel: &ProxySkel,
     logs: &[(String, Vec<u8>)],
     load_ends: &[Duration],
-) -> Result<()> {
+) -> Result<Vec<ProgStats>> {
     let infos: HashMap<u32, ProgramInfo> = ProgInfoIter::default()
         .map(|info| (info.id, info))
         .collect();
@@ -223,17 +232,14 @@ fn print_verifier_stats(
     let mut proxy = Vec::new();
     for prog in skel.object().progs() {
         let name = prog.name().to_string_lossy().into_owned();
-        let verify_us = logs
-            .iter()
-            .find(|(n, _)| *n == name)
-            .and_then(|(_, log)| {
-                let log = String::from_utf8_lossy(log);
-                let us = log.split("verification time ").nth(1)?.split(' ').next()?;
-                Some(us.to_string())
-            })
-            .unwrap_or(String::from("-"));
+        let verify_us = logs.iter().find(|(n, _)| *n == name).and_then(|(_, log)| {
+            let log = String::from_utf8_lossy(log);
+            let us = log.split("verification time ").nth(1)?.split(' ').next()?;
+            Some(Duration::from_micros(us.parse().ok()?))
+        });
         let id = libbpf_rs::Program::id_from_fd(prog.as_fd())?;
-        proxy.push((name, id, verify_us));
+        // libbpf keeps the instructions it handed to the kernel
+        proxy.push((name, id, verify_us, Some(prog.insn_cnt())));
     }
 
     // beeper loads its own objects, they are found by the program they extend
@@ -243,7 +249,9 @@ fn print_verifier_stats(
         let LinkTypeInfo::Tracing(tracing) = link.info else {
             continue;
         };
-        let Some((target, ..)) = proxy.iter().find(|(_, id, _)| *id == tracing.target_obj_id)
+        let Some((target, ..)) = proxy
+            .iter()
+            .find(|(_, id, ..)| *id == tracing.target_obj_id)
         else {
             continue;
         };
@@ -257,46 +265,71 @@ fn print_verifier_stats(
             info.name.to_string_lossy(),
             func.to_string_lossy()
         );
-        beeper.push((name, link.prog_id, String::from("-")));
+        // beeper drops its objects after the load, so their instructions are gone
+        beeper.push((name, link.prog_id, None, None));
     }
 
     // the kernel stamps the start of every load, the next stamp ends it
     // ponytail: libbpf's work between two loads counts towards the first one
     let mut marks = load_ends.to_vec();
-    for (_, id, _) in proxy.iter().chain(&beeper) {
+    for (_, id, ..) in proxy.iter().chain(&beeper) {
         marks.push(infos.get(id).context("program info")?.load_time);
     }
     marks.sort();
 
-    for (title, progs) in [("proxy", &proxy), ("beeper", &beeper)] {
-        println!(
-            "{:<48} {:>12} {:>12} {:>12}",
-            title, "load (us)", "verify (us)", "insns"
-        );
-        let mut total = Duration::ZERO;
-        for (name, id, verify_us) in progs {
-            let info = &infos[id];
+    let mut stats = Vec::new();
+    for (table, progs) in [("proxy", proxy), ("beeper", beeper)] {
+        for (name, id, verify, size) in progs {
+            let info = &infos[&id];
             let end = marks.iter().find(|m| **m > info.load_time);
             let load = end.map(|end| *end - info.load_time).unwrap_or_default();
-            if !name.starts_with("verify_") {
+            stats.push(ProgStats {
+                table,
+                name,
+                load,
+                verify,
+                verified_insns: info.verified_insns,
+                size,
+            });
+        }
+    }
+
+    Ok(stats)
+}
+
+fn print_verifier_stats(runs: &[Vec<ProgStats>]) {
+    let n = runs.len() as u32;
+    let dash = || String::from("-");
+    for title in ["proxy", "beeper"] {
+        println!(
+            "{:<48} {:>12} {:>12} {:>14} {:>14}",
+            title, "load (us)", "verify (us)", "verif (insns)", "size (insns)"
+        );
+        let mut total = Duration::ZERO;
+        for (i, prog) in runs[0].iter().enumerate() {
+            if prog.table != title {
+                continue;
+            }
+            let load = runs.iter().map(|run| run[i].load).sum::<Duration>() / n;
+            let verify = runs
+                .iter()
+                .map(|run| run[i].verify)
+                .sum::<Option<Duration>>();
+            if !prog.name.starts_with("verify_") {
                 total += load;
             }
             println!(
-                "{:<48} {:>12} {:>12} {:>12}",
-                name,
+                "{:<48} {:>12} {:>12} {:>14} {:>14}",
+                prog.name,
                 load.as_micros(),
-                verify_us,
-                info.verified_insns
+                verify.map_or_else(dash, |v| (v / n).as_micros().to_string()),
+                prog.verified_insns,
+                prog.size.map_or_else(dash, |s| s.to_string())
             );
         }
-        println!(
-            "{:<48} {:>12}\n",
-            "data plane total",
-            total.as_micros()
-        );
+        println!("{:<48} {:>12}\n", "data plane total", total.as_micros());
     }
-
-    Ok(())
+    println!("averaged over {n} loads");
 }
 
 pub struct Proxy<'obj> {
@@ -313,6 +346,7 @@ pub struct Proxy<'obj> {
         Arc<Vec<beeper::http2::AttachedParser>>,
     ),
     h1_upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
+    stats: Vec<ProgStats>,
 }
 
 unsafe impl<'obj> Send for Proxy<'obj> {}
@@ -320,6 +354,32 @@ unsafe impl<'obj> Send for Proxy<'obj> {}
 unsafe impl<'obj> Sync for Proxy<'obj> {}
 
 impl<'obj> Proxy<'obj> {
+    pub fn verify(
+        address: SocketAddr,
+        tls: Option<TlsConfig>,
+        config: Config,
+        runs: usize,
+    ) -> Result<()> {
+        let mut runs_stats: Vec<Vec<ProgStats>> = Vec::new();
+        for _ in 0..runs {
+            let mut open_obj = MaybeUninit::uninit();
+            let mut proxy =
+                Proxy::attach(address, tls.clone(), config.clone(), &mut open_obj, true)?;
+            let stats = std::mem::take(&mut proxy.stats);
+            // the averages pair the programs of every load by their position
+            if let Some(first) = runs_stats.first() {
+                let same = first
+                    .iter()
+                    .map(|p| &p.name)
+                    .eq(stats.iter().map(|p| &p.name));
+                ensure!(same, "the programs differ between loads");
+            }
+            runs_stats.push(stats);
+        }
+        print_verifier_stats(&runs_stats);
+        Ok(())
+    }
+
     pub fn attach<A: ToSocketAddrs>(
         address: A,
         tls: Option<TlsConfig>,
@@ -433,9 +493,11 @@ impl<'obj> Proxy<'obj> {
 
         debug!("Crypto setup successful");
 
-        if verify {
-            print_verifier_stats(&skel, &logs, &load_ends)?;
-        }
+        let stats = if verify {
+            verifier_stats(&skel, &logs, &load_ends)?
+        } else {
+            Vec::new()
+        };
 
         Ok(Self {
             address,
@@ -445,6 +507,7 @@ impl<'obj> Proxy<'obj> {
             sockops,
             parsers: (h1_parsers, Arc::new(h2_parsers)),
             h1_upstream_pool: Arc::new(Mutex::new(Vec::new())),
+            stats,
         })
     }
 

@@ -15,7 +15,7 @@ struct Args {
     #[arg(short, long, action)]
     validate: bool,
 
-    /// Load the data plane and report the verifier stats of every program
+    /// Load the data plane 30 times and report the average verifier stats of every program
     #[arg(long, action)]
     verify: bool,
 
@@ -57,10 +57,14 @@ async fn main() -> Result<()> {
         config.tls.clone()
     };
 
-    let mut open_obj = MaybeUninit::uninit();
-    let proxy = Proxy::attach(&addr, tls, config, &mut open_obj, args.verify)?;
+    if args.verify {
+        return Proxy::verify(addr, tls, config, 30);
+    }
 
-    if !args.validate && !args.verify {
+    let mut open_obj = MaybeUninit::uninit();
+    let proxy = Proxy::attach(&addr, tls, config, &mut open_obj, false)?;
+
+    if !args.validate {
         proxy.listen().await
     } else {
         Ok(())

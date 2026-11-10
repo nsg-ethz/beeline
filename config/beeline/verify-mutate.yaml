@@ -10,6 +10,4 @@ routes:
           - type: mutate
             add:
                 x-processed-by: beeline
-            remove:
-                - authorization
       dest: server1

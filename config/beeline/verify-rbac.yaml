@@ -17,5 +17,3 @@ policies:
       headers:
           x-user: admin
       allow: false
-    - name: allow-rest
-      allow: true
