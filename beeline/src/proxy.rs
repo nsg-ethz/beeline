@@ -45,7 +45,8 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
     signal::unix::{signal, SignalKind},
-    sync::Mutex,
+    sync::{watch, Mutex},
+    time::{sleep, Instant},
 };
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, trace, warn, Level};
@@ -347,6 +348,14 @@ pub struct Proxy<'obj> {
     ),
     h1_upstream_pool: Arc<Mutex<Vec<TcpStream>>>,
     stats: Vec<ProgStats>,
+
+    /// How long a drain waits for the open connections to close.
+    pub drain_time: Duration,
+    /// The pid of the instance that this one replaces. It is told to drain once this one listens.
+    pub replace: Option<i32>,
+    drain: watch::Sender<bool>,
+    // every connection task holds a clone, so the strong count is the number of open connections + 1
+    conns: Arc<()>,
 }
 
 unsafe impl<'obj> Send for Proxy<'obj> {}
@@ -431,6 +440,7 @@ impl<'obj> Proxy<'obj> {
         rodata.ip4 = address.try_into_ne_octets()?;
         rodata.port = address.port() as u32;
         rodata.tls_port = tls_port as u32;
+        rodata.pid = std::process::id();
 
         let skel = open_skel.load()?;
         let mut load_ends = vec![boottime()];
@@ -508,6 +518,10 @@ impl<'obj> Proxy<'obj> {
             parsers: (h1_parsers, Arc::new(h2_parsers)),
             h1_upstream_pool: Arc::new(Mutex::new(Vec::new())),
             stats,
+            drain_time: Duration::from_secs(600),
+            replace: None,
+            drain: watch::Sender::new(false),
+            conns: Arc::new(()),
         })
     }
 
@@ -623,6 +637,8 @@ impl<'obj> Proxy<'obj> {
         fn listen(addr: SocketAddr) -> Result<TcpListener> {
             let socket = TcpSocket::new_v4()?;
             socket.set_reuseaddr(true)?;
+            // the instance of a hot reload binds while the old one still listens
+            socket.set_reuseport(true)?;
             socket.bind(addr)?;
             let listener = socket.listen(8192)?;
             Ok(listener)
@@ -643,22 +659,64 @@ impl<'obj> Proxy<'obj> {
             None
         };
 
-        loop {
-            if let Some((tls_listener, tls_acceptor)) = &tls {
-                tokio::select! {
-                    res = self.accept_tls(&tls_listener, &tls_acceptor) => if let Err(e) = res {
-                        error!("Error handling TLS downstream connection: {:?}", e);
-                    },
-                    res = self.accept_plain(&plain_listener) => if let Err(e) = res {
-                        error!("Error handling downstream connection: {:?}", e);
-                    }
-                };
-            } else {
-                if let Err(e) = self.accept_plain(&plain_listener).await {
-                    error!("Error handling downstream connection: {:?}", e);
-                };
+        let mut ports = vec![plain_addr.port()];
+        ports.extend(self.tls.as_ref().map(|t| t.socket.port()));
+        for port in ports {
+            update_map(&self.skel.maps.beeline_owners, &(port as u32), &std::process::id())?;
+        }
+
+        // ponytail: connections that complete their handshake between the owner update
+        // above and the moment the old instance closes its listener can get the BPF state
+        // of one instance and the accept of the other. An SK_REUSEPORT program that reads
+        // beeline_owners would steer them at SYN time.
+        if let Some(pid) = self.replace {
+            if unsafe { libc::kill(pid, libc::SIGUSR1) } < 0 {
+                warn!("Failed to signal {}: {}", pid, std::io::Error::last_os_error());
             }
         }
+
+        let mut drain = signal(SignalKind::user_defined1())?;
+        loop {
+            let accept_tls = async {
+                let Some((listener, acceptor)) = &tls else {
+                    return std::future::pending().await;
+                };
+                self.accept_tls(listener, acceptor).await
+            };
+
+            tokio::select! {
+                _ = drain.recv() => break,
+                res = accept_tls => if let Err(e) = res {
+                    error!("Error handling TLS downstream connection: {:?}", e);
+                },
+                res = self.accept_plain(&plain_listener) => if let Err(e) = res {
+                    error!("Error handling downstream connection: {:?}", e);
+                },
+            }
+        }
+
+        // with net.ipv4.tcp_migrate_req=1, the kernel moves the accept queue to the new instance
+        drop(plain_listener);
+        drop(tls);
+        self.drain.send_replace(true);
+
+        let deadline = Instant::now() + self.drain_time;
+        info!(
+            "Draining {} connections",
+            Arc::strong_count(&self.conns) - 1
+        );
+        while Arc::strong_count(&self.conns) > 1 && Instant::now() < deadline {
+            sleep(Duration::from_millis(100)).await;
+        }
+        info!(
+            "Drained, closing {} connections",
+            Arc::strong_count(&self.conns) - 1
+        );
+
+        if stats {
+            Arc::new(&self).print_traffic_stats().await;
+        }
+        std::process::exit(0)
     }
 
     async fn print_profile_stats(self: Arc<&Self>) {
@@ -802,8 +860,10 @@ impl<'obj> Proxy<'obj> {
         let h1_upstream_pool = self.h1_upstream_pool.clone();
         let h2_parsers = self.parsers.1.clone();
         let ds_remote_addr_key = sock_key::try_from((&ds_remote_addr, &ds_local_addr)).unwrap();
+        let conn = self.conns.clone();
 
         tokio::spawn(async move {
+            let _conn = conn;
             let mut buf = Vec::with_capacity(8192);
             let mut upstreams = Vec::new();
 
@@ -1004,8 +1064,11 @@ impl<'obj> Proxy<'obj> {
         // beeline does not support flow control
         let max_window_size = (1 << 31) - 1;
         let h2_parsers = self.parsers.1.clone();
+        let conn = self.conns.clone();
+        let mut drain = self.drain.subscribe();
 
         tokio::spawn(async move {
+            let _conn = conn;
             let mut downstream_conn = server::Builder::new()
                 .initial_window_size(max_window_size)
                 .initial_connection_window_size(max_window_size)
@@ -1015,7 +1078,18 @@ impl<'obj> Proxy<'obj> {
                 .await
                 .unwrap();
 
-            while let Some(reqres) = downstream_conn.accept().await {
+            let mut draining = false;
+            loop {
+                let reqres = tokio::select! {
+                    reqres = downstream_conn.accept() => reqres,
+                    _ = drain.wait_for(|d| *d), if !draining => {
+                        draining = true;
+                        // sends GOAWAY, accept returns None once the open streams are done
+                        downstream_conn.graceful_shutdown();
+                        continue;
+                    }
+                };
+                let Some(reqres) = reqres else { break };
                 let (request, mut respond) = match reqres {
                     Ok((request, respond)) => (request, respond),
                     Err(err) => {

@@ -2,7 +2,7 @@ use anyhow::Result;
 use beeline::Proxy;
 use clap::Parser;
 use common::config::beeline::{Config, TlsConfig};
-use std::{env, mem::MaybeUninit, net::SocketAddr};
+use std::{env, mem::MaybeUninit, net::SocketAddr, time::Duration};
 
 #[derive(Parser)]
 struct Args {
@@ -21,6 +21,14 @@ struct Args {
 
     #[arg(long)]
     tls: Option<SocketAddr>,
+
+    /// Seconds that SIGUSR1 waits for the open connections to close before it exits
+    #[arg(long, default_value_t = 600)]
+    drain_time: u64,
+
+    /// The pid of the beeline that this one replaces. It gets SIGUSR1 once this one listens
+    #[arg(long)]
+    replace: Option<i32>,
 }
 
 #[tokio::main]
@@ -62,7 +70,9 @@ async fn main() -> Result<()> {
     }
 
     let mut open_obj = MaybeUninit::uninit();
-    let proxy = Proxy::attach(&addr, tls, config, &mut open_obj, false)?;
+    let mut proxy = Proxy::attach(&addr, tls, config, &mut open_obj, false)?;
+    proxy.drain_time = Duration::from_secs(args.drain_time);
+    proxy.replace = args.replace;
 
     if !args.validate {
         proxy.listen().await

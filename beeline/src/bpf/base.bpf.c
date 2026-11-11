@@ -273,6 +273,16 @@ struct {
     __type(value, int);
 } sock_map_wait_list SEC(".maps");
 
+// maps a proxy port to the pid of the instance that owns its new connections.
+// It is pinned, so that after a hot reload the old instance leaves them to the new one
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 64);
+    __type(key, u32);
+    __type(value, u32);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} beeline_owners SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
@@ -360,6 +370,7 @@ volatile const u32 port;
 volatile const u32 tls_ip4;
 volatile const u32 tls_port;
 volatile const u32 gw;
+volatile const u32 pid;
 
 {{DEFS}}
 
@@ -1341,6 +1352,8 @@ int monitor_sockets(struct bpf_sock_ops *ops) {
             bpf_map_delete_elem(&sock_map_wait_list, &skey);
         }
         else if (is_proxy) {
+            u32 *owner = bpf_map_lookup_elem(&beeline_owners, &skey.remote.port);
+            if (owner != NULL && *owner != pid) return SK_PASS;
             map = (skey.remote.port != tls_port) ? (void*)&msg_sock_map : (void*)&skb_sock_map;
         }
         else if (in_network && !is_gw) map = &net_sock_map;
