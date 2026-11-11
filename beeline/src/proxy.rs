@@ -353,6 +353,8 @@ pub struct Proxy<'obj> {
     pub drain_time: Duration,
     /// The pid of the instance that this one replaces. It is told to drain once this one listens.
     pub replace: Option<i32>,
+    /// The start of the process, for the startup time that listen prints.
+    pub started: std::time::Instant,
     drain: watch::Sender<bool>,
     // every connection task holds a clone, so the strong count is the number of open connections + 1
     conns: Arc<()>,
@@ -520,6 +522,7 @@ impl<'obj> Proxy<'obj> {
             stats,
             drain_time: Duration::from_secs(600),
             replace: None,
+            started: std::time::Instant::now(),
             drain: watch::Sender::new(false),
             conns: Arc::new(()),
         })
@@ -646,7 +649,11 @@ impl<'obj> Proxy<'obj> {
 
         let plain_addr = self.address;
         let plain_listener = listen(plain_addr)?;
-        info!("Listening on {}", plain_addr);
+        info!(
+            "Listening on {}, in {}ms",
+            plain_addr,
+            self.started.elapsed().as_millis()
+        );
 
         let tls: Option<(TcpListener, TlsAcceptor)> = if let Some(ref tls) = self.tls {
             let tls_listener = listen(tls.socket)?;

@@ -2,7 +2,12 @@ use anyhow::Result;
 use beeline::Proxy;
 use clap::Parser;
 use common::config::beeline::{Config, TlsConfig};
-use std::{env, mem::MaybeUninit, net::SocketAddr, time::Duration};
+use std::{
+    env,
+    mem::MaybeUninit,
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 #[derive(Parser)]
 struct Args {
@@ -33,6 +38,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let started = Instant::now();
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         // eprintln! panics on a closed stderr, which kills the task that logs
@@ -73,6 +79,7 @@ async fn main() -> Result<()> {
     let mut proxy = Proxy::attach(&addr, tls, config, &mut open_obj, false)?;
     proxy.drain_time = Duration::from_secs(args.drain_time);
     proxy.replace = args.replace;
+    proxy.started = started;
 
     if !args.validate {
         proxy.listen().await
