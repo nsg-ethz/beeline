@@ -27,7 +27,20 @@ cdf.add_argument("-r", "--range", required=False, help="The time range")
 
 stats = subparsers.add_parser("stats")
 cpu = subparsers.add_parser("cpu")
+cpu.add_argument(
+    "-r",
+    "--range",
+    required=False,
+    help="Time range start:end in seconds since the start of the run, either side may be omitted",
+)
 rate = subparsers.add_parser("rate")
+rate.add_argument(
+    "-t",
+    "--time",
+    type=float,
+    required=False,
+    help="Time offset in seconds up to which the line is drawn",
+)
 
 dissect = subparsers.add_parser("dissect")
 dissect.add_argument(
@@ -41,6 +54,25 @@ complexity.add_argument(
 )
 
 lattput = subparsers.add_parser("lattput")
+lattput.add_argument(
+    "-m",
+    "--max-load",
+    type=float,
+    required=True,
+    help="The offered load (requests/s) at the end of the run, scaled linearly from 0",
+)
+lattput.add_argument(
+    "-w",
+    "--window",
+    type=float,
+    default=100,
+    help="Stride of offered load (requests/s) over which latencies are averaged",
+)
+lattput.add_argument(
+    "--stat",
+    default="mean",
+    help="Latency statistic per bin: mean or a percentile like p50, p99",
+)
 
 args = parser.parse_args()
 
@@ -98,7 +130,7 @@ def _load_k6_summaries(paths):
     return df
 
 
-def _load_k6_data(paths, max_epoch=30, min_duration=100):
+def _load_k6_data(paths, max_epoch=30, min_duration=50):
     dfs = []
     epochs = {}
     for p in tqdm.tqdm(paths):
@@ -130,22 +162,70 @@ def _load_k6_data(paths, max_epoch=30, min_duration=100):
     return pd.concat(dfs)
 
 
+_CPU_COMPONENTS = {
+    "beeline": "beeline",
+    "l4fp": "l4fp",
+    "envoy": "envoy",
+    "sidecar": "envoy",
+}
+CPU_COMPONENTS = ["kernel", "beeline", "l4fp", "envoy", "app"]
+
+
 def _load_cpu_data(paths):
+    """CPU time (usec) of each component in each second of the run.
+
+    The proxies (beeline, l4fp, envoy) are charged their user and system time.
+    The application is charged the user time of its containers, the kernel
+    their system time, i.e., syscalls and the softirqs (network stack, and
+    beeline's eBPF data plane) charged to the threads they interrupt.
+    """
     dfs = []
-    for p in paths:
-        proxy, epoch = _parse_cpu_path(p)
+    for p in tqdm.tqdm(paths, desc="cpu logs"):
+        proxy, epoch = _parse_cpu_path(os.path.basename(p))
 
         df = pd.read_csv(p)
+        df = df[~df["name"].isin(["host", "softirq"])]
+        df["component"] = df["name"].map(_CPU_COMPONENTS)
+        proxies = df["component"].notna()
+
         df["usec"] = df["user_usec"] + df["system_usec"]
-        df["CPUPerc"] = df.groupby("name")["usec"].diff() * 1000 / df.groupby("name")["timestamp"].diff()
-        df = df.dropna(subset=["CPUPerc"])
+        app = df[~proxies]
+        df = pd.concat(
+            [
+                df[proxies][["timestamp", "component", "usec"]],
+                app.assign(component="app", usec=app["user_usec"]),
+                app.assign(component="kernel", usec=app["system_usec"]),
+            ]
+        )
+        df = df.pivot_table(
+            index="timestamp", columns="component", values="usec", aggfunc="sum"
+        ).sort_index()
+
+        # CPU time between consecutive samples, scaled to exactly one second
+        # and assigned to the second that contains the middle of the interval
+        ts = df.index.to_series()
+        dt = ts.diff() / 1e9
+        df = df.diff().div(dt, axis=0)
+        df["second"] = ((ts + ts.shift()) / 2 // 1e9).values
+        df = df.dropna().groupby("second").mean()
+
+        df = df.reindex(columns=CPU_COMPONENTS, fill_value=0.0).reset_index()
         df["proxy"] = proxy
         df["epoch"] = epoch
-        df["file"] = os.path.basename(p)
-
         dfs.append(df)
 
-    return pd.concat(dfs)
+    return pd.concat(dfs).reset_index(drop=True)
+
+
+def _load_k6_windows(paths):
+    """First and last second (unix time) in which k6 sent requests"""
+    rows = []
+    for p in tqdm.tqdm(paths, desc="k6 windows"):
+        proxy, epoch = _parse_k6_path(os.path.basename(p))
+        ts = pd.read_csv(p, usecols=["timestamp"])["timestamp"]
+        rows.append({"proxy": proxy, "epoch": epoch, "start": ts.min(), "end": ts.max()})
+
+    return pd.DataFrame(rows)
 
 
 def _load_rt_data(paths):
@@ -210,7 +290,7 @@ def _parse_time_range(time_range, min=0, max=2**100):
 
     (start, end) = time_range.split(":")
     start = int(start) if len(start) > 0 else min
-    end = int(start) if len(end) > 0 else max
+    end = int(end) if len(end) > 0 else max
     return (start, end)
 
 
@@ -374,70 +454,55 @@ def stats_graph():
         )
 
 
-def cpu_graph(name):
-    paths = _get_file_paths(name, "*full.csv")
-    if len(paths) > 0:
-        df = _load_k6_data(paths)
-        epochs = df.groupby("proxy")["epoch"].unique()
+def cpu_graph(name, time_range):
+    """Mean CPU usage (in cores) of each component within the time range"""
+    (start, end) = _parse_time_range(time_range)
 
-        paths = []
-        for proxy in epochs.index:
-            for epoch in epochs[proxy]:
-                paths += _get_file_paths(name, f"{proxy}-cpu-e{epoch}.log")
-    else:
-        paths = _get_file_paths(name, "*cpu*.log")
+    df = _load_cpu_data(_get_file_paths(name, "*-cpu-e*.log"))
 
-    df = _load_cpu_data(paths)
-    df = df[df["name"] == "host"].copy()
-    df["timestamp"] /= 1e9
-    df = df.round({"timestamp": 0, "CPUPerc": 3})
+    # only keep the seconds in which k6 ran, this also drops aborted epochs
+    windows = _load_k6_windows(_get_file_paths(name, "*-k6-e*-full.csv"))
+    df = df.merge(windows, on=["proxy", "epoch"])
+    df = df[(df["second"] >= df["start"]) & (df["second"] <= df["end"])]
 
-    min_ts = df.groupby(by=["proxy", "epoch"]).agg({"timestamp": "min"})
-    df = (
-        df.groupby(by=["proxy", "epoch", "timestamp"])
-        .agg({"CPUPerc": "sum"})
-        .reset_index()
-    )
+    # usec per second -> cores
+    df[CPU_COMPONENTS] /= 1e6
+    df["second"] -= df.groupby(["proxy", "epoch"])["second"].transform("min")
 
-    order = _order_proxies(df["proxy"].unique())
+    num_epochs = df.groupby("proxy")["epoch"].nunique()
+    print("Number of epochs per proxy:")
+    print(num_epochs.to_string())
 
-    # Subtract the corresponding minimum timestamp
-    for proxy in order:
-        for epoch in df[df["proxy"] == proxy]["epoch"].unique():
-            mask = (df["proxy"] == proxy) & (df["epoch"] == epoch)
-            df.loc[mask, "timestamp"] -= min_ts.loc[(proxy, epoch), "timestamp"]
+    df = df[(df["second"] >= start) & (df["second"] <= end)]
+    if df.empty:
+        raise ValueError(f"No CPU samples in the range {start}:{end}")
 
-    df = df.groupby(by=["proxy", "timestamp"]).agg({"CPUPerc": "mean"}).reset_index()
+    # mean over the seconds of each epoch, then over the epochs
+    df = df.groupby(["proxy", "epoch"])[CPU_COMPONENTS].mean()
+    df = df.groupby("proxy").mean()
+    print("CPU usage (cores), mean over seconds:")
+    print(df.assign(total=df.sum(axis=1)).round(2).to_string())
 
-    def _usage(proxy, start=None, end=None):
-        mask = df["proxy"] == proxy
-        if start is not None:
-            mask &= df["timestamp"] >= start
-        if end is not None:
-            mask &= df["timestamp"] <= end
+    order = _order_proxies(df.index.unique())
 
-        data = df[mask]
-        return data["timestamp"], data["CPUPerc"]
+    # the application always sits at the bottom of the stack
+    components = ["app"] + [c for c in CPU_COMPONENTS if c != "app"]
+    components = [c for c in components if (df[c] > 0).any()]
 
+    # stack with `ybar stacked` in the axis
     plots = []
-    for i, proxy in enumerate(order):
-        style = _tex_style_name(proxy)  # predefined in latex
-        xs, ys = _usage(proxy)
+    for c in components:
+        if c == "app":
+            style = "pattern=north west lines, draw=uchu-gray-6, pattern color=uchu-gray-6"
+        else:
+            style = f"{_tex_style_name(c)}, fill, fill opacity=0.4"  # predefined in latex
 
-        coordinates = [(rate, val) for rate, val in zip(xs, ys)]
-        coordinates = sorted(coordinates)
-        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
+        coords = " ".join(f"({i + 1}, {df.loc[p, c]:.3f})" for i, p in enumerate(order))
+        plots.append(f"\\addplot[ybar, {style}] plot coordinates {{{coords}}};")
 
-        plot = f"""\\addplot[{style}] coordinates {{
-            {coordinates}
-        }};"""
-        plots.append(plot)
+    print("\n".join(plots))
 
-    plots = "\n".join(plots)
-    print(plots)
-
-
-def rate_graph(name):
+def rate_graph(name, max_time=None):
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
 
@@ -471,7 +536,7 @@ def rate_graph(name):
     for i, proxy in enumerate(order):
         style = _tex_style_name(proxy)  # predefined in latex
 
-        xs, ys = _rate(proxy)
+        xs, ys = _rate(proxy, end=max_time)
         coordinates = [(rate, val) for rate, val in zip(xs, ys)]
         coordinates = sorted(coordinates)
         coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
@@ -722,57 +787,50 @@ def complexity_graph(name, policy):
     print(plots)
 
 
-def lattput_graph(name):
+def lattput_graph(name, max_load, window, stat):
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
-
-    df = df[df["timestamp"] < 101]  # experiment is only 100s long
-    df = df[df["metric_value"] < 3000]  # we have a timeout of 3s
 
     num_epochs = df.reset_index().groupby("proxy")["epoch"].nunique()
     print("Number of epochs per proxy:")
     print(num_epochs.to_string())
 
-    grouped = df.groupby(["proxy", "timestamp"])
+    # the offered load is assumed to scale linearly from 0 to max_load over
+    # the duration of each epoch; timestamps have a resolution of 1s, so take
+    # the offered load in the middle of each second
+    duration = df.groupby(["proxy", "epoch"])["timestamp"].transform("max") + 1
+    df["offered"] = max_load * (df["timestamp"] + 0.5) / duration
 
-    df = pd.DataFrame(
-        {"http_req_duration": grouped["metric_value"].mean(), "rate": grouped.size()}
-    ).reset_index()
-    num_epochs = num_epochs.reset_index()
-    num_epochs.columns = ["proxy", "num_epochs"]
+    # an offered load of exactly max_load belongs to the last window
+    last = np.ceil(max_load / window) - 1
+    idx = np.minimum(np.floor(df["offered"] / window), last)
+    df["bin"] = (idx + 0.5) * window
 
-    df = df.merge(num_epochs, on="proxy")
-    df["rate"] = np.round(df["rate"] / df["num_epochs"])
-    # df = df.groupby(["proxy", "rate"]).agg({"http_req_duration": "mean"}).reset_index()
+    if stat == "mean":
+        agg = "mean"
+    else:
+        match = re.fullmatch(r"p(\d+(?:\.\d+)?)", stat)
+        if match is None:
+            raise ValueError(f"Unknown statistic {stat}")
+        q = float(match.group(1)) / 100.0
+        agg = lambda vals: vals.quantile(q)
+
+    df = (
+        df.groupby(["proxy", "bin"])["metric_value"]
+        .agg(agg)
+        .reset_index(name="latency")
+    )
 
     order = _order_proxies(df["proxy"].unique())
 
     plots = []
-    for i, proxy in enumerate(order):
+    for proxy in order:
         style = _tex_style_name(proxy)  # predefined in latex
-        style = _tex_style_name(proxy)  # predefined in latex
 
-        pdf = df[df["proxy"] == proxy]
-        print(pdf.to_string())
-        pdf = pdf[["rate", "http_req_duration"]]
-        pdf = pdf.set_index("rate")
-
-        xs = np.arange(20, pdf.index.max(), 25).astype(int)
-        pdf_nan = pd.DataFrame(np.NaN, index=xs, columns=["http_req_duration"])
-        pdf = pd.concat([pdf, pdf_nan]).sort_index()
-        print(pdf.to_string())
-        pdf = pdf.interpolate()
-
-        ys = pdf.loc[xs, "http_req_duration"]
-
-        # pdf = pdf.rolling(window=5, min_periods=1).mean()
-
-        # xs = pdf["rate"]
-        # ys = pdf["http_req_duration"]
-
-        coordinates = [(rate, val) for rate, val in zip(xs, ys)]
-        coordinates = sorted(coordinates)
-        coordinates = "\n".join([f"({rate}, {val})" for rate, val in coordinates])
+        pdf = df[df["proxy"] == proxy].sort_values("bin")
+        coordinates = "\n".join(
+            [f"({x}, {y})" for x, y in zip(pdf["bin"], pdf["latency"])]
+        )
 
         plot = f"""\\addplot[{style}] coordinates {{
             {coordinates}
@@ -789,9 +847,9 @@ if __name__ == "__main__":
     elif args.command == "stats":
         stats_graph()
     elif args.command == "cpu":
-        cpu_graph(args.name)
+        cpu_graph(args.name, args.range)
     elif args.command == "rate":
-        rate_graph(args.name)
+        rate_graph(args.name, args.time)
     elif args.command == "dissect":
         dissect_graph(args.name)
     elif args.command == "dissect_complexity":
@@ -799,4 +857,4 @@ if __name__ == "__main__":
     elif args.command == "complexity":
         complexity_graph(args.name, args.policy)
     elif args.command == "lattput":
-        lattput_graph(args.name)
+        lattput_graph(args.name, args.max_load, args.window, args.stat)

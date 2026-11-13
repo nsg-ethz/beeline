@@ -35,6 +35,24 @@ SOCIAL_NETWORK_DIR=${ROOT}/../test/social_network
 
 mkdir -p ${SUMMARY_DIR}
 
+# undone on exit, including an abort through ctrl-c or an error
+CLEANUP=()
+function cleanup {
+    for cmd in "${CLEANUP[@]}"; do
+        eval "${cmd}"
+    done
+}
+trap cleanup EXIT
+
+function stop_cpu_capture {
+    if [ -n "${CPU_PID}" ]; then
+        kill ${CPU_PID} 2> /dev/null
+        wait ${CPU_PID} 2> /dev/null
+        CPU_PID=
+    fi
+}
+CLEANUP+=("stop_cpu_capture")
+
 if [ "${BENCH}" = sm ]; then
     : "${LOAD_GEN_HOST:?LOAD_GEN_HOST must name the host that runs k6}"
     # ufw only accepts addresses, not host names
@@ -45,12 +63,12 @@ if [ "${BENCH}" = sm ]; then
     DOCKER_RULE="from 172.18.0.0/24"
     sudo ufw allow ${UFW_RULE}
     sudo ufw allow ${DOCKER_RULE}
-    trap "sudo ufw delete allow ${UFW_RULE}; sudo ufw delete allow ${DOCKER_RULE}" EXIT
+    CLEANUP+=("sudo ufw delete allow ${UFW_RULE}" "sudo ufw delete allow ${DOCKER_RULE}")
 
     # upload the whole script directory, the scripts import their siblings
     REMOTE_DIR=$(ssh ${LOAD_GEN_HOST} mktemp -d)
     : "${REMOTE_DIR:?cannot create a temporary directory on ${LOAD_GEN_HOST}}"
-    trap "sudo ufw delete allow ${UFW_RULE}; sudo ufw delete allow ${DOCKER_RULE}; ssh ${LOAD_GEN_HOST} rm -rf ${REMOTE_DIR}" EXIT
+    CLEANUP+=("ssh ${LOAD_GEN_HOST} rm -rf ${REMOTE_DIR}")
     scp -rq "$(dirname "${SCRIPT}")" ${LOAD_GEN_HOST}:${REMOTE_DIR}/k6 || exit 1
 fi
 
@@ -72,7 +90,7 @@ for i in $(seq ${FROM} ${TO} ) ; do
             ${ROOT}/capture-cpu.sh -n ${NAME} -p ${PROXY} -e ${i} &
             CPU_PID=$!
             ssh -t ${LOAD_GEN_HOST} "source ~/.profile && cd ${REMOTE_DIR}/k6 && k6 run $(basename ${SCRIPT}) ${K6_ARGS}"
-            kill ${CPU_PID}
+            stop_cpu_capture
             scp -q "${LOAD_GEN_HOST}:${REMOTE_DIR}/${PROXY}-k6-e${i}-*" ${SUMMARY_DIR}/
 
             env ${ENV} ${ROOT}/sm.sh down -c ${CONFIG} -n ${NAME} -p ${PROXY} -e ${i}

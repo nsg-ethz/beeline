@@ -33,7 +33,10 @@ done
 FILE=${SUMMARY_DIR}/${PROXY}-cpu-e${EPOCH}.log
 echo "timestamp,name,user_usec,system_usec" > ${FILE}
 
-while sleep 1; do
+# stop once the caller is gone, so an aborted benchmark does not leave us
+# appending to the log of the next run
+PARENT=${PPID}
+while kill -0 ${PARENT} 2> /dev/null && sleep 1; do
     ts=${EPOCHREALTIME/./}000
     {
         for c in "${CONTAINERS[@]}"; do

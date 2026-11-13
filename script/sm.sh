@@ -100,7 +100,8 @@ function launch_proxy {
 
 function stop_services {
     sudo killall envoy > /dev/null 2>&1
-    sudo killall beeline > /dev/null 2>&1
+    # wait until it has released its pinned maps, the next instance would share them otherwise
+    sudo killall -w beeline > /dev/null 2>&1
     sudo killall l4fp > /dev/null 2>&1
     sudo killall bpftool > /dev/null 2>&1
 }
@@ -123,6 +124,8 @@ case ${ACTION} in
             docker stop $CONTAINERS
         fi
         docker container prune -f
+        # start from freshly seeded databases, prune alone keeps named volumes
+        docker compose -f ${DOCKER_CONFIG} --progress plain down -v
         docker volume prune -f
         docker network prune -f
 
