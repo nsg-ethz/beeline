@@ -1,8 +1,8 @@
 # Beeline: Enforcing Application-Layer Policies in eBPF
 
+[![DOI][doi-badge]][doi-url]
 [![GPL-v3 licensed][gpl-badge]][gpl-url]
 [![Build Status][actions-badge]][actions-url]
-[![DOI][doi-badge]][doi-url]
 
 [gpl-badge]: https://img.shields.io/badge/License-GPL_v3-blue.svg
 [gpl-url]: LICENSE
