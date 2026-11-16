@@ -1,4 +1,15 @@
-# Beeline
+# Beeline: Enforcing Application-Layer Policies in eBPF
+
+[![GPL-v3 licensed][gpl-badge]][gpl-url]
+[![Build Status][actions-badge]][actions-url]
+[![DOI][doi-badge]][doi-url]
+
+[gpl-badge]: https://img.shields.io/badge/License-GPL_v3-blue.svg
+[gpl-url]: LICENSE
+[actions-badge]: https://github.com/lerboe/beeline/actions/workflows/ci.yml/badge.svg
+[actions-url]: https://github.com/lerboe/beeline/actions/workflows/ci.yml
+[doi-badge]: https://img.shields.io/badge/DOI-10.48550/arXiv.2605.31084-purple.svg
+[doi-url]: https://doi.org/10.48550/arXiv.2605.31084
 
 Beeline is an eBPF-based fast path for L7 policy enforcement. Given an input policy, Beeline synthesizes a specialized data plane that can parse HTTP/1.1 and HTTP/2 messages and enforce various policies like JWT authorization, or header mutation.
 
