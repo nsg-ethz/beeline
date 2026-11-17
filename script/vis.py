@@ -55,18 +55,18 @@ complexity.add_argument(
 
 lattput = subparsers.add_parser("lattput")
 lattput.add_argument(
-    "-m",
-    "--max-load",
+    "-d",
+    "--duration",
     type=float,
     required=True,
-    help="The offered load (requests/s) at the end of the run, scaled linearly from 0",
+    help="Number of seconds from the start of each run to consider",
 )
 lattput.add_argument(
     "-w",
     "--window",
     type=float,
     default=100,
-    help="Stride of offered load (requests/s) over which latencies are averaged",
+    help="Stride of throughput (requests/s) over which latencies are aggregated",
 )
 lattput.add_argument(
     "--stat",
@@ -787,7 +787,7 @@ def complexity_graph(name, policy):
     print(plots)
 
 
-def lattput_graph(name, max_load, window, stat):
+def lattput_graph(name, duration, window, stat):
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
 
@@ -795,15 +795,17 @@ def lattput_graph(name, max_load, window, stat):
     print("Number of epochs per proxy:")
     print(num_epochs.to_string())
 
-    # the offered load is assumed to scale linearly from 0 to max_load over
-    # the duration of each epoch; timestamps have a resolution of 1s, so take
-    # the offered load in the middle of each second
-    duration = df.groupby(["proxy", "epoch"])["timestamp"].transform("max") + 1
-    df["offered"] = max_load * (df["timestamp"] + 0.5) / duration
+    # only consider the first `duration` seconds of each epoch (e.g. the ramp,
+    # excluding any hold phase and the graceful-stop drain)
+    df = df[df["timestamp"] < duration].copy()
 
-    # an offered load of exactly max_load belongs to the last window
-    last = np.ceil(max_load / window) - 1
-    idx = np.minimum(np.floor(df["offered"] / window), last)
+    # timestamps have a resolution of 1s, so the throughput of a second is the
+    # number of requests completed within it
+    df["tput"] = df.groupby(["proxy", "epoch", "timestamp"])["metric_value"].transform(
+        "size"
+    )
+
+    idx = np.floor(df["tput"] / window)
     df["bin"] = (idx + 0.5) * window
 
     if stat == "mean":
@@ -857,4 +859,4 @@ if __name__ == "__main__":
     elif args.command == "complexity":
         complexity_graph(args.name, args.policy)
     elif args.command == "lattput":
-        lattput_graph(args.name, args.max_load, args.window, args.stat)
+        lattput_graph(args.name, args.duration, args.window, args.stat)
