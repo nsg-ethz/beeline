@@ -58,15 +58,15 @@ lattput.add_argument(
     "-d",
     "--duration",
     type=float,
-    required=True,
-    help="Number of seconds from the start of each run to consider",
+    default=200,
+    help="Seconds of the linear ramp from 0 to the max load, only these are considered",
 )
 lattput.add_argument(
-    "-w",
-    "--window",
+    "-m",
+    "--max-load",
     type=float,
-    default=100,
-    help="Stride of throughput (requests/s) over which latencies are aggregated",
+    required=True,
+    help="Offered load (requests/s) reached at the end of the ramp",
 )
 lattput.add_argument(
     "--stat",
@@ -130,6 +130,18 @@ def _load_k6_summaries(paths):
     return df
 
 
+def _read_k6_csv(path, usecols=None):
+    # k6 may be stopped while flushing, leaving a truncated last line
+    # (e.g. "http_req_duration,17") whose bogus timestamp would skew offsets
+    if usecols is not None:
+        usecols = list(set(usecols) | {"metric_value"})
+    df = pd.read_csv(path, usecols=usecols, low_memory=False)
+    truncated = df["metric_value"].isna()
+    if truncated.any():
+        print(f"Dropping {truncated.sum()} truncated row(s) in {path}")
+    return df[~truncated]
+
+
 def _load_k6_data(paths, max_epoch=30, min_duration=50):
     dfs = []
     epochs = {}
@@ -139,7 +151,7 @@ def _load_k6_data(paths, max_epoch=30, min_duration=50):
             continue
 
         try:
-            df = pd.read_csv(p, low_memory=False)
+            df = _read_k6_csv(p)
             num_failed_res = (df["expected_response"] == False).sum()
             if num_failed_res / len(df) > 0.05:
                 print(f"Skipping {p}: {num_failed_res / len(df)} failed responses")
@@ -222,7 +234,7 @@ def _load_k6_windows(paths):
     rows = []
     for p in tqdm.tqdm(paths, desc="k6 windows"):
         proxy, epoch = _parse_k6_path(os.path.basename(p))
-        ts = pd.read_csv(p, usecols=["timestamp"])["timestamp"]
+        ts = _read_k6_csv(p, usecols=["timestamp"])["timestamp"]
         rows.append({"proxy": proxy, "epoch": epoch, "start": ts.min(), "end": ts.max()})
 
     return pd.DataFrame(rows)
@@ -787,7 +799,7 @@ def complexity_graph(name, policy):
     print(plots)
 
 
-def lattput_graph(name, duration, window, stat):
+def lattput_graph(name, duration, max_load, stat):
     paths = _get_file_paths(name, "*full.csv")
     df = _load_k6_data(paths)
 
@@ -795,18 +807,13 @@ def lattput_graph(name, duration, window, stat):
     print("Number of epochs per proxy:")
     print(num_epochs.to_string())
 
-    # only consider the first `duration` seconds of each epoch (e.g. the ramp,
-    # excluding any hold phase and the graceful-stop drain)
+    # only consider the ramp, excluding any hold phase and the graceful-stop drain
     df = df[df["timestamp"] < duration].copy()
 
-    # timestamps have a resolution of 1s, so the throughput of a second is the
-    # number of requests completed within it
-    df["tput"] = df.groupby(["proxy", "epoch", "timestamp"])["metric_value"].transform(
-        "size"
-    )
-
-    idx = np.floor(df["tput"] / window)
-    df["bin"] = (idx + 0.5) * window
+    # the load ramps linearly from 0 to `max_load` over `duration` seconds.
+    # timestamps have a resolution of 1s, so a request completed in second t
+    # was offered at the mean rate over [t, t + 1), i.e. the rate at t + 0.5
+    df["bin"] = (df["timestamp"] + 0.5) * max_load / duration
 
     if stat == "mean":
         agg = "mean"
@@ -859,4 +866,4 @@ if __name__ == "__main__":
     elif args.command == "complexity":
         complexity_graph(args.name, args.policy)
     elif args.command == "lattput":
-        lattput_graph(args.name, args.duration, args.window, args.stat)
+        lattput_graph(args.name, args.duration, args.max_load, args.stat)
