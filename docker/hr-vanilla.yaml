@@ -34,7 +34,8 @@ services:
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: frontend
         ports:
             - "5000:5000"
@@ -58,7 +59,8 @@ services:
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: profile
         depends_on:
             - mongodb-profile
@@ -82,7 +84,8 @@ services:
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: search
         depends_on:
             - consul
@@ -104,7 +107,8 @@ services:
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: geo
         depends_on:
             - mongodb-geo
@@ -127,7 +131,8 @@ services:
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: rate
         depends_on:
             - mongodb-rate
@@ -152,7 +157,8 @@ services:
         hostname: review
         build:
             context: ../test/hotel_reservation
-        image: hotel_reserv_review_single_node
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: review
         container_name: "hotel_reserv_review"
         depends_on:
@@ -171,7 +177,8 @@ services:
         hostname: attractions
         build:
             context: ../test/hotel_reservation
-        image: hotel_reserv_attractions_single_node
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: attractions
         container_name: "hotel_reserv_attractions"
         depends_on:
@@ -191,7 +198,8 @@ services:
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: recommendation
         depends_on:
             - mongodb-recommendation
@@ -214,7 +222,8 @@ services:
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: user
         depends_on:
             - mongodb-user
@@ -237,7 +246,8 @@ services:
             - LOG_LEVEL
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: reservation
         depends_on:
             - mongodb-reservation

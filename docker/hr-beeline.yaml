@@ -46,7 +46,8 @@ services:
             - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: frontend
         ports:
             - "5000:5000"
@@ -78,7 +79,8 @@ services:
             - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: profile
         depends_on:
             - sidecar
@@ -110,7 +112,8 @@ services:
             - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: search
         depends_on:
             - sidecar
@@ -140,7 +143,8 @@ services:
             - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: geo
         depends_on:
             - sidecar
@@ -171,7 +175,8 @@ services:
             - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: rate
         depends_on:
             - sidecar
@@ -203,7 +208,8 @@ services:
                 ipv4_address: 172.18.0.8
         build:
             context: ../test/hotel_reservation
-        image: hotel_reserv_review_single_node
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: review
         container_name: "hotel_reserv_review"
         depends_on:
@@ -232,7 +238,8 @@ services:
                 ipv4_address: 172.18.0.10
         build:
             context: ../test/hotel_reservation
-        image: hotel_reserv_attractions_single_node
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: attractions
         container_name: "hotel_reserv_attractions"
         depends_on:
@@ -260,7 +267,8 @@ services:
             - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: recommendation
         depends_on:
             - sidecar
@@ -291,7 +299,8 @@ services:
             - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: user
         depends_on:
             - sidecar
@@ -322,7 +331,8 @@ services:
             - COMPRESS_HEADERS=false
         build:
             context: ../test/hotel_reservation
-        image: deathstarbench/hotel-reservation:latest
+        image: beeline-hotel-reservation:local
+        pull_policy: never
         entrypoint: reservation
         depends_on:
             - sidecar
