@@ -24,5 +24,6 @@
     "UserPort": "9999",
     "UserMongoAddress": "mongodb-user:27017",
     "KnativeDomainName": "",
-    "ProxyAddress": "beeline:9999"
+    "ProxyAddress": "beeline:9999",
+    "ProxyConnections": "512"
 }

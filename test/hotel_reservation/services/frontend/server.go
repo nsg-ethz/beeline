@@ -47,6 +47,8 @@ type Server struct {
 	Tracer     opentracing.Tracer
 	Registry   *registry.Client
 	Proxy      string
+	// size of the pool of connections to the proxy each client keeps
+	ProxyConns int
 }
 
 // Run the server
@@ -190,7 +192,7 @@ func (s *Server) getGprcConn(name string) (*grpc.ClientConn, error) {
 	log.Info().Msg(fmt.Sprintf("%s.%s", name, s.KnativeDns))
 
 	if s.Proxy != "" {
-		return dialer.Dial(s.Proxy, dialer.WithTracer(s.Tracer))
+		return dialer.DialPool(s.Proxy, s.ProxyConns, dialer.WithTracer(s.Tracer))
 	}
 
 	if s.KnativeDns != "" {

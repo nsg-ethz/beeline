@@ -1,5 +1,5 @@
 use anyhow::Result;
-use beeline::Proxy;
+use beeline::{Proxy, Shutdown};
 use clap::Parser;
 use common::config::beeline::{Config, TlsConfig};
 use std::{
@@ -75,11 +75,20 @@ async fn main() -> Result<()> {
         return Proxy::verify(addr, tls, config, 30);
     }
 
+    // before attaching, which pins maps, so that a signal that arrives meanwhile is
+    // handled once beeline listens instead of killing it with the maps still pinned
+    let shutdown = if !args.validate {
+        Some(Shutdown::register()?)
+    } else {
+        None
+    };
+
     let mut open_obj = MaybeUninit::uninit();
     let mut proxy = Proxy::attach(&addr, tls, config, &mut open_obj, false)?;
     proxy.drain_time = Duration::from_secs(args.drain_time);
     proxy.replace = args.replace;
     proxy.started = started;
+    proxy.shutdown = shutdown;
 
     if !args.validate {
         proxy.listen().await

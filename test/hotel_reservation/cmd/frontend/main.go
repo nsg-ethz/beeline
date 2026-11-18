@@ -36,6 +36,14 @@ func main() {
 	servIP := result["FrontendIP"]
 	knativeDNS := result["KnativeDomainName"]
 	proxyAddr := result["ProxyAddress"]
+	// like the client pools of the social network, a single connection if unset
+	proxyConns, _ := strconv.Atoi(result["ProxyConnections"])
+	if proxyConns < 1 {
+		proxyConns = 1
+	}
+	if proxyAddr != "" {
+		log.Info().Msgf("Connecting to proxy %v over a pool of %v connection(s) per client", proxyAddr, proxyConns)
+	}
 
 	var (
 		jaegerAddr = flag.String("jaegeraddr", result["jaegerAddress"], "Jaeger address")
@@ -64,6 +72,7 @@ func main() {
 		ConsulAddr: *consulAddr,
 		Port:       servPort,
 		Proxy:		proxyAddr,
+		ProxyConns: proxyConns,
 	}
 
 	log.Info().Msg("Starting server...")

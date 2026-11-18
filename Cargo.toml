@@ -1,4 +1,7 @@
 [workspace]
 resolver = "2"
 
-members = ["l4fp", "beeline", "common", "echo", "frontend"]
+members = ["l4fp", "beeline", "common", "echo", "frontend", "hot_restart"]
+
+[patch.crates-io]
+beeper = { path = "../beeper/beeper" }

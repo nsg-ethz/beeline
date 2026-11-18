@@ -31,6 +31,7 @@ use rustls::{
 use std::{
     collections::HashMap,
     env,
+    ffi::OsStr,
     io::Cursor,
     mem::MaybeUninit,
     net::{IpAddr, SocketAddr, SocketAddrV4, ToSocketAddrs},
@@ -38,13 +39,14 @@ use std::{
         fd::{AsFd, AsRawFd, IntoRawFd},
         unix::fs::OpenOptionsExt,
     },
+    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
-    signal::unix::{signal, SignalKind},
+    signal::unix::{signal, Signal, SignalKind},
     sync::{watch, Mutex},
     time::{sleep, Instant},
 };
@@ -168,6 +170,97 @@ fn delete_map<M: MapCore, K: AsBytes>(map: &M, key: &K) -> Result<()> {
 
     map.delete(&key)?;
     Ok(())
+}
+
+/// The ports this instance owns in the pinned `beeline_owners` map.
+///
+/// Releasing them removes the entries of this instance and of the ones that are gone,
+/// and unpins the map once no instance owns a port anymore, so that it does not outlive
+/// beeline. Dropping releases them as well, but `exit` does not drop, so the paths that
+/// exit release explicitly.
+struct Owners {
+    map: MapHandle,
+    pin: Option<PathBuf>,
+    pid: u32,
+}
+
+impl Owners {
+    fn new(map: MapHandle, pin: Option<&OsStr>) -> Self {
+        Self {
+            map,
+            pin: pin.map(PathBuf::from),
+            pid: std::process::id(),
+        }
+    }
+
+    fn claim(&self, port: u16) -> Result<()> {
+        update_map(&self.map, &(port as u32), &self.pid)
+    }
+
+    fn release(&self) {
+        for key in self.map.keys().collect::<Vec<_>>() {
+            let Ok(Some(val)) = self.map.lookup(&key, MapFlags::ANY) else {
+                continue;
+            };
+            let Ok(pid) = <[u8; 4]>::try_from(val.as_slice()).map(u32::from_ne_bytes) else {
+                continue;
+            };
+
+            // an instance that was killed could not release its ports
+            let gone = unsafe { libc::kill(pid as i32, 0) } < 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+            if pid == self.pid || gone {
+                if let Err(e) = self.map.delete(&key) {
+                    warn!("Failed to release port of {}: {}", pid, e);
+                }
+            }
+        }
+
+        // a hot restart hands the ports to the new instance before the old one exits,
+        // so the map is only empty once the last instance is gone
+        if let Some(pin) = &self.pin {
+            if self.map.keys().next().is_none() {
+                match std::fs::remove_file(pin) {
+                    Ok(()) => debug!("Unpinned {}", pin.display()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => warn!("Failed to unpin {}: {}", pin.display(), e),
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Owners {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// The signals that terminate beeline.
+///
+/// Registering them replaces the default action, which kills the process without
+/// releasing its pinned maps. A signal is only delivered to the streams that exist
+/// when it arrives, so a caller that registers them before it attaches catches the
+/// ones that arrive while the data plane loads.
+pub struct Shutdown {
+    term: Signal,
+    int: Signal,
+}
+
+impl Shutdown {
+    pub fn register() -> Result<Self> {
+        Ok(Self {
+            term: signal(SignalKind::terminate())?,
+            int: signal(SignalKind::interrupt())?,
+        })
+    }
+
+    async fn recv(&mut self) {
+        tokio::select! {
+            _ = self.term.recv() => {},
+            _ = self.int.recv() => {},
+        }
+    }
 }
 
 fn init_dataplane(config: Config, rodata: &mut rodata) -> Result<()> {
@@ -355,6 +448,9 @@ pub struct Proxy<'obj> {
     pub replace: Option<i32>,
     /// The start of the process, for the startup time that listen prints.
     pub started: std::time::Instant,
+    /// The signals that terminate this instance, registered by `listen` unless set.
+    pub shutdown: Option<Shutdown>,
+    owners: Owners,
     drain: watch::Sender<bool>,
     // every connection task holds a clone, so the strong count is the number of open connections + 1
     conns: Arc<()>,
@@ -445,6 +541,11 @@ impl<'obj> Proxy<'obj> {
         rodata.pid = std::process::id();
 
         let skel = open_skel.load()?;
+        // created right away, so that a failure below does not leave the pin behind
+        let owners = Owners::new(
+            MapHandle::try_from(&skel.maps.beeline_owners)?,
+            skel.maps.beeline_owners.get_pin_path(),
+        );
         let mut load_ends = vec![boottime()];
 
         // every program that parses has its own copy of the parser stubs
@@ -523,6 +624,8 @@ impl<'obj> Proxy<'obj> {
             drain_time: Duration::from_secs(600),
             replace: None,
             started: std::time::Instant::now(),
+            shutdown: None,
+            owners,
             drain: watch::Sender::new(false),
             conns: Arc::new(()),
         })
@@ -563,7 +666,7 @@ impl<'obj> Proxy<'obj> {
         Ok(TlsAcceptor::from(Arc::new(server_config)))
     }
 
-    pub async fn listen(self) -> Result<()> {
+    pub async fn listen(mut self) -> Result<()> {
         let fib = self.get_upstream_fib()?;
 
         let addrs = self.config.hosts.iter().flat_map(|h| h.instances.clone());
@@ -615,24 +718,26 @@ impl<'obj> Proxy<'obj> {
 
         let profile = env::var("BPF_PROFILE").unwrap_or("0".to_string());
         let stats = self.config.stats;
+        let mut shutdown = match self.shutdown.take() {
+            Some(shutdown) => shutdown,
+            None => Shutdown::register()?,
+        };
 
         let this = Arc::new(&self);
         tokio::spawn(unsafe {
             let this = std::mem::transmute::<Arc<&Proxy>, Arc<&'static Proxy>>(this);
             async move {
-                let mut sigterm = signal(SignalKind::terminate()).unwrap();
-                tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {},
-                    _ = sigterm.recv() => {},
-                }
+                shutdown.recv().await;
+                info!("Shutting down");
 
                 if profile == "1" || profile == "true" {
                     info!("Profile stats printed to the eBPF tracelog");
                     this.clone().print_profile_stats().await;
                 }
                 if stats {
-                    this.print_traffic_stats().await;
+                    this.clone().print_traffic_stats().await;
                 }
+                this.owners.release();
                 exit(0)
             }
         });
@@ -669,7 +774,7 @@ impl<'obj> Proxy<'obj> {
         let mut ports = vec![plain_addr.port()];
         ports.extend(self.tls.as_ref().map(|t| t.socket.port()));
         for port in ports {
-            update_map(&self.skel.maps.beeline_owners, &(port as u32), &std::process::id())?;
+            self.owners.claim(port)?;
         }
 
         // ponytail: connections that complete their handshake between the owner update
@@ -723,6 +828,8 @@ impl<'obj> Proxy<'obj> {
         if stats {
             Arc::new(&self).print_traffic_stats().await;
         }
+        // the new instance owns the ports by now, so this only unpins if it is gone too
+        self.owners.release();
         std::process::exit(0)
     }
 
@@ -1243,10 +1350,6 @@ impl<'obj> Proxy<'obj> {
                         conn: us_sock_key.clone(),
                         stream_id: 1,
                     };
-                    update_map(&*h2_streams, &ds_stream, &us_stream)
-                        .expect("Failed to assign h2 streams");
-                    update_map(&*h2_streams, &us_stream, &ds_stream)
-                        .expect("Failed to assign h2 streams");
 
                     debug!("Bound socket to {}", us_local_addr);
 
@@ -1276,9 +1379,15 @@ impl<'obj> Proxy<'obj> {
                         .initial_connection_window_size(max_window_size)
                         .max_concurrent_streams(1000000)
                         .max_local_error_reset_streams(None)
+                        // the eBPF program hands the header blocks of the responses on this
+                        // connection to whichever downstream connection the stream came from,
+                        // each with HPACK state of its own. Without a dynamic table, a block
+                        // refers to nothing an earlier one on this connection put there
+                        .header_table_size(0)
                         .handshake::<_, Bytes>(upstream)
                         .await
                         .unwrap();
+                    trace!("Upstream handshake done on {}", us_local_addr);
 
                     tokio::spawn(async move {
                         if let Err(e) = upstream_conn.await {
@@ -1292,6 +1401,7 @@ impl<'obj> Proxy<'obj> {
                     });
 
                     let mut client = client.ready().await.unwrap();
+                    trace!("Upstream connection {} ready", us_local_addr);
 
                     let (parts, mut body) = request.into_parts();
                     let mut headers = parts.headers.clone();
@@ -1301,16 +1411,34 @@ impl<'obj> Proxy<'obj> {
 
                     let forward = Request::from_parts(parts, ());
 
-                    let (response, mut stream) =
-                        client.send_request(forward, body.is_end_stream()).unwrap();
-
+                    // the streams are only assigned once the whole request has been read.
+                    // From then on, the eBPF program redirects the frames of the downstream
+                    // stream to the upstream connection itself, so a frame of the body that
+                    // arrives later never reaches this task, which then waits for it forever
+                    let mut chunks = Vec::new();
                     while let Some(Ok(chunk)) = body.data().await {
+                        chunks.push(chunk);
+                    }
+                    trace!("Read the request body of stream {} in {} chunk(s)", stream_id, chunks.len());
+
+                    // before the request goes out, its response could get here first otherwise
+                    update_map(&*h2_streams, &ds_stream, &us_stream)
+                        .expect("Failed to assign h2 streams");
+                    update_map(&*h2_streams, &us_stream, &ds_stream)
+                        .expect("Failed to assign h2 streams");
+
+                    let (response, mut stream) =
+                        client.send_request(forward, chunks.is_empty()).unwrap();
+
+                    let last = chunks.len();
+                    for (i, chunk) in chunks.into_iter().enumerate() {
+                        let end_of_stream = i + 1 == last;
                         trace!(
                             "Sending data frame (len: {}, end of stream: {})",
                             chunk.len(),
-                            body.is_end_stream()
+                            end_of_stream
                         );
-                        if let Err(e) = stream.send_data(chunk, body.is_end_stream()) {
+                        if let Err(e) = stream.send_data(chunk, end_of_stream) {
                             error!("Failed to send data to upstream: {}", e);
                         }
                     }

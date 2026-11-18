@@ -341,6 +341,22 @@ struct {
     __type(value, struct data_stream);
 } h2_streams SEC(".maps");
 
+struct h2_us_key {
+    struct sock_key ds;
+    struct addr_key dest;
+};
+
+// The upstream connection each h2 downstream connection has to each destination.
+// Upstream connections are not shared between downstream connections: the stream IDs
+// of an upstream connection have to arrive in increasing order, which only holds if
+// the requests on it come from a single connection, sent one after the other.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_CONNS);
+    __type(key, struct h2_us_key);
+    __type(value, struct sock_key);
+} h2_us_conns SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
@@ -509,7 +525,8 @@ static __always_inline int _mutate_msg(struct sk_msg_md *msg, struct http_match 
     // TODO: figure out if we have to pull the data for every single modification
     u32 end = idx + str_len;
     if (end > msg->size) end = msg->size;
-    end &= MAX_BYTES;
+    // MAX_BYTES is a bound, not a mask, which would cut off the low bits
+    bpf_clamp_uminmax(end, 0, MAX_BYTES);
 
     bpf_profile_start(mutate_prelinearize);
     if (bpf_msg_pull_data(msg, 0, end, 0) < 0) return -1;
@@ -627,6 +644,39 @@ static __always_inline enum pr_action _fib_query(struct addr_key *addr, bool dow
     return PR_PASS;
 }
 
+static __always_inline bool _sock_key_eq(const struct sock_key *a, const struct sock_key *b) {
+    return a->local.ip4 == b->local.ip4 && a->local.port == b->local.port &&
+           a->remote.ip4 == b->remote.ip4 && a->remote.port == b->remote.port;
+}
+
+// the most entries _fib_evict removes at once
+#define FIB_EVICT_MAX 1024
+
+// Removes `key` from the head of the upstream pqueue of `addr`. H2 requests only
+// peek at the head, so a connection that was closed would stay there and fail
+// every request after it. Every response pushes its connection again, so it can
+// be at the head several times in a row.
+static __always_inline void _fib_evict(const struct addr_key *addr, bool sk_msg, const struct sock_key *key) {
+    struct fib_key queue_key = {
+        .addr = *addr,
+        .sk_msg = (sk_msg ? 1 : 0)
+    };
+    struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, &queue_key);
+    if (pqueue == NULL) return;
+
+    u32 evicted = 0;
+    for (u32 i = 0; i < FIB_EVICT_MAX; i++) {
+        struct sock_key head;
+        if (bpf_map_peek_elem(pqueue, &head) < 0) break;
+        if (!_sock_key_eq(&head, key)) break;
+        // a concurrent request may have popped it already, the next peek tells
+        bpf_map_pop_elem(pqueue, &head);
+        evicted++;
+    }
+
+    bpf_err("WARN: Evicted [%pI4:%u->%pI4:%u] %u time(s) from the FIB", &key->local.ip4, key->local.port, &key->remote.ip4, key->remote.port, evicted);
+}
+
 static __always_inline enum pr_action forward_us_conn(const struct sock_key *ukey, struct filter_ctx *ctx) {
     if (ukey == NULL || ctx == NULL) return PR_DROP;
     ctx->dest = ukey->remote;
@@ -652,8 +702,23 @@ static __always_inline enum pr_action post_forward_ds_conn(const struct sock_key
 static __always_inline enum pr_action post_forward_us_conn(const struct sock_key *ukey, const struct sock_key *dkey, bool sk_msg, bool is_h2) {
     if (dkey == NULL || ukey == NULL) return PR_DROP;
 
-    // H2 multiplexes the same connection
-    // if (is_h2) return PR_PASS;
+    // with sk_msg, every h2 downstream connection has an upstream connection of its own,
+    // see h2_us_conns, the pqueue is not involved
+    if (is_h2 && sk_msg) return PR_PASS;
+
+    // H2 multiplexes the same connection, which requests only peek at. Pushing it
+    // again while it is at the head would only pile up copies behind it
+    if (is_h2) {
+        struct fib_key queue_key = {
+            .addr = ukey->local,
+            .sk_msg = (sk_msg ? 1 : 0)
+        };
+        struct fib_pqueue *pqueue = bpf_map_lookup_elem(&fib_upstream, &queue_key);
+        struct sock_key head;
+        if (pqueue != NULL && bpf_map_peek_elem(pqueue, &head) == 0 && _sock_key_eq(&head, ukey)) {
+            return PR_PASS;
+        }
+    }
 
     // make upstream connection available for new requests
     int res = _fib_insert(&ukey->local, false, sk_msg, ukey);
@@ -861,6 +926,10 @@ int process_skb(struct __sk_buff *skb) {
     bool is_h2 = (bpf_map_lookup_elem(&h2_conns, &ikey) != NULL);
     u32 h2_stream_id = 0;
 
+    // the connection the stream of an h2 frame is mapped to, if any
+    struct sock_key h2_dest_conn = { 0 };
+    bool has_h2_dest = false;
+
     // skb_parser is only called for non-kTLS sockets
     struct tls_size tls = { 0 };
     if (dest == NULL) {
@@ -894,6 +963,8 @@ int process_skb(struct __sk_buff *skb) {
             if (h2_dest != NULL) {
                 _set_h2_stream_id_skb(skb, h2_dest->stream_id);
                 h2_stream_id = h2_dest->stream_id;
+                h2_dest_conn = h2_dest->conn;
+                has_h2_dest = true;
             }
 
             // HEADER frames are parsed by beeline, all other frames are forwarded to the previous destination
@@ -967,6 +1038,14 @@ int process_skb(struct __sk_buff *skb) {
     struct sock_key ekey = { 0 };
     res = _fib_query(dest, !is_downstream, false, &ekey, is_h2);
 
+    // an h2 upstream connection carries the streams of several downstream connections,
+    // of which the FIB only knows the one that sent the latest request. The stream
+    // mapping knows the one a response belongs to
+    if (is_h2 && !is_downstream && has_h2_dest) {
+        ekey = h2_dest_conn;
+        res = PR_PASS;
+    }
+
     if (is_downstream) {
         post_forward_ds_conn(&ikey, &ekey, false);
     }
@@ -988,6 +1067,12 @@ int process_skb(struct __sk_buff *skb) {
         if (bpf_sk_redirect_hash(skb, &skb_sock_map, &ekey, 0) == SK_DROP) {
             bpf_err("ERROR: Failed to redirect skb from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
             res = PR_UTRN;
+
+            // the connection is gone, the pqueue holds it the other way around
+            if (is_h2 && is_downstream) {
+                struct sock_key qkey = _invert_sock_key(&ekey);
+                _fib_evict(dest, false, &qkey);
+            }
         }
         else {
             bool remove_tls = (tls.header + tls.trailer) != 0;
@@ -1036,9 +1121,12 @@ int process_skb(struct __sk_buff *skb) {
                 }
             }
 
-            // update the stream ID
-            _set_h2_stream_id_skb(skb, new_stream_id);
-            h2_stream_id = new_stream_id;
+            // update the stream ID, unless the frame goes to the control plane,
+            // which only knows the stream under the ID of the downstream connection
+            if (res != PR_UTRN) {
+                _set_h2_stream_id_skb(skb, new_stream_id);
+                h2_stream_id = new_stream_id;
+            }
         }
     }
 
@@ -1152,6 +1240,10 @@ int process_msg(struct sk_msg_md *msg) {
         return SK_DROP;
     }
 
+    // the connection the stream of an h2 frame is mapped to, if any
+    struct sock_key h2_dest_conn = { 0 };
+    bool has_h2_dest = false;
+
     // some version specific processing
     if (is_h2) {
         struct data_stream istream = {
@@ -1162,6 +1254,8 @@ int process_msg(struct sk_msg_md *msg) {
         if (h2_dest != NULL) {
             _set_h2_stream_id_msg(msg, h2_dest->stream_id);
             h2_stream_id = h2_dest->stream_id;
+            h2_dest_conn = h2_dest->conn;
+            has_h2_dest = true;
         }
 
         // HEADER frames are parsed by beeline, all other frames are forwarded to the previous destination
@@ -1230,7 +1324,43 @@ int process_msg(struct sk_msg_md *msg) {
     }
 
     struct sock_key ekey = { 0 };
-    res = _fib_query(&ctx->dest, !is_downstream, true, &ekey, is_h2);
+    struct h2_us_key us_key = {
+        .ds = ikey,
+        .dest = ctx->dest,
+    };
+
+    if (is_h2 && is_downstream) {
+        // the upstream connection of this downstream connection, the control plane
+        // opens one for the first request
+        struct sock_key *us = bpf_map_lookup_elem(&h2_us_conns, &us_key);
+        if (us != NULL) {
+            ekey = *us;
+            res = PR_PASS;
+        }
+        else {
+            res = PR_UTRN;
+        }
+    }
+    else {
+        res = _fib_query(&ctx->dest, !is_downstream, true, &ekey, is_h2);
+    }
+
+    // the FIB only knows the downstream connection that sent the latest request on an
+    // upstream connection, the stream mapping knows the one a response belongs to
+    if (is_h2 && !is_downstream && has_h2_dest) {
+        ekey = h2_dest_conn;
+        res = PR_PASS;
+
+        // the response to the first request, which the control plane sent, tells which
+        // downstream connection the upstream connection belongs to. Everything the
+        // control plane wrote to it has arrived by now, frames redirected from here
+        // on can no longer overtake it
+        struct h2_us_key owner = {
+            .ds = h2_dest_conn,
+            .dest = ikey.local,
+        };
+        bpf_map_update_elem(&h2_us_conns, &owner, &ikey, BPF_NOEXIST);
+    }
 
     if (is_downstream) {
         post_forward_ds_conn(&ikey, &ekey, true);
@@ -1252,6 +1382,11 @@ int process_msg(struct sk_msg_md *msg) {
             // if it's h2, a uturn can only be performed for downstream requests
             // if it's a response, the user space would not be able to parse it
             res = (!is_h2 || is_downstream) ? PR_UTRN : PR_DROP;
+
+            // the connection is gone, the control plane opens a new one
+            if (is_h2 && is_downstream) {
+                bpf_map_delete_elem(&h2_us_conns, &us_key);
+            }
         }
         else {
             bpf_log("Redirecting msg from [%pI4:%u->%pI4:%u] to [%pI4:%u->%pI4:%u]", &ikey.local.ip4, ikey.local.port, &ikey.remote.ip4, ikey.remote.port, &ekey.local.ip4, ekey.local.port, &ekey.remote.ip4, ekey.remote.port);
@@ -1293,9 +1428,12 @@ int process_msg(struct sk_msg_md *msg) {
                 }
             }
 
-            // update the stream ID
-            _set_h2_stream_id_msg(msg, new_stream_id);
-            h2_stream_id = new_stream_id;
+            // update the stream ID, unless the frame goes to the control plane,
+            // which only knows the stream under the ID of the downstream connection
+            if (res != PR_UTRN) {
+                _set_h2_stream_id_msg(msg, new_stream_id);
+                h2_stream_id = new_stream_id;
+            }
         }
     }
 
