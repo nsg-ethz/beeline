@@ -6,10 +6,10 @@ export const options = {
     scenarios: {
         hotel_reservation: {
             executor: "ramping-arrival-rate",
-            preAllocatedVUs: 200,
+            preAllocatedVUs: 1000,
             stages: [
-                { target: 20000, duration: "200s" },
-                { target: 20000, duration: "5s" },
+                { target: 35000, duration: "200s" },
+                { target: 35000, duration: "5s" },
             ],
             gracefulStop: "3s",
         },
