@@ -16,7 +16,7 @@ path = "src/main.rs"
 anyhow = "1.0.86"
 clap = { version = "4.5.17", features = ["derive"] }
 common = { path = "../common" }
-beeper = "0.1.7"
+beeper = { version = "0.1.7", git = "https://github.com/lerboe/beeper" }
 xbpf = "0.0.6"
 libbpf-rs = "0.27.2"
 libbpf-sys = "1.5.1"
@@ -37,7 +37,7 @@ bytes = "1.11.0"
 
 [build-dependencies]
 common = { path = "../common" }
-beeper = { version = "0.1.7", features = ["build"] }
+beeper = { version = "0.1.7", git = "https://github.com/lerboe/beeper", features = ["build"] }
 xbpf = { version = "0.0.6", features = ["build"] }
 serde_yaml = "0.9.34"
 serde = { version = "1.0.213", features = ["derive"] }
