@@ -132,7 +132,7 @@ DOCUMENTED_FILTERS = {
     "proto_api_scrubber", "proto_message_extraction", "ratelimit", "ratelimit_quota",
     "rbac", "router", "set_filter_state", "set_metadata", "body_size_limit",
     "sse_to_metadata", "stateful_session", "sxg", "tap", "thrift_to_metadata",
-    "upstream_codec", "upstream_rbac", "wasm", "transform",
+    "upstream_codec", "upstream_rbac", "wasm", "transform", "dynamic_modules"
 }
 
 
@@ -159,6 +159,7 @@ def count(path):
     parsed_files = set()
     num_filter_chains = 0
     num_errors = 0
+    repos = set()
 
     def _iter_http_filters(config):
         if isinstance(config, dict):
@@ -174,6 +175,7 @@ def count(path):
     def _parse(file, content):
         nonlocal num_errors
         nonlocal num_filter_chains
+        nonlocal repos
 
         parsed_files.add(file.download_url)
 
@@ -197,12 +199,12 @@ def count(path):
                     continue
 
 
+                repos.add(file.repo_url)
                 for chain in _iter_http_filters(config):
                     if len(chain) == 0:
                         continue
 
                     num_filter_chains += 1
-                    chain_supported = True
 
                     for http_filter in chain:
                         name = http_filter.get("name")
@@ -218,16 +220,13 @@ def count(path):
                             "supported": supported,
                             "documented": http_filter_type in DOCUMENTED_FILTERS,
                         })
-                        chain_supported = chain_supported and supported
 
                     c = endpoints.setdefault(file.download_url, {
                         "repo_url": file.repo_url,
                         "download_url": file.download_url,
                         "num_endpoints": 0,
-                        "num_endpoints_supported": 0,
                     })
                     c["num_endpoints"] += 1
-                    c["num_endpoints_supported"] += chain_supported
 
             if file.download_url not in parsed_files:
                 print(f"No http_filters found in {file.download_url}")
@@ -240,8 +239,9 @@ def count(path):
             _parse(file, content)
 
     print(f"Evaluated {len(parsed_files)}/{len(files)} configs, {num_errors} errors occurred, {num_filter_chains} HTTP filter chains")
-    print(f"Repos with HTTP filter chains: {len({c['repo_url'] for c in endpoints.values()})}")
-    print(f"Endpoints: {sum(c['num_endpoints'] for c in endpoints.values())}, fully supported: {sum(c['num_endpoints_supported'] for c in endpoints.values())}")
+    print(f"Repos with HTTP filter chains: {len(repos)}")
+    print(f"Endpoints: {sum(c['num_endpoints'] for c in endpoints.values())}")
+    print(f"Supported HTTP policies: {sum(1 for f in filters if f['supported'])}/{len(filters)}")
 
     stats = dict()
     for filter in filters:
