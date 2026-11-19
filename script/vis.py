@@ -810,6 +810,18 @@ def lattput_graph(name, duration, max_load, stat):
     # only consider the ramp, excluding any hold phase and the graceful-stop drain
     df = df[df["timestamp"] < duration].copy()
 
+    # average request latency in the first and last 30s of the ramp
+    window = 30
+    first = df[df["timestamp"] < window].groupby("proxy")["metric_value"].mean()
+    last = (
+        df[df["timestamp"] >= duration - window]
+        .groupby("proxy")["metric_value"]
+        .mean()
+    )
+    window_latency = pd.DataFrame(
+        {f"first_{window}s": first, f"last_{window}s": last}
+    ).reindex(_order_proxies(df["proxy"].unique()))
+
     # the load ramps linearly from 0 to `max_load` over `duration` seconds.
     # timestamps have a resolution of 1s, so a request completed in second t
     # was offered at the mean rate over [t, t + 1), i.e. the rate at t + 0.5
@@ -848,6 +860,9 @@ def lattput_graph(name, duration, max_load, stat):
 
     plots = "\n".join(plots)
     print(plots)
+
+    print(f"Average request latency (ms) in the first/last {window}s:")
+    print(window_latency.to_string())
 
 
 if __name__ == "__main__":
