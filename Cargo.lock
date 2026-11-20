@@ -547,7 +547,6 @@ dependencies = [
 name = "frontend"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "axum",
  "clap",
  "http-body-util",
