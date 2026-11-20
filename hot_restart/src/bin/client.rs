@@ -3,7 +3,9 @@
 //! Opens an HTTP/2 connection without TLS to beeline and sends a request with the method KEEP
 //! every INTERVAL ms. Once beeline sends GOAWAY, it finishes the request in flight, closes the
 //! connection and reconnects. On the new connection, it sends a request with the method PROBE,
-//! which only the new policy allows, and one with KEEP, which the new policy denies.
+//! which only the new policy allows, and one with KEEP, which the new policy denies. Without
+//! PROBE, both instances enforce the same policy, and the first request on the new connection
+//! is one with KEEP, which has to succeed.
 //!
 //! Prints "ready" once its first request got a response. Once the new policy answered both
 //! requests as expected, prints a JSON object with the latencies of the reconnect in ms:
@@ -37,11 +39,13 @@ struct Args {
     /// The IP the client binds to, beeline picks HTTP/2 for that of an HTTP/2 host
     src: IpAddr,
 
-    /// The method of the requests on the old connection, the new policy denies it
+    /// The method of the requests on the old connection, the new policy denies it, unless
+    /// there is no probe
     keep: String,
 
-    /// The method of the first request on the new connection, the old policy denies it
-    probe: String,
+    /// The method of the first request on the new connection, the old policy denies it.
+    /// Without it, the old and the new instance enforce the same policy
+    probe: Option<String>,
 
     /// Milliseconds between two requests on the old connection
     #[arg(long, default_value_t = 10.0)]
@@ -307,19 +311,22 @@ fn main() -> Result<()> {
 
     let mut new = Conn::connect(args.proxy, args.src)?;
     let connected = now();
-    let res = new.request(&args.probe)?;
+    let res = new.request(args.probe.as_ref().unwrap_or(&args.keep))?;
     let answered = now();
-    ensure!(
-        res == Outcome::Ok,
-        "{} on the new connection: {res}, the old policy denies it",
-        args.probe
-    );
-    let res = new.request(&args.keep)?;
-    ensure!(
-        res == Outcome::Denied,
-        "{} on the new connection: {res}, the new policy denies it",
-        args.keep
-    );
+    if let Some(probe) = &args.probe {
+        ensure!(
+            res == Outcome::Ok,
+            "{probe} on the new connection: {res}, the old policy denies it"
+        );
+        let res = new.request(&args.keep)?;
+        ensure!(
+            res == Outcome::Denied,
+            "{} on the new connection: {res}, the new policy denies it",
+            args.keep
+        );
+    } else {
+        ensure!(res == Outcome::Ok, "{} on the new connection: {res}", args.keep);
+    }
 
     println!(
         "{}",

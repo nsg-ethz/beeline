@@ -99,14 +99,27 @@ fn huffman_encode(val: &str) -> Vec<u8> {
     encoded
 }
 
+/// The longest comparison clang still inlines, a longer one becomes a call to memcmp that BPF
+/// cannot link.
+const MAX_INLINE_MEMCMP: usize = 1024;
+
 // HTTP/2 values can be Huffman encoded on the wire or in the HPACK tables
 fn str_eq(var: &str, val: &str) -> String {
+    let var = sanitize_var_name(var);
     let encoded = huffman_encode(val);
     let len_encoded = encoded.len();
     let encoded: String = encoded.iter().map(|b| format!("\\x{b:02x}")).collect();
+    let huffman_eq = if len_encoded <= MAX_INLINE_MEMCMP {
+        format!("__builtin_memcmp(ctx->{var}, \"{encoded}\", {len_encoded}) == 0")
+    } else {
+        format!(
+            "({{ const u8 *enc = (const u8 *)\"{encoded}\"; bool eq = true; \
+             for (u32 i = 0; i < {len_encoded}; i++) {{ \
+             if (ctx->{var}[i] != enc[i]) {{ eq = false; break; }} }} eq; }})"
+        )
+    };
     format!(
-        "(bpf_strncmp(ctx->{var}, {len}, \"{val}\") == 0 || __builtin_memcmp(ctx->{var}, \"{encoded}\", {len_encoded}) == 0)",
-        var = sanitize_var_name(var),
+        "(bpf_strncmp(ctx->{var}, {len}, \"{val}\") == 0 || {huffman_eq})",
         len = val.len(),
     )
 }

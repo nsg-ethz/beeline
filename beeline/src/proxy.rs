@@ -317,6 +317,7 @@ struct ProgStats {
 fn verifier_stats(
     skel: &ProxySkel,
     logs: &[(String, Vec<u8>)],
+    beeper_stats: &[&beeper::VerifierStats],
     load_ends: &[Duration],
 ) -> Result<Vec<ProgStats>> {
     let infos: HashMap<u32, ProgramInfo> = ProgInfoIter::default()
@@ -359,8 +360,14 @@ fn verifier_stats(
             info.name.to_string_lossy(),
             func.to_string_lossy()
         );
-        // beeper drops its objects after the load, so their instructions are gone
-        beeper.push((name, link.prog_id, None, None));
+        // beeper drops its objects after the load, but kept their stats
+        let stats = beeper_stats.iter().find(|s| s.id == link.prog_id);
+        beeper.push((
+            name,
+            link.prog_id,
+            stats.and_then(|s| s.verify),
+            stats.map(|s| s.size),
+        ));
     }
 
     // the kernel stamps the start of every load, the next stamp ends it
@@ -391,37 +398,97 @@ fn verifier_stats(
     Ok(stats)
 }
 
+const DATA_PLANE: &[&str] = &[
+    "parse_skb",
+    "process_skb",
+    "remove_tls",
+    "accelerate_network",
+    "process_msg",
+];
+const CONTROL_PLANE: &[&str] = &["monitor_sockets", "crypto_setup", "print_profile_stats"];
+
 fn print_verifier_stats(runs: &[Vec<ProgStats>]) {
     let n = runs.len() as u32;
     let dash = || String::from("-");
-    for title in ["proxy", "beeper"] {
-        println!(
-            "{:<48} {:>12} {:>12} {:>14} {:>14}",
-            title, "load (us)", "verify (us)", "verif (insns)", "size (insns)"
+    let row = |name: &str, load: &str, verify: &str, insns: &str, size: &str| {
+        println!("{name:<48} {load:>12} {verify:>12} {insns:>14} {size:>14}");
+    };
+
+    let is_proxy = |p: &ProgStats| p.table == "proxy";
+    let known = |p: &ProgStats| {
+        p.name.starts_with("verify_")
+            || DATA_PLANE.contains(&p.name.as_str())
+            || CONTROL_PLANE.contains(&p.name.as_str())
+    };
+    // the title, which programs belong to it, and whether it ends with a total
+    let sections: [(&str, &dyn Fn(&ProgStats) -> bool, bool); 5] = [
+        (
+            "filters",
+            &|p| is_proxy(p) && p.name.starts_with("verify_"),
+            false,
+        ),
+        (
+            "data plane",
+            &|p| is_proxy(p) && DATA_PLANE.contains(&p.name.as_str()),
+            true,
+        ),
+        (
+            "control plane",
+            &|p| is_proxy(p) && CONTROL_PLANE.contains(&p.name.as_str()),
+            true,
+        ),
+        // a program that is new to the proxy still shows up
+        ("other", &|p| is_proxy(p) && !known(p), true),
+        ("beeper", &|p| p.table == "beeper", true),
+    ];
+
+    for (title, belongs, with_total) in sections {
+        let progs: Vec<usize> = (0..runs[0].len())
+            .filter(|&i| belongs(&runs[0][i]))
+            .collect();
+        if progs.is_empty() {
+            continue;
+        }
+
+        row(
+            title,
+            "load (us)",
+            "verify (us)",
+            "verif (insns)",
+            "size (insns)",
         );
-        let mut total = Duration::ZERO;
-        for (i, prog) in runs[0].iter().enumerate() {
-            if prog.table != title {
-                continue;
-            }
+        let (mut load_total, mut verify_total) = (Duration::ZERO, Duration::ZERO);
+        let (mut insns_total, mut size_total) = (0u64, 0usize);
+        for i in progs {
+            let prog = &runs[0][i];
             let load = runs.iter().map(|run| run[i].load).sum::<Duration>() / n;
             let verify = runs
                 .iter()
                 .map(|run| run[i].verify)
-                .sum::<Option<Duration>>();
-            if !prog.name.starts_with("verify_") {
-                total += load;
-            }
-            println!(
-                "{:<48} {:>12} {:>12} {:>14} {:>14}",
-                prog.name,
-                load.as_micros(),
-                verify.map_or_else(dash, |v| (v / n).as_micros().to_string()),
-                prog.verified_insns,
-                prog.size.map_or_else(dash, |s| s.to_string())
+                .sum::<Option<Duration>>()
+                .map(|v| v / n);
+            load_total += load;
+            verify_total += verify.unwrap_or_default();
+            insns_total += prog.verified_insns as u64;
+            size_total += prog.size.unwrap_or_default();
+            row(
+                &prog.name,
+                &load.as_micros().to_string(),
+                &verify.map_or_else(dash, |v| v.as_micros().to_string()),
+                &prog.verified_insns.to_string(),
+                &prog.size.map_or_else(dash, |s| s.to_string()),
             );
         }
-        println!("{:<48} {:>12}\n", "data plane total", total.as_micros());
+        if with_total {
+            row(
+                "total",
+                &load_total.as_micros().to_string(),
+                &verify_total.as_micros().to_string(),
+                &insns_total.to_string(),
+                &size_total.to_string(),
+            );
+        }
+        println!();
     }
     println!("averaged over {n} loads");
 }
@@ -564,6 +631,11 @@ impl<'obj> Proxy<'obj> {
 
             let fd = prog.as_fd().as_raw_fd();
             let Parsers { h1, h2, .. } = new_parsers(&vars)?;
+            let (h1, h2) = if verify {
+                (h1.verifier_stats(), h2.verifier_stats())
+            } else {
+                (h1, h2)
+            };
             let h1 = h1.parse_fn(parse_h1, buf.clone());
             let h2 = h2.parse_fn(parse_h2, buf.clone()).get_fn(get_h2, buf);
 
@@ -607,7 +679,12 @@ impl<'obj> Proxy<'obj> {
         debug!("Crypto setup successful");
 
         let stats = if verify {
-            verifier_stats(&skel, &logs, &load_ends)?
+            let beeper = h1_parsers
+                .iter()
+                .flat_map(|p| p.verifier_stats())
+                .chain(h2_parsers.iter().flat_map(|p| p.verifier_stats()))
+                .collect::<Vec<_>>();
+            verifier_stats(&skel, &logs, &beeper, &load_ends)?
         } else {
             Vec::new()
         };
@@ -783,7 +860,11 @@ impl<'obj> Proxy<'obj> {
         // beeline_owners would steer them at SYN time.
         if let Some(pid) = self.replace {
             if unsafe { libc::kill(pid, libc::SIGUSR1) } < 0 {
-                warn!("Failed to signal {}: {}", pid, std::io::Error::last_os_error());
+                warn!(
+                    "Failed to signal {}: {}",
+                    pid,
+                    std::io::Error::last_os_error()
+                );
             }
         }
 
@@ -1419,7 +1500,11 @@ impl<'obj> Proxy<'obj> {
                     while let Some(Ok(chunk)) = body.data().await {
                         chunks.push(chunk);
                     }
-                    trace!("Read the request body of stream {} in {} chunk(s)", stream_id, chunks.len());
+                    trace!(
+                        "Read the request body of stream {} in {} chunk(s)",
+                        stream_id,
+                        chunks.len()
+                    );
 
                     // before the request goes out, its response could get here first otherwise
                     update_map(&*h2_streams, &ds_stream, &us_stream)
