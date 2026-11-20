@@ -317,7 +317,6 @@ struct ProgStats {
 fn verifier_stats(
     skel: &ProxySkel,
     logs: &[(String, Vec<u8>)],
-    beeper_stats: &[&beeper::VerifierStats],
     load_ends: &[Duration],
 ) -> Result<Vec<ProgStats>> {
     let infos: HashMap<u32, ProgramInfo> = ProgInfoIter::default()
@@ -360,14 +359,9 @@ fn verifier_stats(
             info.name.to_string_lossy(),
             func.to_string_lossy()
         );
-        // beeper drops its objects after the load, but kept their stats
-        let stats = beeper_stats.iter().find(|s| s.id == link.prog_id);
-        beeper.push((
-            name,
-            link.prog_id,
-            stats.and_then(|s| s.verify),
-            stats.map(|s| s.size),
-        ));
+        // beeper loads without a verifier log and drops its objects after the load,
+        // so only what the kernel keeps in the program info is known
+        beeper.push((name, link.prog_id, None, None));
     }
 
     // the kernel stamps the start of every load, the next stamp ends it
@@ -631,11 +625,6 @@ impl<'obj> Proxy<'obj> {
 
             let fd = prog.as_fd().as_raw_fd();
             let Parsers { h1, h2, .. } = new_parsers(&vars)?;
-            let (h1, h2) = if verify {
-                (h1.verifier_stats(), h2.verifier_stats())
-            } else {
-                (h1, h2)
-            };
             let h1 = h1.parse_fn(parse_h1, buf.clone());
             let h2 = h2.parse_fn(parse_h2, buf.clone()).get_fn(get_h2, buf);
 
@@ -679,12 +668,7 @@ impl<'obj> Proxy<'obj> {
         debug!("Crypto setup successful");
 
         let stats = if verify {
-            let beeper = h1_parsers
-                .iter()
-                .flat_map(|p| p.verifier_stats())
-                .chain(h2_parsers.iter().flat_map(|p| p.verifier_stats()))
-                .collect::<Vec<_>>();
-            verifier_stats(&skel, &logs, &beeper, &load_ends)?
+            verifier_stats(&skel, &logs, &load_ends)?
         } else {
             Vec::new()
         };
